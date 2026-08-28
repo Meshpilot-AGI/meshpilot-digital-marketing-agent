@@ -1,0 +1,27 @@
+[Unit]
+Description=Glitch Signal — monorepo social media agent
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=support
+Group=support
+WorkingDirectory=/home/ubuntu/glitch-grow-ads-agent-private
+EnvironmentFile=/home/ubuntu/glitch-grow-ads-agent-private/.env
+ExecStart=/home/ubuntu/glitch-grow-ads-agent-private/.venv/bin/uvicorn glitch_signal.server:app --host 127.0.0.1 --port 3111
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=glitch-signal
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/glitch-grow-ads-agent-private /var/lib/glitch-signal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+# Exclude dev-only and non-runtime material from the FastAPI Cloud bundle.
+# The service needs the `glitch_signal` package, `main.py`, `pyproject.toml`,
+# and (for migrations) `alembic/` + `alembic.ini`. Everything below is dev
+# tooling, tests, ops scaffolding, or examples that the running app never
+# imports.
+
+# Version control / caches
+.git/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets — never ship
+.env
+*.env
+credentials/
+
+# Dev-only
+tests/
+scripts/
+ops/
+.pre-commit-config.yaml
+.github/
+CONTRIBUTING.md
+
+# Large generated media (should live in object storage, never the bundle)
+*.mp4
+*.mov
+var/
+tmp/

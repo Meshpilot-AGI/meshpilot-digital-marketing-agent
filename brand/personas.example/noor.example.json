@@ -1,0 +1,91 @@
+{
+  "persona_id": "noor",
+  "brand_id": "ayurpet",
+  "display_name": "Noor",
+  "handle": "@noor.and.amira",
+  "archetype": "dog_mom",
+  "age": 29,
+  "gender": "female",
+  "location": "Dubai, UAE",
+  "languages": [
+    "ar",
+    "en"
+  ],
+  "backstory": "Modern Gulf-Arab dog mom in Dubai; family kept Salukis (Bedouin heritage). Adopted rescue Saluki Amira during a hard year and became the dog-mom friend everyone DMs. Genuine Ayurpet user on the natural/clean angle. Bilingual Arabic + English.",
+  "voice_prompt_path": "brand/prompts/noor_voice.md",
+  "content_pillars": [
+    "day_in_the_life",
+    "new_dog_mom_advice",
+    "rescue_advocacy",
+    "in_my_routine",
+    "bilingual_tips"
+  ],
+  "visual_identity": {
+    "character_ref_set": [
+      "https://cdn.muapi.ai/outputs/fe74d1c4f83e431fb0aa4cd01b2664c0.jpg",
+      "https://cdn.muapi.ai/outputs/e8b534051f824a9784b6fb6eb5c465f9.jpg",
+      "https://cdn.muapi.ai/outputs/7dcd91d41a604fdd915711b74a4ffe83.jpg",
+      "https://cdn.muapi.ai/outputs/b5b39334c233467b966a7fafe6478b9c.jpg",
+      "https://cdn.muapi.ai/outputs/05ddbe6df99d45db81dc153f91a5179f.jpg",
+      "https://cdn.muapi.ai/outputs/1cee7237c06045c29be9591e794f09fa.jpg"
+    ],
+    "lora_id": null,
+    "model_route": "fal-ai/flux-2",
+    "look": "Modern Gulf-Arab woman, 29, warm confident smile, elegant tasteful styling, soft natural makeup, light neutral shawl.",
+    "wardrobe": "elegant modest modern Gulf styling, neutral palette",
+    "setting": "airy Dubai apartment; beach + desert dog walks; dog-friendly caf\u00e9s",
+    "locked_face": "https://cdn.muapi.ai/outputs/b8e5c7d0b1914969b407c40bf205e099.jpg",
+    "heygen": {
+      "talking_photo_group_id": "09f8dbe49f3c480fb02ebd31e5c70df8",
+      "image_key": "image/f6b785d77b43406188aa1f286a443b18/original.jpg",
+      "engine": "image_to_video",
+      "note": "Permanent HeyGen handle. Talking-head video via image-to-video (no 24h training). Trainable Photo-Avatar/Video-Agent path needs a multi-image look-book + plan tier; not required for talking-head."
+    },
+    "asset_groups": [
+      "noor-daily"
+    ]
+  },
+  "companion": {
+    "name": "Amira",
+    "breed": "small rescued terrier-mix",
+    "look": "small cream scruffy rescue terrier-mix, ~2yr, soft fur, big affectionate eyes, one slightly folded ear",
+    "distinguishing_marks": [
+      "one slightly folded (left) ear",
+      "scruffy soft cream coat"
+    ],
+    "persistent_prop": "tan leather collar with a small brass crescent charm",
+    "character_ref_set": [
+      "https://cdn.muapi.ai/outputs/14080a1ff72942d4b2389e0623edce5e.jpg",
+      "https://cdn.muapi.ai/outputs/5086c469e60241e6abf8b975934660ce.jpg",
+      "https://cdn.muapi.ai/outputs/27cc1ba6453e429a868abd318e8b4a1e.jpg",
+      "https://cdn.muapi.ai/outputs/e83f7409c7844348b7250bfe1faac96e.jpg",
+      "https://cdn.muapi.ai/outputs/f60089451545466ba2bde9b28223f604.jpg",
+      "https://cdn.muapi.ai/outputs/901bc581ded7401bba39e3dbd5d8b63f.jpg"
+    ],
+    "lora_id": null,
+    "locked_face": "https://cdn.muapi.ai/outputs/5c84b98d4403452289b93642a0655d90.jpg"
+  },
+  "voice_clone_id": null,
+  "posting_cadence": {
+    "platforms": [
+      "tiktok"
+    ],
+    "daily_cap": 1,
+    "slots_local": [
+      "09:00",
+      "20:00"
+    ],
+    "timezone": "Asia/Dubai"
+  },
+  "engagement_policy": {
+    "own_comment_reply": "auto_after_window",
+    "inbound_dm": "draft_then_approve",
+    "comment_to_dm_funnel": true,
+    "outbound_engagement": "disabled"
+  },
+  "egress": {
+    "country": "AE",
+    "proxy_env": "PERSONA_NOOR_PROXY_URL"
+  },
+  "disclosure": "AI-assisted pet-care creator, in partnership with Ayurpet. \u0645\u062d\u062a\u0648\u0649 \u062a\u062b\u0642\u064a\u0641\u064a \u0639\u0627\u0645."
+}

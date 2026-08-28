@@ -1,0 +1,182 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Mesh Pilot AI Influencer Persona",
+  "type": "object",
+  "required": [
+    "persona_id",
+    "brand_id",
+    "display_name",
+    "archetype",
+    "content_pillars",
+    "visual_identity"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "persona_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "must equal filename stem"
+    },
+    "brand_id": {
+      "type": "string"
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "handle": {
+      "type": "string"
+    },
+    "archetype": {
+      "type": "string",
+      "enum": [
+        "vet",
+        "dog_mom",
+        "trainer",
+        "groomer",
+        "other",
+        "ai_entrepreneur",
+        "creator",
+        "influencer"
+      ]
+    },
+    "age": {
+      "type": "integer"
+    },
+    "gender": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "en"
+      ]
+    },
+    "backstory": {
+      "type": "string"
+    },
+    "voice_prompt_path": {
+      "type": "string"
+    },
+    "content_pillars": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "visual_identity": {
+      "type": "object",
+      "required": [
+        "character_ref_set",
+        "look"
+      ],
+      "properties": {
+        "character_ref_set": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "locked reference / turnaround image paths or URLs"
+        },
+        "lora_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "fal LoRA handle if trained (upgrade); null = reference-only"
+        },
+        "model_route": {
+          "type": "string",
+          "default": "fal-ai/flux-2",
+          "description": "consistency model (reference-conditioned)"
+        },
+        "look": {
+          "type": "string",
+          "description": "canonical look description"
+        },
+        "wardrobe": {
+          "type": "string"
+        },
+        "setting": {
+          "type": "string"
+        }
+      }
+    },
+    "companion": {
+      "type": "object",
+      "description": "the recurring dog — a first-class consistency-controlled character",
+      "required": [
+        "name",
+        "breed",
+        "character_ref_set"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "breed": {
+          "type": "string"
+        },
+        "look": {
+          "type": "string"
+        },
+        "distinguishing_marks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "persistent_prop": {
+          "type": "string"
+        },
+        "character_ref_set": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lora_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "voice_clone_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "ElevenLabs voice id (gitignored env if secret)"
+    },
+    "posting_cadence": {
+      "type": "object"
+    },
+    "engagement_policy": {
+      "type": "object"
+    },
+    "egress": {
+      "type": "object",
+      "description": "geo egress for this persona",
+      "properties": {
+        "country": {
+          "type": "string"
+        },
+        "proxy_env": {
+          "type": "string"
+        }
+      }
+    },
+    "disclosure": {
+      "type": "string",
+      "description": "AI-label / bio disclosure text"
+    }
+  }
+}

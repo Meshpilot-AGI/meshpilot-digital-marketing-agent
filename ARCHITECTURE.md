@@ -1,0 +1,881 @@
+# Mesh Pilot AI Social Media Agent
+
+<p align="center">
+  <strong>Mesh Pilot AI social media agent</strong><br>
+  Three content pipelines (sheet-driven text/carousels, AI-generated video, Drive-footage video) ×
+  three publisher paths × N brands, all behind one gitignored <code>.env</code>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/license-Proprietary-red" alt="Proprietary — All Rights Reserved">
+  <img src="https://img.shields.io/badge/dispatch-dry__run%20%7C%20live-orange" alt="Dispatch Mode">
+  <img src="https://img.shields.io/badge/tests-81%20passing-brightgreen" alt="81 tests">
+</p>
+
+---
+
+> Part of **[Mesh Pilot](https://meshpilot.app)** — the AI marketing-operations platform by **Nuraveda Lab**.
+
+**Built in public so you can run this on your own brand.** Brand configs (voice prompts, guardrail lists, watermark assets, Drive folder IDs) are private and live only on the deployed box — everything else is here.
+
+Founder's time budget on social: **<30 min/week** (approvals only, not execution).
+
+---
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Content sources](#content-sources)
+- [Sheet-driven posting pipeline](#sheet-driven-posting-pipeline)
+- [Publishers + vendor priority](#publishers--vendor-priority)
+- [TikTok OAuth flow](#tiktok-oauth-flow)
+- [Signed media URLs for vendors](#signed-media-urls-for-vendors)
+- [ORM guardrails](#orm-guardrails)
+- [Telegram commands](#telegram-commands)
+- [Cost model](#cost-model)
+- [Roadmap](#roadmap)
+- [Deployment](#deployment)
+- [Contributing](#contributing)
+
+---
+
+## What it does
+
+The agent runs **three independent content-production paths** feeding into a **three-tier publisher** across **N brands**.
+
+### Content sources
+
+1. **`sheet_posting`** *(primary path today)* — operator-curated Google Sheet of post bodies; scheduler tick reads the next due row, routes by `content_type`:
+   - `text` → plain X / LinkedIn post via `upload_post.upload_text`
+   - `quote_card` → designed single image rendered by **gpt-image-2** (text inside the image, not a Pillow overlay) + body as caption, via `upload_photos`
+   - `carousel` → LinkedIn PDF document carousel: LLM splits the body into hook / 5 body slides / CTA, each rendered by gpt-image-2 with per-slide design archetypes (split-diagram, data-reveal, code-frame, asymmetric-stack, halo-focus), stitched with `img2pdf`, posted via `upload_document`. ~$1.19/carousel at quality=high all slides.
+
+   Per-brand worksheet tabs (`brand`, `founder`) keep voices isolated. A reconciler reads any `request:<id>` placeholder rows every 10 min and writes back the real `platform_post_id` once Upload-Post finalizes the async upload.
+
+2. **`ai_generated`** — mines GitHub commits and `MILESTONES.md` diffs for novel signals; LLM scores novelty ≥ 0.6; script → storyboard → per-shot video generation (Kling 2.0) → ffmpeg assemble with brand overlay → Gemini 2.5 Pro vision QC.
+
+3. **`drive_footage`** — polls a brand's Google Drive folder for pre-edited clips; downloads via service-account auth; LLM writes caption + hashtags per brand voice; skips the entire video-gen + assembler + QC chain (the footage is already post-ready).
+
+### Publishers (tried in priority order per brand)
+
+1. **Upload-Post** (default) — audited partner app, $16/mo Basic covers 5 brands × unlimited posts × 10+ platforms.
+2. **Zernio** (fallback) — second audited partner app, kept wired for vendor-redundancy.
+3. **Direct per-platform apps** (YouTube Data API, TikTok Content Posting API) — used once the respective dev app is audited.
+
+All three are gated behind `DISPATCH_MODE=dry_run|live` and short-circuited to synthetic ids in dry-run.
+
+### ORM + review
+
+- Twitter mentions → hard-stop guardrail check → Gemini classifier (7 tiers) → brand-voice responder with per-tier auto-send vs Telegram review vs escalate.
+- Telegram bot with inline approve/veto, multi-brand aware (`[Brand]` prefix when >1 brand is configured).
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Content-source branch                           │
+│                                                                         │
+│  ai_generated:                                                          │
+│    Scout ──► ScriptWriter ──► Storyboard ──► VideoRouter ──►            │
+│                                                                         │
+│                                         VideoGenerator (dispatches,     │
+│                                                      scheduler polls)   │
+│                                         ┌──────────────────────────┐    │
+│                                         ▼                          │    │
+│                              VideoAssembler ──► QualityCheck       │    │
+│                                                      │             │    │
+│  drive_footage:                                      ▼             │    │
+│    DriveScout ──► CaptionWriter ────────────► TelegramPreview ─────┘    │
+│                                                      │                  │
+│                                   (48h veto or /approve)                │
+│                                                      ▼                  │
+└──────────────────────────────────────────────────────┬──────────────────┘
+                                                       │
+                                                       ▼
+                                       ┌────────────────────────────────┐
+                                       │   resolve_publish_platform()   │
+                                       │   upload_post_* → zernio_* →   │
+                                       │   direct (youtube/tiktok/…)    │
+                                       └────────────────┬───────────────┘
+                                                        │
+                              ┌─────────────────────────┼──────────────────────┐
+                              ▼                         ▼                      ▼
+                    platforms/upload_post.py   platforms/zernio.py   platforms/tiktok.py
+                    platforms/youtube.py       platforms/instagram.py     (direct, audit-gated)
+
+        ORM branch:
+          MentionMonitor ──► Guardrails ──► Classifier ──► Responder
+                                                                │
+                                                                ▼
+                                              auto-send / Telegram review / escalate
+```
+
+**LangGraph** owns the synchronous reasoning chain. The **scheduler** (`scheduler/queue.py`) owns all async work: shot polling, veto windows, ORM review windows, retry backoff, vendor status polls. LangGraph is never held open for 30+ minutes of external-API waiting.
+
+### Conditional entry point
+
+`state["content_source"]` picks the entry node:
+
+- `"ai_generated"` (default) → `scout_node` → existing Kling pipeline
+- `"drive_footage"` → `drive_scout_node` → download + `caption_writer_node` → preview
+
+### Stack
+
+| Layer | Library |
+|---|---|
+| Agent orchestration | LangGraph 0.2+ |
+| LLM routing | LiteLLM — smart tier routes to OpenAI **gpt-4o** when `OPENAI_API_KEY` is set, else Claude Sonnet 4.6; cheap tier uses Gemini 2.5 Flash for scoring/captions, Pro for vision QC |
+| HTTP server | FastAPI + uvicorn (port 3111) |
+| Database | SQLModel + Alembic + asyncpg (PostgreSQL) |
+| Video assembly | ffmpeg-python |
+| Image generation | **fal.ai** — `openai/gpt-image-2` (designed images, in-image text) + `fal-ai/flux/schnell` (abstract backgrounds) |
+| Carousel assembly | gpt-image-2 per slide → `img2pdf` (Pillow overlay path retained as legacy fallback) |
+| Sheet integration | google-api-python-client (`spreadsheets.values.append/update`) — service-account auth |
+| Encryption | cryptography (Fernet for platform_auth + HMAC for state/media tokens) |
+| Drive ingestion | google-api-python-client + google-auth (service-account) |
+| Telegram | python-telegram-bot 21.6+ |
+| Video generation | Kling 2.0 API (Phase 1) |
+| Posting vendors | `upload-post>=2.1`, `zernio-sdk>=1.3` |
+
+---
+
+## Quick start
+
+```bash
+# 1. Clone + install
+git clone https://github.com/floating-astronaut/meshpilot-digital-marketing-stack
+cd meshpilot-digital-marketing-stack/src/social_agent
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# 2. Secrets
+cp .env.example .env
+# Fill in at minimum: SIGNAL_DB_URL, AUTH_ENCRYPTION_KEY, DISPATCH_MODE.
+# Add vendor / provider keys only for features you actually use.
+
+# Generate a Fernet key for encrypted platform tokens:
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# 3. Brand configs (at least one)
+cp brand/configs.example/glitch_executor.example.json brand/configs/glitch_executor.json
+# Edit platforms.*.enabled, voice, guardrails, etc.
+
+# 4. Database
+createdb glitch_social_media_agent
+alembic upgrade head
+
+# 5. Start (dry-run first — zero external calls)
+DISPATCH_MODE=dry_run uvicorn glitch_signal.server:app --port 3111
+
+# 6. Health check
+curl http://127.0.0.1:3111/healthz
+
+# 7. Trigger — pick your source:
+curl -X POST 'http://127.0.0.1:3111/jobs/scout'                    # ai_generated
+curl -X POST 'http://127.0.0.1:3111/jobs/drive_scout?brand=<id>'   # drive_footage
+```
+
+---
+
+## Configuration
+
+### `.env` — THE single secrets + credentials file
+
+Every third-party integration — LLM providers, video models, platform APIs, Telegram, Make.com, vendors — gets credentials in `.env`. That file is **gitignored** (`.env` and `*.env`) and lives only on the deployed box. Operators copy `.env.example` → `.env`, fill in values, restart the service. No sidecar secret files, no credentials in `brand/configs/`, no credentials in code.
+
+Layered config pattern:
+
+| File | Contains | In git |
+|---|---|---|
+| `.env` | Secrets, API tokens, infra endpoints | ❌ (gitignored) |
+| `brand/configs/<brand_id>.json` | Per-brand non-secret tunables | ❌ (gitignored) |
+| `brand/prompts/<brand_id>_voice.md` | Per-brand LLM voice guide | ❌ (gitignored) |
+| `brand/schema/brand.config.schema.json` | JSON schema validating brand configs | ✅ |
+| `brand/configs.example/*.example.json` | Committed templates | ✅ |
+| `.env.example` | Every env var the agent reads | ✅ |
+
+### Core env vars
+
+| Variable | When needed | Purpose |
+|---|---|---|
+| `SIGNAL_DB_URL` | always | Postgres connection string |
+| `AUTH_ENCRYPTION_KEY` | always | Fernet key for `platform_auth` tokens + HMAC for OAuth / media state tokens |
+| `DISPATCH_MODE` | always | `dry_run` (no external calls) or `live` |
+| `VIDEO_STORAGE_PATH` | always | `/var/lib/glitch-grow-ai-social-media-agent/videos` |
+| `DEFAULT_BRAND_ID` | always | `glitch_executor` or similar — used when no brand context |
+| `TELEGRAM_BOT_TOKEN_SIGNAL`, `TELEGRAM_ADMIN_IDS` | approval previews on | Telegram bot for approve/veto UX |
+| `ANTHROPIC_API_KEY` | ai_generated source | Claude Sonnet for script writing + ORM classifier |
+| `GOOGLE_API_KEY` | any LLM path | Gemini Flash (scout/caption) + Pro (QC vision) |
+| `KLING_API_KEY` | ai_generated source | Kling 2.0 video generation |
+| `GITHUB_TOKEN` | ai_generated Scout | Repo scan for novelty signals |
+| `GOOGLE_DRIVE_SA_JSON` | drive_footage source | Service-account JSON path for Drive ingestion |
+| `TIKTOK_CLIENT_KEY` / `_SECRET` / `_REDIRECT_URI` | direct TikTok path | Own audited app credentials |
+| `UPLOAD_POST_API_KEY` | Upload-Post vendor | Bearer token (JWT) |
+| `ZERNIO_API_KEY` | Zernio vendor | Bearer token (`sk_…`) |
+| `MAKE_API_TOKEN` / `MAKE_BASE_URL` / `MAKE_ORG_ID` | Make.com automations | Zone-bound (us1/us2/eu1/eu2) |
+| `YOUTUBE_CLIENT_SECRETS_FILE` | direct YouTube path | OAuth2 client secrets JSON |
+
+### Brand configs
+
+One file per brand under `brand/configs/<brand_id>.json`. Filename stem must equal `brand_id`. Validated against `brand/schema/brand.config.schema.json` at startup.
+
+```
+brand/
+  configs/                          # gitignored
+    glitch_executor.json            # deployed box only
+    drive_brand.json
+  configs.example/                  # committed templates
+    glitch_executor.example.json
+    drive_brand.example.json
+  schema/
+    brand.config.schema.json        # committed
+  prompts/                          # gitignored voice guides
+    drive_brand_voice.md
+```
+
+Each config carries:
+
+- `brand_id` — must equal filename stem
+- `display_name`, `timezone`
+- `content_source`: `ai_generated` | `drive_footage`
+- `drive_folder_id` — required when `content_source == "drive_footage"`
+- `voice_prompt_path` — optional markdown file used by `caption_writer`
+- `brand.*` — visual identity (colours, watermark, voice string)
+- `video_model_routing.model_map` — per-shot-hint → model mapping (ai_generated path)
+- `orm_guardrails.*` — hard-stop phrases, tier thresholds, review windows
+- `platforms.*` — per-publisher toggle blocks (see next section)
+- `default_hashtags` — fallback tag list
+
+**Adding a new brand:** drop a JSON file in `brand/configs/`, match the `brand_id` to the filename stem, restart. No code change.
+
+---
+
+## Content sources
+
+### `ai_generated` (Glitch Executor pattern)
+
+Same as the original agent flow — Scout → ScriptWriter → Storyboard → VideoRouter → VideoGenerator → VideoAssembler → QualityCheck → TelegramPreview → Publisher. Requires `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `KLING_API_KEY`, `GITHUB_TOKEN`.
+
+Trigger: `POST /jobs/scout` (optionally with `{signal_id, platform}` body to run per-signal).
+
+### `drive_footage` (pattern)
+
+Brand supplies pre-edited video clips via a shared Google Drive folder. The agent picks them up, writes a caption, previews, publishes — no video gen.
+
+**Setup:**
+1. Create a GCP service account with Drive-readonly scope. Download the JSON key.
+2. `GOOGLE_DRIVE_SA_JSON=/path/to/sa.json` in `.env`.
+3. Share the brand's Drive folder with the SA email (`<name>@<project>.iam.gserviceaccount.com`) as **Viewer**.
+4. In `brand/configs/<brand_id>.json`:
+   ```json
+   {
+     "content_source": "drive_footage",
+     "drive_folder_id": "<33-char Drive folder ID>",
+     ...
+   }
+   ```
+
+Trigger: `POST /jobs/drive_scout?brand=<brand_id>`
+
+Pipeline per invocation:
+- List video files in folder → dedup against existing `Signal(source="drive", source_ref=<file_id>)` rows
+- Download each new file to `{VIDEO_STORAGE_PATH}/drive/<brand_id>/<file_id><ext>`
+- Create `Signal`, promote the first new one through `caption_writer_node`
+- `caption_writer` generates title + caption + hashtags via Gemini Flash using the brand's `voice_prompt_path`
+- Optional **vision mode** (per-brand `caption_writer.mode: "vision"`): uploads the actual video to Gemini 2.5 Pro's File API and captions from on-screen content instead of the filename — ~$0.02-0.05/clip, ~10-30s latency, far more specific captions. Failures transparently fall back to filename mode so the pipeline never stalls.
+- Writes `ContentScript` + `VideoAsset` with `assembler_version="drive_passthrough@1.0"` (bypass marker)
+- Hands off to `telegram_preview` → `publisher`
+
+---
+
+## Sheet-driven posting pipeline
+
+The dominant path on the Glitch Executor + Glitch Founder accounts today.
+Operator maintains a Google Sheet of post bodies; the scheduler tick reads
+the next due row, picks the right rendering path by `content_type`,
+publishes via Upload-Post, and writes the result back to the same row.
+
+### Sheet schema
+
+One worksheet tab per brand (`brand`, `founder`); columns identical:
+
+| Column | Purpose |
+|---|---|
+| `id` | UUID, key for write-back. Filled by the setup script. |
+| `brand_id` | `glitch_executor` \| `glitch_founder` |
+| `platform` | `upload_post_x` \| `upload_post_linkedin` |
+| `body` | Post text. For `quote_card` + `carousel` it doubles as the social-media caption shown alongside the image/PDF. |
+| `content_type` | `text` \| `quote_card` \| `carousel` (default: `carousel` for LinkedIn, `text` everywhere else) |
+| `status` | `queued` \| `posted` \| `failed` \| `skip` \| `draft` |
+| `scheduled_for` | ISO datetime. Empty = "as soon as pacing allows". |
+| `posted_at` / `post_url` / `platform_post_id` | Filled by poster on success. |
+| `notes` | Operator-only column; never read by code. |
+
+Pacing: minimum 4h between same `(brand, platform)` (env: `GLITCH_POSTS_MIN_INTERVAL_MINUTES`), daily cap 2 posts per pair (`GLITCH_POSTS_DAILY_CAP`).
+
+### Routing per `content_type`
+
+| `content_type` | Renderer | Vendor call | Cost |
+|---|---|---|---|
+| `text` | – | `upload_text` | ~$0 |
+| `quote_card` | gpt-image-2 (single designed image) + body as caption | `upload_photos` | ~$0.17/post |
+| `carousel` | gpt-image-2 ×7 slides → `img2pdf` | `upload_document` (LinkedIn doc post) | ~$1.19/post |
+
+### Carousel design system (April 2026 v2)
+
+LinkedIn document posts get **24%+ engagement** vs ~4% for text-only —
+worth doing right. The carousel pipeline:
+
+1. **LLM**: splits the post body into a structured deck — hook (≤12 word
+   title), 5 body slides, CTA — preserving the brand voice verbatim and
+   refusing to invent claims/metrics not present in the source body.
+2. **gpt-image-2**: one fully-designed slide per entry, **text rendered
+   inside the image by the model** (no Pillow overlay). All slides at
+   `quality=high` for retina-sharp typography.
+3. **Per-slide archetypes** rotate so consecutive slides don't look
+   identical: split-diagram, data-reveal (single large glyph), code-frame
+   (terminal-window aesthetic), asymmetric-stack (text + indicator
+   column), halo-focus (concentric ring composition). Hook and CTA are
+   bespoke hero compositions with depth fields and accent line elements.
+4. **Brand chrome** stays consistent across the deck: `GLITCH · EXECUTOR`
+   wordmark top-left, `NN / NN` counter top-right, progress bar bottom.
+5. **Native resolution**: 1080×1350 from gpt-image-2, supersampled to
+   2160×2700 with LANCZOS before PDF compile so text reads sharp on
+   LinkedIn's retina/mobile render.
+
+### Async X / document upload reconciler
+
+Upload-Post returns a `request_id` for X text posts and async document
+uploads — the real `platform_post_id` arrives later in a background
+worker. We write `request:<id>` into the sheet immediately and let
+`sheet_posting/reconciler.py` (scheduler tick, every ~10 min) call
+`get_status(request_id)` and back-fill the real id + url once vendor
+finalization completes. No webhook required.
+
+### Voice guard rails
+
+`text_writer` and `carousel_gen` both run a forbidden-terms regex pass
+(`game-changer`, `seamless`, `excited to announce`, etc.) and a per-voice
+strict-rule list before emitting content. A failure triggers an LLM
+regen with the violation cited, capped at 3 attempts before the row is
+flagged for manual review. Lists live per-brand in
+`brand/configs/<brand_id>.json` → `voice_guard.forbidden_terms`.
+
+### Triggering manually
+
+```python
+from glitch_signal.sheet_posting.reader import fetch_next_due
+from glitch_signal.sheet_posting.poster import post_one
+
+row = await fetch_next_due()           # respects pacing + cap + scheduled_for
+ok, msg = await post_one(row)          # renders + posts + writes back
+```
+
+The scheduler tick calls this once per run; manual invocation is for
+smoke-testing changes against the live sheet.
+
+---
+
+## Publishers + vendor priority
+
+The agent supports three publisher tiers. `resolve_publish_platform(brand_id, target)` walks `_PUBLISH_PRIORITY` in `config.py` and picks the first enabled block:
+
+```
+tiktok     →  upload_post_tiktok    → zernio_tiktok    → tiktok      (direct)
+instagram  →  upload_post_instagram → zernio_instagram → instagram_reels
+youtube    →  upload_post_youtube   → zernio_youtube   → youtube_shorts
+x          →  upload_post_x         → zernio_twitter   → twitter
+facebook   →  upload_post_facebook  → zernio_facebook
+threads    →  upload_post_threads
+pinterest  →  upload_post_pinterest
+bluesky    →  upload_post_bluesky
+reddit     →  upload_post_reddit
+linkedin   →  upload_post_linkedin
+```
+
+First block with `enabled=true` wins. Raises clearly if nothing is enabled.
+
+### Upload-Post (default)
+
+- Lives at `src/glitch_signal/platforms/upload_post.py`.
+- Platform keys: `upload_post_tiktok`, `upload_post_instagram`, `upload_post_youtube`, etc.
+- Per-brand config needs `user` (Upload-Post managed-user profile name).
+- Publish flow: issue HMAC-signed public URL → `upload_video(platforms=["tiktok"])` → poll `get_status(request_id)` every 3s until the target platform's result block carries `platform_post_id` + `post_url`.
+
+### Zernio (fallback)
+
+- Lives at `src/glitch_signal/platforms/zernio.py`.
+- Platform keys: `zernio_tiktok`, `zernio_instagram`, etc.
+- Per-brand config needs `account_id` (Zernio internal id from `client.accounts.list()`, **not** the social platform's handle).
+
+### Direct per-platform
+
+- `platforms/tiktok.py` — own TikTok app; audited-app-gated. Currently can only post to private-account users in sandbox mode (`unaudited_client_can_only_post_to_private_accounts`).
+- `platforms/youtube.py` — own YouTube Data API OAuth. Requires one-time browser auth via `python -m glitch_signal.platforms.youtube --auth`.
+- `platforms/twitter.py`, `platforms/instagram.py` — stubs until respective audits land.
+
+---
+
+## TikTok OAuth flow
+
+TikTok integration ships in two independent modes:
+
+1. **Via Upload-Post or Zernio** — vendor OAuths the creator through their audited app, we just call `upload_video(user=<profile>)`. No OAuth plumbing on our side.
+2. **Direct** — we OAuth the creator through our own app. Tokens encrypted at rest (Fernet) in `platform_auth`.
+
+### Direct-mode setup (gated on audit approval)
+
+1. Register the app at https://developers.tiktok.com with redirect URI `https://meshpilot.app/oauth/tiktok/callback`
+2. Fill `.env`:
+   ```
+   TIKTOK_CLIENT_KEY=...
+   TIKTOK_CLIENT_SECRET=...
+   AUTH_ENCRYPTION_KEY=<Fernet.generate_key()>
+   ```
+3. Add `platforms.tiktok.enabled=true` to the brand config
+4. Visit `https://meshpilot.app/oauth/tiktok/start?brand=<brand_id>` in a browser signed into the target TikTok account → success page + encrypted row in `platform_auth`
+5. Submit the app for Production audit in the TikTok dev portal. Until that clears, direct-post is blocked at the API level for public accounts; `upload_post_*` / `zernio_*` handle the gap.
+
+### Nginx proxy
+
+The OAuth callback and the signed `/media/fetch` endpoint are both served by this service on :3111, reachable through `meshpilot.app` via nginx:
+
+```nginx
+location /oauth/tiktok/ {
+    proxy_pass http://127.0.0.1:3111;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+}
+
+location /media/ {
+    proxy_pass http://127.0.0.1:3111;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 300s;
+    proxy_buffering off;
+    client_max_body_size 500m;
+}
+
+# Upload-Post webhook callbacks (upload_completed, reauth_required, …)
+location /webhooks/upload_post/ {
+    proxy_pass http://127.0.0.1:3111;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+}
+```
+
+---
+
+## Signed media URLs for vendors
+
+Posting vendors (Upload-Post, Zernio) fetch the video server-side. Rather than re-uploading each 80+ MB file through Python to their CDN, the agent issues a short-lived HMAC-signed URL to the local file and hands that to the vendor.
+
+```
+GET https://meshpilot.app/media/fetch?token=<hmac-signed-payload>
+```
+
+Security properties:
+- HMAC signature (shared secret = `AUTH_ENCRYPTION_KEY`) → forged or altered tokens fail
+- Token carries absolute filesystem path; resolution confined to `VIDEO_STORAGE_PATH`
+- `"k": "media"` kind field separates these tokens from OAuth state tokens
+- Default 60-minute TTL
+- 403 on any signature / path-escape failure; 404 on missing file
+
+---
+
+## Upload-Post webhooks
+
+The Upload-Post publisher hands the video to the vendor and returns immediately — it no longer blocks on `get_status`. Finalization (writing `PublishedPost`, flipping `scheduled_post.status` to `done`) happens when Upload-Post POSTs the `upload_completed` event to our `/webhooks/upload_post/<secret>` endpoint.
+
+Setup:
+
+1. Generate a random secret:
+   ```
+   python -c 'import secrets; print(secrets.token_urlsafe(32))'
+   ```
+2. Put it in `.env` as `UPLOAD_POST_WEBHOOK_SECRET=…` and restart the service.
+3. Register the webhook URL with Upload-Post:
+   ```
+   source .venv/bin/activate
+   set -a; source .env; set +a
+   python scripts/register_upload_post_webhook.py
+   ```
+
+The URL path segment IS the secret (Upload-Post does not sign webhook bodies). If you rotate the secret, re-run the registration script.
+
+**Fallback:** if a webhook doesn't arrive within `UPLOAD_POST_WEBHOOK_RECONCILE_AFTER_S` (default 10 min) after dispatch, the scheduler polls `get_status(request_id)` once per tick and finalizes the row that way. Covers dropped webhooks / us being down during the callback.
+
+---
+
+## Pre-publish ffmpeg transforms
+
+Brands can declare per-platform ffmpeg transforms that run locally before
+the publisher hands the file off to the vendor. Zero cost (local ffmpeg,
+no vendor quota), cached by output filename so rerunning the pipeline is
+a no-op.
+
+Add a `media_pipeline` block to `brand/configs/<brand_id>.json`, keyed on
+canonical platform name (`tiktok`, `instagram`, `youtube`, …) — the same
+transform applies whether the brand posts via `upload_post_tiktok`,
+`zernio_tiktok`, or direct `tiktok`:
+
+```json
+"media_pipeline": {
+  "tiktok": ["strip_audio"]
+}
+```
+
+Transforms available today:
+
+- **`strip_audio`** — `-c:v copy -an` remux. Drops the audio track.
+  Used for client brands (source Drive footage carries licensed music, which
+  triggers TikTok's web-player mute on Content-ID match — a silent
+  upload plays fine on web and on the app).
+
+Add a transform: register a builder in `src/glitch_signal/media/ffmpeg.py`
+and list its name in the schema enum under `brand/schema/brand.config.schema.json`.
+
+---
+
+## Post-publish analytics
+
+Once a post goes live on an Upload-Post-backed platform, the scheduler
+starts collecting per-post metrics into `metrics_snapshot`:
+
+- First pull after `ANALYTICS_FIRST_PULL_AFTER_S` (default 1h) to let
+  metrics settle
+- Refresh every `ANALYTICS_PULL_INTERVAL_S` (default 24h); both the old
+  and new snapshots are preserved so deltas are visible
+- Up to `ANALYTICS_SWEEP_BATCH` posts per scheduler tick
+
+Fields are normalised to `{views, likes, comments, shares}` regardless
+of which platform posted (TikTok uses `play_count`, YouTube uses
+`video_views`, etc. — `analytics.upload_post.extract_metrics` coalesces).
+
+Zernio-backed and direct-TikTok posts aren't swept yet; their analytics
+modules are a future addition.
+
+---
+
+## Onboarding new brands via Upload-Post JWT
+
+Upload-Post supports 1-click account linking — generate a short-lived
+URL, send it to the brand, they open it and pick which socials to
+connect (TikTok, IG, YouTube, etc.). Tokens land in our Upload-Post
+account automatically.
+
+1. Create the profile:
+   ```bash
+   python -c "import upload_post, os; print(upload_post.UploadPostClient(api_key=os.environ['UPLOAD_POST_API_KEY']).create_user('NewBrand'))"
+   ```
+2. Generate the connect URL:
+   ```bash
+   python scripts/generate_upload_post_onboarding_url.py \
+       --user NewBrand \
+       --platforms tiktok,instagram \
+       --title "Connect your socials to NewBrand"
+   ```
+3. Send the URL to the brand. Once they link, the
+   `social_account_connected` webhook fires → log it and flip the brand
+   config's `platforms.upload_post_<target>.user` to `"NewBrand"`.
+
+---
+
+## Brand × Task × Output registry
+
+Each brand declares its tasks under `tasks.<task_name>` in `brand/configs/<brand_id>.json`:
+
+```json
+"tasks": {
+  "video_uploader": {
+    "enabled": true,
+    "posting_rules": { ... },
+    "outputs": {
+      "google_sheet": {
+        "sheet_id": "<spreadsheet id>",
+        "worksheet": "Sheet1"
+      }
+    }
+  }
+}
+```
+
+The scheduler walks the registry at dispatch time — adding a new brand
+or a new task type is purely a config change. Task types today:
+`video_uploader`.
+
+### Posting rules (video_uploader)
+
+Applies per brand. Any key absent = no constraint.
+
+| Key | Purpose |
+|---|---|
+| `daily_cap` | Max posts per calendar day (brand timezone). Checked against `PublishedPost` rows. |
+| `slots_local` | HH:MM allowed windows in the brand's timezone. Now is within any slot (± 15 min tolerance) → dispatch; else wait. |
+| `min_interval_minutes` | Minimum gap since the brand's last publish. |
+| `variant_gap` | Min posts between two files sharing the same `variant_group` (filename parser output). Prevents near-duplicate Meta ad variants landing adjacent on the TikTok grid. |
+| `product_gap` | Min posts between two files of the same parsed `product`. |
+| `skip_patterns` | Substrings; any file whose `variant_group` contains one is skipped. |
+| `order` | `oldest_first` (default) or `newest_first`. |
+
+**Starvation guard:** if rules leave no eligible candidate, `product_gap`
+is relaxed first, then `variant_gap`. The queue never blocks on itself.
+
+### Filename parser
+
+`src/glitch_signal/media/filename_parser.py` turns Drive filenames into
+`{product, ad_num, geo, variant_tags, variant_group, editor}`. Handles
+the real-world chaos of client filenames: mixed case, separators
+(`_`/`-`/`.`/space), date-slashes (`2/4/26`), product-glued numbers
+(`thyroid9`, `wht2`), misspellings (`diabetis`), Drive dup markers
+(`foo (1).mp4`). Parsed fields are denormalised onto `ScheduledPost`
+at schedule time so the dispatcher reads them with zero joins.
+
+### Google Sheet output
+
+When the brand config points at a spreadsheet, `drive_scout` appends a
+row per discovered file, `caption_writer` flips `status`→`captioned`
+and writes the caption back, and `publisher` flips `status`→`posted`
+and writes the TikTok URL after successful publish.
+
+Columns: `video_name`, `drive_link`, `product`, `variant_group`, `geo`,
+`caption`, `status`, `scheduled_for`, `posted_at`, `tiktok_url`, `notes`.
+
+Share the sheet with `GOOGLE_DRIVE_SA_JSON`'s service account email
+(same SA used by `drive_scout`) as an Editor. No separate credential.
+
+### Rules-based caption mode
+
+`caption_writer.mode: "rules_based"` hands the LLM a parsed-filename
++ the brand's markdown product catalog + strict caption rules. Cheap
+(Gemini Flash, same as `filename` mode) but the output stays grounded
+in the brand's actual SKUs and avoids regulatory landmines.
+
+Catalog path set via `caption_writer.product_catalog_path`. See
+`brand/prompts/<brand_id>_products.md` for the reference shape.
+
+---
+
+## Media lifecycle (JIT download + post-publish cleanup)
+
+Client Drive footage is transient on our disk:
+
+- **drive_scout** creates a `Signal` row with the expected local path
+  but does NOT download. One cheap Drive `files.list` call per scout
+  run, nothing on disk.
+- **publisher** downloads the file from Drive right before publish
+  (via `_ensure_local_file`), applies any `media_pipeline` ffmpeg
+  transforms, then hands the signed URL to the vendor.
+- **scheduler** sweeps `PublishedPost` rows older than
+  `MEDIA_CLEANUP_AFTER_MINUTES` (default 60) and deletes the local
+  file + any ffmpeg transform siblings (`<stem>.strip_audio.<ext>`).
+
+What survives cleanup: DB audit trail, Drive source (client-owned),
+Google Sheet row (with tiktok_url, posted_at).
+
+What disappears: local mp4 and any transform outputs. Net disk use
+scales with *concurrent posts in flight*, not with brand-queue size.
+
+Set `MEDIA_CLEANUP_AFTER_MINUTES=0` to disable cleanup entirely.
+
+---
+
+## ORM guardrails
+
+Hard-stop phrases trigger an **immediate Telegram alert and zero automated response** — no LLM involved, pure rule engine:
+
+- Financial loss mentions (`"lost $"`, `"lost ₹"`, `"money lost"`)
+- Regulatory bodies (`SEC`, `SEBI`, `FINRA`)
+- Legal threats (`"legal action"`, `"lawsuit"`, `"lawyer"`)
+- Return guarantees (`"guarantee"`, `"certain returns"`)
+
+Edit `brand/configs/<brand_id>.json` → `orm_guardrails.hard_stop_phrases` to update without redeploy. Each brand has its own list.
+
+### Response tiers
+
+| Tier | Action |
+|---|---|
+| `positive` | Auto-respond immediately — warm, brief, brand voice |
+| `neutral_faq` | Auto-respond — link to docs + one concrete answer |
+| `neutral_technical` | Open GitHub issue, reply with issue link |
+| `negative_mild` | Draft → 2h review window → Telegram approval |
+| `negative_severe` | Telegram alert only, no response queued |
+| `legal_flag` | Telegram alert only, no response queued |
+| `spam` | Ignore |
+
+---
+
+## Telegram commands
+
+```
+/status           queue depth, last signal, cost this week (per-brand breakdown if >1 brand)
+/signals          last 5 discovered signals with novelty score
+/preview <id>     re-send a video preview
+/approve <id>     publish immediately (skips 48h window)
+/veto <id>        cancel a queued post
+/orm              last 10 inbound mentions with tier
+/orm_approve <id> send a pending ORM response now
+/orm_veto <id>    cancel a pending ORM response
+```
+
+Preview messages include an inline keyboard for one-tap approve/veto. In multi-brand mode every preview card is prefixed with `[<display_name>]` so operators don't confuse brands.
+
+---
+
+## Cost model
+
+### Per-post (sheet_posting path — primary today)
+
+| `content_type` | Per-post cost | Notes |
+|---|---|---|
+| `text` | ~$0.002 | Just the LLM voice-guard pass + Upload-Post call |
+| `quote_card` | ~$0.17 | One gpt-image-2 high-quality designed image + LLM distill |
+| `carousel` | ~$1.19 | 7× gpt-image-2 high-quality slides (each $0.17) + LLM split + img2pdf |
+
+At a typical mix (1 carousel + 3 text per brand per week, 2 brands): **~$10/month** of fal.ai + LLM spend for both accounts combined.
+
+### Per-post (drive_footage path — pattern, vendor-published)
+
+| Line item | Cost |
+|---|---|
+| Caption generation (Gemini Flash) | ~$0.001 |
+| Drive fetch + our bandwidth | ~negligible |
+| Vendor publish (Upload-Post Basic $16/mo ÷ posts) | $0.03 at 500 posts/mo, $0.16 at 100 posts/mo |
+| **Total** | **~$0.01–0.16 per post** |
+
+### Per-post (ai_generated path — Glitch Executor style)
+
+| Scenario | Per video | At 3×/week |
+|---|---|---|
+| Phase 1 (Kling 2.0 only, 12 shots × 5s) | ~$1.75 | ~$21/month |
+| Phase 2 (2 Runway hero + 10 Kling shots) | ~$4.00 | ~$50/month |
+
+Breakdown: `12 shots × 5s × $0.028/s = $1.68` + LLM `~$0.05` + storage `~negligible`.
+
+### Vendor comparison (cheapest first, for reference)
+
+| Vendor | Entry plan | Cap | Notes |
+|---|---|---|---|
+| Post for Me | $10/mo | 1k posts, unlimited profiles | Not wired here yet |
+| Upload-Post Basic | $16/mo (annual) | unlimited posts, 5 profiles | **Wired, default** |
+| Zernio Build | $19/mo | 120 posts, 10 profiles | Wired, fallback |
+| Ayrshare | $149+/mo | — | Enterprise-priced |
+
+---
+
+## Roadmap
+
+### Phase 1 — MVP (shipped)
+- [x] Scout: GitHub commits + `MILESTONES.md`
+- [x] Script + storyboard + video routing (Kling 2.0)
+- [x] ffmpeg assembly with brand overlay
+- [x] Gemini 2.5 Pro vision QC
+- [x] 48h Telegram veto window
+- [x] YouTube Shorts publishing
+- [x] ORM: Twitter mentions → auto-respond/escalate
+- [x] Telegram bot with full approval UX
+
+### Phase 2 — Multi-brand + multi-source + vendor-fanout (shipped 2026-04-17)
+- [x] Multi-brand config layer (per-file, schema-validated)
+- [x] `drive_footage` content source (Drive scout + caption writer)
+- [x] TikTok OAuth flow (direct path wired; audit-gated)
+- [x] Upload-Post + Zernio publishers
+- [x] Publisher priority resolver (`upload_post` → `zernio` → direct)
+- [x] Signed `/media/fetch` for vendor fetches (HMAC + TTL + path confinement)
+- [x] Make.com credentials wired (no scenarios yet)
+- [x] Encrypted `platform_auth` (Fernet)
+
+### Phase 3 — Quality + analytics + wider ORM (mostly shipped 2026-04)
+- [x] Vision-based captioning (Gemini 2.5 Pro reads video → caption from actual content, not filename)
+- [x] ffmpeg pre-publish transform (`strip_audio` etc.)
+- [x] Webhook receivers for Upload-Post publish events (with reconcile-after-N-min fallback)
+- [x] **Sheet-driven text + carousel posting pipeline** (Google Sheet → Upload-Post)
+- [x] **fal.ai image generation** (FLUX-schnell backgrounds + gpt-image-2 designed images)
+- [x] **LinkedIn PDF carousel renderer** with per-slide design archetypes
+- [x] **Per-brand worksheet tabs** (brand / founder voice isolation)
+- [x] **Async post reconciler** for X / document uploads that vendor-accept then finalize later
+- [x] **Voice guard rails** — forbidden-terms regex + per-voice strict rules → LLM regen on violation
+- [x] **OpenAI gpt-4o** routing for smart-tier LLM calls (with Claude fallback)
+- [x] Comment sweeper (Instagram only — Upload-Post's get_post_comments is IG-hardcoded)
+- [ ] Analytics digest (weekly Telegram summary using `upload_post.get_analytics`)
+- [ ] LinkedIn comment read/reply (blocked on Upload-Post adding `platform=linkedin` to their comments endpoint)
+- [ ] ORM for YouTube comments + Instagram DMs
+- [ ] MCP server on port 3112 (`trigger_scout`, `approve_post`, `veto_post`, `orm_summary`)
+
+### Phase 4 — Direct-app audit retirement
+- [ ] TikTok Content Posting API audit submission + approval
+- [ ] Instagram `instagram_content_publish` audit
+- [ ] Flip brands from `upload_post_*` back to direct per-platform publishers
+- [ ] Retire vendors for platforms we've audited
+
+---
+
+## Deployment
+
+### systemd
+
+```bash
+sudo cp ops/systemd/glitch-grow-ai-social-media-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now glitch-grow-ai-social-media-agent
+```
+
+The unit runs `uvicorn glitch_signal.server:app --host 127.0.0.1 --port 3111` under the `support` user, reads `/home/support/glitch-grow-ai-social-media-agent/.env` as EnvironmentFile, and hardens with `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ProtectHome=read-only` + an explicit `ReadWritePaths` for the repo + video-storage dir.
+
+### Video storage
+
+```bash
+sudo mkdir -p /var/lib/glitch-grow-ai-social-media-agent/videos
+sudo chown -R support:support /var/lib/glitch-grow-ai-social-media-agent
+```
+
+### nginx (reverse proxy + TLS)
+
+See the nginx snippet in [TikTok OAuth flow](#tiktok-oauth-flow) for the `/oauth/tiktok/` and `/media/` location blocks on `meshpilot.app`. The main service (`signal.glitchexecutor.com`) uses the baseline config in `ops/nginx/`.
+
+### Flipping to live
+
+Keep `DISPATCH_MODE=dry_run` in `.env` until:
+1. A brand config exists with at least one `platforms.*.enabled=true`
+2. The publisher path has been exercised once in dry-run against real data
+3. Operator has confirmed a preview would look correct
+
+Then set `DISPATCH_MODE=live` and restart. Publishers short-circuit individually on missing credentials — there's no way to "accidentally post" without the relevant brand config flag turned on.
+
+---
+
+## Contributing
+
+```bash
+pip install -e ".[dev]"
+ruff check src/ tests/
+DISPATCH_MODE=dry_run pytest tests/ -v   # no API keys needed
+```
+
+Highest-value contributions:
+- New video models (subclass `video_models/base.py`)
+- New platform publishers (mirror `platforms/upload_post.py` shape)
+- New content sources (mirror `agent/nodes/drive_scout.py` shape; add a branch in `agent/graph.py::_entry_router`)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+---
+
+## License
+
+Proprietary — All Rights Reserved. © Nuraveda (trading as Nuraveda Lab), solely owned by Tejas Karan Agrawal. Not open source; no use, copying, modification, or distribution without prior written permission. See [LICENSE](LICENSE). Contact `help.nuraveda@gmail.com`.
+
+Brand configs (voice prompts, guardrail lists, watermark assets, Drive folder IDs) are private and not included in this repository.
+
+---
+
+Built by **Nuraveda Lab** as part of [Mesh Pilot](https://meshpilot.app).

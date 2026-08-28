@@ -1,0 +1,264 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signal.glitchexecutor.com/schema/brand.config.schema.json",
+  "title": "Glitch Signal brand config",
+  "type": "object",
+  "required": ["brand_id", "display_name", "timezone"],
+  "additionalProperties": false,
+  "properties": {
+    "brand_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable, kebab/snake-case identifier. Must match the config filename stem (e.g. 'glitch_executor' for brand/configs/glitch_executor.json)."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timezone": {
+      "type": "string",
+      "description": "IANA timezone, e.g. 'UTC', 'Asia/Kolkata'."
+    },
+    "content_source": {
+      "type": "string",
+      "enum": ["ai_generated", "drive_footage"],
+      "default": "ai_generated",
+      "description": "ai_generated = Kling/Runway pipeline. drive_footage = pre-edited clips from a Drive folder (drive-footage pattern)."
+    },
+    "drive_folder_id": {
+      "type": ["string", "null"],
+      "description": "Google Drive folder ID. Required when content_source=drive_footage. The GOOGLE_DRIVE_SA_JSON service-account email must have Viewer on this folder."
+    },
+    "brand": {
+      "type": "object",
+      "description": "Visual + voice identity used by the video assembler and script writer.",
+      "additionalProperties": true,
+      "properties": {
+        "name": {"type": "string"},
+        "accent_color": {"type": "string"},
+        "base_color": {"type": "string"},
+        "secondary_color": {"type": "string"},
+        "watermark_path": {"type": ["string", "null"]},
+        "voice": {"type": "string"}
+      }
+    },
+    "video_model_routing": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "phase": {"type": "integer"},
+        "model_map": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        }
+      }
+    },
+    "orm_guardrails": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "hard_stop_phrases": {"type": "array", "items": {"type": "string"}},
+        "competitor_names": {"type": "array", "items": {"type": "string"}},
+        "auto_respond_tiers": {"type": "array", "items": {"type": "string"}},
+        "review_window_seconds": {"type": "object"},
+        "escalate_tiers": {"type": "array", "items": {"type": "string"}},
+        "ignore_tiers": {"type": "array", "items": {"type": "string"}},
+        "min_confidence_threshold": {"type": "number"}
+      }
+    },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "youtube": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "privacy_status": {"type": "string"},
+            "default_tags": {"type": "array", "items": {"type": "string"}},
+            "category_id": {"type": "string"}
+          }
+        },
+        "twitter":   {"type": "object", "additionalProperties": true},
+        "instagram": {"type": "object", "additionalProperties": true},
+        "tiktok": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "open_id": {"type": ["string", "null"]},
+            "daily_cap": {"type": "integer", "minimum": 0},
+            "default_privacy_level": {
+              "type": "string",
+              "enum": ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]
+            },
+            "disable_duet": {"type": "boolean"},
+            "disable_stitch": {"type": "boolean"},
+            "disable_comment": {"type": "boolean"},
+            "video_cover_timestamp_ms": {"type": "integer", "minimum": 0},
+            "default_tags": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "zernio_tiktok": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Post to TikTok via Zernio (audited partner app). Use this instead of 'tiktok' until our own TikTok dev app is audited.",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "account_id": {
+              "type": ["string", "null"],
+              "description": "Zernio internal account id (field_id from client.accounts.list()), NOT the TikTok open_id."
+            },
+            "daily_cap": {"type": "integer", "minimum": 0},
+            "default_privacy_level": {
+              "type": "string",
+              "enum": ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]
+            },
+            "disable_duet": {"type": "boolean"},
+            "disable_stitch": {"type": "boolean"},
+            "disable_comment": {"type": "boolean"},
+            "video_cover_timestamp_ms": {"type": "integer", "minimum": 0},
+            "default_tags": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "upload_post_tiktok": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Post to TikTok via Upload-Post (audited partner app). Cheaper than Zernio at real volume. 'user' is the Upload-Post managed-user profile name, not the TikTok handle.",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "user": {
+              "type": ["string", "null"],
+              "description": "Upload-Post managed-user profile username (from list_users())."
+            },
+            "daily_cap": {"type": "integer", "minimum": 0},
+            "default_privacy_level": {
+              "type": "string",
+              "enum": ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]
+            },
+            "disable_duet": {"type": "boolean"},
+            "disable_stitch": {"type": "boolean"},
+            "disable_comment": {"type": "boolean"},
+            "video_cover_timestamp_ms": {"type": "integer", "minimum": 0},
+            "post_mode": {"type": "string", "enum": ["DIRECT_POST", "MEDIA_UPLOAD"]},
+            "is_aigc": {"type": "boolean"},
+            "default_tags": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "upload_post_instagram": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "user": {"type": ["string", "null"]},
+            "media_type": {"type": "string", "enum": ["REELS", "STORIES"]},
+            "share_to_feed": {"type": "boolean"},
+            "default_tags": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "upload_post_youtube": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "user": {"type": ["string", "null"]},
+            "privacy_status": {"type": "string", "enum": ["public", "unlisted", "private"]},
+            "category_id": {"type": "string"},
+            "default_tags": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "media_pipeline": {
+      "type": "object",
+      "description": "Per-platform pre-publish ffmpeg transforms. Keys are canonical platform names (tiktok, instagram, youtube, etc. — same enum as Upload-Post). Values are ordered lists of transform names from src/glitch_signal/media/ffmpeg.py::registered_transforms(). Example: {\"tiktok\": [\"strip_audio\"]} to drop the audio track before TikTok publish (fixes the web-player mute on licensed-music Content ID matches).",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["strip_audio"]
+        },
+        "description": "Ordered transform chain — outputs of step N feed step N+1. Each result is cached next to the source file so rerunning the pipeline is a no-op."
+      }
+    },
+    "caption_writer": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Controls how the drive_footage pipeline writes captions. filename = LLM reads just the Drive file name (cheap, generic). rules_based = LLM is given a parsed-filename + the brand's product catalog + a strict rules block (cheap, on-brand, no vision cost). vision = uploads the actual video bytes to Gemini 2.5 Pro for the most grounded caption (paid per clip, slower).",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["filename", "rules_based", "vision"],
+          "default": "filename"
+        },
+        "product_catalog_path": {
+          "type": ["string", "null"],
+          "description": "Required for rules_based mode. Path (relative to repo root) to a markdown file listing the brand's SKUs, ingredients, and claims. Injected into the caption prompt."
+        },
+        "vision_model": {
+          "type": "string",
+          "description": "Override the default Gemini vision model (defaults to gemini-2.5-pro)."
+        },
+        "vision_fallback_to_filename": {
+          "type": "boolean",
+          "default": true,
+          "description": "If the vision call fails (API error, quota, processing timeout), fall back to filename-mode captioning so the pipeline still produces a caption rather than failing the Signal."
+        }
+      }
+    },
+    "tasks": {
+      "type": "object",
+      "description": "Per-brand task registry. Each key is a task name (video_uploader, comment_responder, metrics_report, …) and the value describes its configuration + outputs. Adding a new brand or task = adding a new entry here; the code walks the registry at runtime.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "enabled": {"type": "boolean"},
+          "posting_rules": {
+            "type": "object",
+            "description": "Applies to video_uploader-shaped tasks. Constrains when and in what order scheduled posts may fire.",
+            "additionalProperties": true,
+            "properties": {
+              "daily_cap":        {"type": "integer", "minimum": 0},
+              "slots_local":      {
+                "type": "array",
+                "items": {"type": "string", "pattern": "^\\d{1,2}:\\d{2}$"},
+                "description": "HH:MM times in the brand's timezone when posts are allowed to fire. Empty = no slot constraint."
+              },
+              "min_interval_minutes": {"type": "integer", "minimum": 0},
+              "variant_gap":      {"type": "integer", "minimum": 0, "description": "Min posts between two files in the same variant_group (from filename parser)."},
+              "product_gap":      {"type": "integer", "minimum": 0, "description": "Min posts between two files of the same product."},
+              "skip_patterns":    {"type": "array", "items": {"type": "string"}, "description": "Substrings (case-insensitive). Files whose raw filename contains ANY of these are skipped."},
+              "order":            {"type": "string", "enum": ["oldest_first", "newest_first"], "default": "oldest_first"}
+            }
+          },
+          "outputs": {
+            "type": "object",
+            "description": "Sinks the task writes to in addition to publishing. Multiple outputs may coexist.",
+            "additionalProperties": true,
+            "properties": {
+              "google_sheet": {
+                "type": "object",
+                "properties": {
+                  "sheet_id":  {"type": "string"},
+                  "worksheet": {"type": "string", "default": "Sheet1"}
+                },
+                "required": ["sheet_id"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "default_hashtags": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": []
+    },
+    "voice_prompt_path": {
+      "type": ["string", "null"],
+      "description": "Optional path (relative to repo root) to a markdown voice guide used by the caption writer."
+    }
+  }
+}

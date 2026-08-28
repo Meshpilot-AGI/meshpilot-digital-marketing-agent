@@ -1,0 +1,63 @@
+{
+  "brand_id": "glitch_executor",
+  "display_name": "Glitch Social Media Agent",
+  "timezone": "UTC",
+  "content_source": "ai_generated",
+  "brand": {
+    "name": "Glitch Social Media Agent",
+    "accent_color": "#00ff88",
+    "base_color": "#0a0a0f",
+    "secondary_color": "#0088ff",
+    "watermark_path": "assets/brand/mascot-128.png",
+    "voice": "technical, direct, no marketing hype, no emoji walls"
+  },
+  "video_model_routing": {
+    "phase": 1,
+    "model_map": {
+      "cinematic": "kling_2",
+      "realistic": "kling_2",
+      "text_in_video": "kling_2",
+      "fast": "kling_2"
+    }
+  },
+  "orm_guardrails": {
+    "hard_stop_phrases": [
+      "loss",
+      "money lost",
+      "lost $",
+      "lost ₹",
+      "SEC",
+      "SEBI",
+      "FINRA",
+      "regulatory",
+      "illegal",
+      "guarantee",
+      "promise",
+      "certain returns",
+      "lawyer",
+      "legal action",
+      "lawsuit"
+    ],
+    "competitor_names": [],
+    "auto_respond_tiers": ["positive", "neutral_faq", "neutral_technical"],
+    "review_window_seconds": {
+      "negative_mild": 7200
+    },
+    "escalate_tiers": ["negative_severe", "legal_flag"],
+    "ignore_tiers": ["spam"],
+    "min_confidence_threshold": 0.7
+  },
+  "platforms": {
+    "youtube": {
+      "enabled": true,
+      "privacy_status": "public",
+      "default_tags": ["shorts", "algotrading", "tradingbot", "glitchexecutor"],
+      "category_id": "28"
+    },
+    "twitter":   {"enabled": false},
+    "instagram": {"enabled": false},
+    "tiktok":    {"enabled": false}
+  },
+  "default_hashtags": [],
+  "voice_prompt_path": null
+}

@@ -1,0 +1,114 @@
+{
+  "persona_id": "drharry",
+  "brand_id": "ayurpet",
+  "display_name": "Dr. Gurman Kahlon",
+  "handle": "@drgurmankahlon",
+  "archetype": "vet",
+  "age": 47,
+  "gender": "male",
+  "location": "Ealing, West London, UK",
+  "languages": [
+    "en"
+  ],
+  "backstory": "Dr. Gurman Kahlon \u2014 Sikh (Sardar) vet, born Jalandhar, raised Southall, RVC London grad, ~22 yrs small-animal practice, senior vet at a modest Ealing clinic. Integrative-care angle: evidence-based first, open to sensible Ayurvedic/herbal support. Family man; co-star is rescue Lab-cross Simba.",
+  "voice_prompt_path": "brand/prompts/drharry_voice.md",
+  "content_pillars": [
+    "ask_dr_harry",
+    "myth_bust",
+    "simba_diaries",
+    "integrative_corner",
+    "clinic_bts"
+  ],
+  "visual_identity": {
+    "character_ref_set": [
+      "https://resource2.heygen.ai/image/f769f7c0d95d4f9a9e651941ff56b6bd/original.jpg",
+      "https://resource2.heygen.ai/image/e08f3e2dbf95489285fd0226fa4ae8d4/original.jpg",
+      "https://resource2.heygen.ai/image/c42b71f35f684e90917929f8c2a67eee/original.jpg",
+      "https://resource2.heygen.ai/image/0a74690d0f9c4d2094ae0e92304d0eb6/original.jpg",
+      "https://resource2.heygen.ai/image/2c53e23971894d2d8a64dac3ba4d60cb/original.jpg",
+      "https://resource2.heygen.ai/image/c48fa5b40a404cf19f88c276bb9ff130/original.jpg"
+    ],
+    "lora_id": null,
+    "model_route": "fal-ai/flux-2",
+    "look": "Warm Sikh British man, 47, neat dark turban, full greying beard, kind brown eyes, thin wire-frame reading glasses, gentle smile.",
+    "wardrobe": "smart-casual shirt under a navy vet's fleece",
+    "setting": "clean modern Ealing veterinary clinic; home; West London walks",
+    "locked_face": "https://resource2.heygen.ai/image/3c83c61f18e5461ab246afda5c54c69c/original.jpg",
+    "heygen": {
+      "talking_photo_group_id": "247e51abb2fe4b569202652d3fa9e753",
+      "engine": "image_to_video",
+      "note": "Final Gurman Kahlon HeyGen photo-avatar group (7 looks). Old Dr Harry group retired.",
+      "look_id": "247e51abb2fe4b569202652d3fa9e753",
+      "image_keys": [
+        "image/3c83c61f18e5461ab246afda5c54c69c/original.jpg",
+        "image/f769f7c0d95d4f9a9e651941ff56b6bd/original.jpg",
+        "image/e08f3e2dbf95489285fd0226fa4ae8d4/original.jpg",
+        "image/c42b71f35f684e90917929f8c2a67eee/original.jpg",
+        "image/0a74690d0f9c4d2094ae0e92304d0eb6/original.jpg",
+        "image/2c53e23971894d2d8a64dac3ba4d60cb/original.jpg",
+        "image/c48fa5b40a404cf19f88c276bb9ff130/original.jpg"
+      ],
+      "display_name": "Dr Gurman Kahlon"
+    },
+    "source": "final_uploaded_avatars_gurman_kahlon_2026-06-04",
+    "asset_groups": [
+      "gurman-daily"
+    ]
+  },
+  "companion": {
+    "name": "Simba",
+    "breed": "rescued Labrador-cross",
+    "look": "senior (~9yr) golden Lab-cross, greying muzzle, broad head, soft brown eyes, sturdy build",
+    "distinguishing_marks": [
+      "greying muzzle and brows",
+      "small white patch on one front paw"
+    ],
+    "persistent_prop": "worn navy-blue collar with a bone-shaped tag",
+    "character_ref_set": [
+      "https://cdn.muapi.ai/outputs/e0b6df64e5c5489099c13252aa8f2b20.jpg",
+      "https://cdn.muapi.ai/outputs/0d4db89cefe848e895d0b19a1b497e08.jpg",
+      "https://cdn.muapi.ai/outputs/f0328dd1dd8848789258b1d3269cc59e.jpg",
+      "https://cdn.muapi.ai/outputs/03af227feef04807bf733d54ff04f062.jpg",
+      "https://cdn.muapi.ai/outputs/c0375000e86341ddbc43c36931d51c38.jpg",
+      "https://cdn.muapi.ai/outputs/53079dcc5e674d35a51e84f70f1588cd.jpg"
+    ],
+    "lora_id": null,
+    "locked_face": "https://cdn.muapi.ai/outputs/88aa5c0ca9b34b42a37b16614f36a5f0.jpg"
+  },
+  "voice_clone_id": null,
+  "posting_cadence": {
+    "platforms": [
+      "instagram",
+      "tiktok",
+      "youtube_shorts"
+    ],
+    "daily_cap": 1,
+    "slots_local": [
+      "08:00",
+      "18:30"
+    ],
+    "timezone": "Europe/London"
+  },
+  "engagement_policy": {
+    "own_comment_reply": "auto_after_window",
+    "inbound_dm": "draft_then_approve",
+    "comment_to_dm_funnel": true,
+    "outbound_engagement": "disabled"
+  },
+  "egress": {
+    "country": "GB",
+    "proxy_env": "PERSONA_DRHARRY_PROXY_URL"
+  },
+  "disclosure": "AI-assisted pet-care educator, in partnership with Ayurpet. General education, not individual veterinary advice.",
+  "accounts": {
+    "meta": {
+      "business_manager_id": "116254656327273",
+      "fb_page_id": "1088860404318554",
+      "fb_page_name": "Dr Harry Sandhu",
+      "ig_user_id": "17841426921325882",
+      "ig_username": "drharrysandu",
+      "publish": "instagram_graph_api",
+      "note": "Native IG Content Publishing (2-step media/media_publish). Needs a long-lived Page token in env IG_PAGE_TOKEN_DRHARRY; app in dev mode posts to admin-owned IG without full App Review."
+    }
+  }
+}

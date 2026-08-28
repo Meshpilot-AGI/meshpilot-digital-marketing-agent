@@ -1,0 +1,12 @@
+{
+  "content_plan": {
+    "store": "cockpit",
+    "table": "core.influencer_post_plan",
+    "dsn_env": "POSTGRES_BRAIN_URL",
+    "cockpit_surface": "/dashboard/influencer",
+    "api": "/v1/influencer/plan",
+    "columns": ["id","brand_id","persona_id","pillar","platform","format","hook","caption","status","scheduled_for","discovery_source","asset_url","post_url","platform_post_id","notes","score"],
+    "status_flow": ["idea","approved","generating","ready","posted","skip","failed"],
+    "note": "Brand-scoped Mesh Pilot cockpit feature (any brand). Replaced the Phase-0 Google Sheet on 2026-06-03 — see migrations/2026-06-03-influencer-content-plan.sql and archive/influencer-sheet-content-plan-2026-06-03/."
+  }
+}
