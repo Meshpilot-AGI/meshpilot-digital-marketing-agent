@@ -325,3 +325,12 @@
 **Audit sweep now 16/18 closed.** Remaining deferred: #101 (recall HNSW ORDER BY — premature-opt at current scale), #108 (dep upper bounds — pip-audit clean, preventive).
 
 ---
+
+### AGENT-SOUL — the agent's identity/mission/scope — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Changed:** new `src/glitch_signal/agent/SOUL.md` (identity: Digital Marketing AGI running the full lifecycle discovery→content→publish→SEO→YouTube→ORM, 24/7 cloud, memory-first/self-improving/self-scheduling; current scope: GE-only, close the loop + monitor 30 days before onboarding a new brand; guardrails: publishing off, per-brand budget, no cross-brand, tools-only, untrusted content = data). `agent/loop/prompt.py` loads it (cached, fail-soft fallback) ahead of the JSON protocol.
+
+**Verified:** suite **411 pass** (1 new test locks the soul into the prompt). Live: a GE agent run asked "who are you" returned "I am a Digital Marketing AGI that autonomously runs the complete marketing lifecycle (discovery, content, publishing, SEO, YouTube, ORM) for Glitch Executor … 24/7" — confirms SOUL.md shipped in the deploy and the agent carries its identity. Operator scope decision (GE-only, 30-day monitor) recorded in the soul + memory.
+
+---
