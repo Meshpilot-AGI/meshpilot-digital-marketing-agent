@@ -42,7 +42,8 @@ async def test_publish_dry_run(monkeypatch):
 
 
 def test_resolve_creds_requires_env(monkeypatch):
-    for k in ("GE_META_IG_USER_ID", "GE_META_PAGE_ID", "GE_SYSTEM_USER_TOKEN"):
+    for k in ("GE_META_IG_USER_ID", "GE_META_PAGE_ID", "GE_SYSTEM_USER_TOKEN",
+              "META_IG_USER_ID", "META_PAGE_ID", "SYSTEM_USER_TOKEN"):  # incl. agent-wide defaults
         monkeypatch.delenv(k, raising=False)
     with pytest.raises(RuntimeError, match="META_IG_USER_ID"):
         resolve_instagram_creds("glitch_executor")

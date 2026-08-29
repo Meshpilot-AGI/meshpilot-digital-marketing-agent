@@ -23,7 +23,7 @@ import asyncio
 import httpx
 import structlog
 
-from glitch_signal.config import brand_env, settings
+from glitch_signal.config import brand_env, brand_env_or_default, settings
 from glitch_signal.platforms.facebook import _fetch_page_token  # reuse the token exchange
 
 log = structlog.get_logger(__name__)
@@ -37,9 +37,9 @@ def _base(node_id: str) -> str:
 
 def resolve_instagram_creds(brand_id: str | None = None) -> tuple[str, str, str]:
     """(ig_user_id, page_id, system_user_token) for the brand. Raises if unset."""
-    ig_user_id = brand_env("META_IG_USER_ID", brand_id)
-    page_id = brand_env("META_PAGE_ID", brand_id)
-    system_user_token = brand_env("SYSTEM_USER_TOKEN", brand_id)
+    ig_user_id = brand_env_or_default("META_IG_USER_ID", brand_id)
+    page_id = brand_env_or_default("META_PAGE_ID", brand_id)
+    system_user_token = brand_env_or_default("SYSTEM_USER_TOKEN", brand_id)
     if not ig_user_id:
         raise RuntimeError("instagram: <PREFIX>_META_IG_USER_ID is not set for this brand.")
     if not page_id:

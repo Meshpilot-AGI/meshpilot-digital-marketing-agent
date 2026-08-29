@@ -536,6 +536,15 @@ def brand_env(name: str, brand_id: str | None = None, default: str = "") -> str:
     return os.environ.get(f"{prefix}_{name}", default)
 
 
+def brand_env_or_default(name: str, brand_id: str | None = None, default: str = "") -> str:
+    """Per-brand value, falling back to the agent-wide default (the unprefixed env var).
+
+    A project brings its own `<PREFIX>_<name>`; when it doesn't, the agent uses its own default
+    (e.g. the MeshPilot Meta app: `SYSTEM_USER_TOKEN` / `META_PAGE_ID` / `META_IG_USER_ID`).
+    """
+    return brand_env(name, brand_id) or os.environ.get(name, default)
+
+
 # Which publisher handles each target (VENDOR-1, 2026-08-29): Upload-Post + the
 # redundant direct integrations were removed, leaving three publishers —
 # Buffer (TikTok / X / LinkedIn), Meta (Facebook / Instagram), and YouTube direct.
