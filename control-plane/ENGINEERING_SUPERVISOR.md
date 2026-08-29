@@ -334,3 +334,16 @@
 **Verified:** suite **411 pass** (1 new test locks the soul into the prompt). Live: a GE agent run asked "who are you" returned "I am a Digital Marketing AGI that autonomously runs the complete marketing lifecycle (discovery, content, publishing, SEO, YouTube, ORM) for Glitch Executor … 24/7" — confirms SOUL.md shipped in the deploy and the agent carries its identity. Operator scope decision (GE-only, 30-day monitor) recorded in the soul + memory.
 
 ---
+
+### AGENT-PLAYBOOKS — the agent's handbook library — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the old monorepo `/Users/tejaskaranagrawal/dev/meshpilot-digital-marketing-stack` (`.agents/skills/`, `src/meshpilot_playbook/playbooks/refs/`, `docs/`) via an inventory agent; this repo's recipe-library loader pattern.
+
+**Changed:** new `src/glitch_signal/agent/playbooks/` — `loader.py` (each handbook `library/<slug>/SKILL.md` with name+description frontmatter; cached, fail-soft), `__init__.py`. **13 handbooks** (~3,690 lines), all brand-neutral reusable abilities: paid-media-auditor, ppc-strategist, tracking-specialist, google-ads, meta-ads, tiktok-ads, linkedin-ads, amazon-ads, seo-audit (ported+de-branded from the monorepo, check catalogs/weights/thresholds preserved), and social-copy, youtube, orm (consolidated/authored — no clean source; social-copy grounded in the old SOCIAL_CONTENT_POLICY + IG/TikTok caption rules; orm has a fintech-compliance section). Loop tools `list_playbooks` + `read_playbook` in `agent/loop/tools.py`; `prompt.py` injects the handbook index into the system prompt so the agent reads directly (no list round-trip to loop on). `SOUL.md` gains a "Your handbooks" section.
+
+**Verified:** suite **418 pass** (7 playbook tests). Live: agent reads `social-copy` and produces a TikTok caption following its house-voice rules; a natural caption goal no longer loops on `list_playbooks`. De-brand check clean (no mesh pilot / ai empire / old-repo paths). Framing per operator: these are general agent *abilities* for headless multi-brand operation — GE is the current single run, not the scope of the ability.
+
+**Remains:** the media recipe library (separate, already present) and the playbook library are distinct; a future "skill-workshop" (agent authors its own playbooks) is a possible follow-on (OpenClaw pattern).
+
+---
