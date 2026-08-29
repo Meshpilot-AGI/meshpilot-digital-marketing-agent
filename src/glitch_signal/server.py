@@ -83,6 +83,7 @@ def _install_middleware() -> None:
             per_ip=s.rate_limit_per_ip,
             window_s=s.rate_limit_window_s,
             global_limit=s.rate_limit_global,
+            shared=s.rate_limit_shared,   # #98: Postgres-backed fleet-wide limiter when enabled
         )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=s.max_request_body_bytes)
     app.add_middleware(
@@ -642,9 +643,6 @@ async def internal_analytics_reconcile(request: Request) -> dict:
     return {"ok": True, **summary}
 
 
-_HEYGEN_SEEN: set[str] = set()  # best-effort per-worker event-id dedup
-
-
 @app.post("/webhooks/heygen")
 async def heygen_webhook(request: Request):
     """Receive HeyGen webhook events (video finished/failed). Public (HeyGen calls it) but
@@ -679,12 +677,10 @@ async def heygen_webhook(request: Request):
     if not hmac.compare_digest(sig, expected):
         return Response("bad signature", status_code=401)
 
-    if eid and eid in _HEYGEN_SEEN:  # idempotency: HeyGen may redeliver on retry
+    # idempotency: HeyGen may redeliver on retry — dedup fleet-wide via Postgres (#98)
+    from glitch_signal.middleware.shared_state import webhook_seen
+    if await webhook_seen("heygen", eid):
         return Response(status_code=200)
-    if eid:
-        _HEYGEN_SEEN.add(eid)
-        if len(_HEYGEN_SEEN) > 5000:
-            _HEYGEN_SEEN.clear()
 
     try:
         event = _json.loads(raw or b"{}")
