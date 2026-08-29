@@ -27,10 +27,16 @@ from glitch_signal.db.session import _session_factory
 
 log = structlog.get_logger(__name__)
 
+# Interactive docs expose the entire route map (incl. /internal + /jobs shapes). Keep them OFF in
+# production; enable only when ENABLE_API_DOCS=true (local/dev). openapi_url gates /docs + /redoc too.
+_docs_on = bool(getattr(settings(), "enable_api_docs", False))
 app = FastAPI(
     title="Glitch Social Media Agent",
     version=__version__,
     description="Autonomous social video + ORM agent for Glitch Executor.",
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
 )
 
 # --- CF / origin hardening middleware (mirrors leaselens) --------------------

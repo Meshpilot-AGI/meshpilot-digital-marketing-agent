@@ -278,6 +278,9 @@ class Settings(BaseSettings):
     agent_publish_enabled: bool = False
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
+    # Interactive API docs (Swagger /docs, /redoc, /openapi.json). OFF by default so the full
+    # API surface isn't published to the public internet in production; flip on per env locally.
+    enable_api_docs: bool = False
     # Self-cron kill-switch (AGENT-CRON): while False, the scheduler fires no jobs and the
     # agent's `schedule` tool is denied. Flip to True to enable self-scheduling.
     agent_cron_enabled: bool = False
