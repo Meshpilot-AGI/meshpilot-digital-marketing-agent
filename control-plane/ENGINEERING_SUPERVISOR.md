@@ -2,6 +2,19 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### AGENT-MEM — per-brand agent memory (AGENT-BRAIN increment 1) — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the brainstorming skill; researched the real repos NousResearch/hermes-agent (memory-first + SKILL.md skills + curator + context compression) and openclaw/openclaw (trusted-gateway/policy) — both local personal-assistant CLIs, so we adopt patterns on our stack. Design spec: `docs/plans/2026-08-29-agent-brain.md` (operator-approved). Current agent is a fixed LangGraph video pipeline; the brain is new.
+
+**Changed:** new `src/glitch_signal/agent/memory/` — `embeddings.py` (NVIDIA NIM `nvidia/nemotron-3-embed-1b`, 2048-dim, `input_type` passage/query, injectable client), `store.py` (`remember` = upsert fact-by-key / append episode; `recall` = fused `0.7*cosine + 0.3*ts_rank`, bumps last_used_at; degrades to lexical if embedding fails), `spec.py` (Memory). New idempotent migration `agent_memory` (halfvec(2048)+HNSW + FTS GIN + brand/key indexes, `create extension vector`). `server.py`: `/internal/agent/{remember,recall}` (x-jobs-token). CI `db` job image → `pgvector/pgvector:pg17` (vanilla postgres lacks pgvector). `NVIDIA_API_KEY` set as a global-infra cloud secret.
+
+**Verified (observed):** 11 unit tests (fake embedder + fake engine + fake httpx, no network/DB); full suite **243 passed, 1 skipped**. Supabase applied the migration (vector 0.8.2 installed, `agent_memory` live, version recorded); CI `db` job built halfvec+HNSW on pgvector:pg17. **Live on api.meshpilot.app**: stored 2 GE facts (audience, voice) → recall paraphrases rank the correct fact #1 with clear semantic separation ("who are our customers" → audience sem .155; "what tone" → voice sem .231 vs audience −.005). Fixed one asyncpg pgvector type-inference bug (bind :qvec as text + `string_to_array` for id/kind arrays).
+
+**Notes / remains:** AGENT-BRAIN increments 2–4 (LOOP → POLICY → LEARN) are next, each its own spec/PR. `brain.py`'s external glitch-brain-mcp mirror is superseded (remove in a later increment). Fusion weights + k are constants, tune on real data. NVIDIA free tier (starter credits + rate limits) is fine for build; embedder is injectable to swap providers. Model/dims pinned — changing the model needs a re-embed.
+
+---
+
 ### VENDOR-1 — remove Upload-Post + redundant integrations; re-point publishing — CLOSED 2026-08-29
 **Owner:** Claude
 
