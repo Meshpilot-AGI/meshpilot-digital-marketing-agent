@@ -1,6 +1,18 @@
 # Design Spec — Agent Brain (memory + agent capabilities)
 
-**Date:** 2026-08-29 · **Status:** ALL 4 INCREMENTS DONE (AGENT-MEM + LOOP + POLICY + LEARN, verified live) · **Method:** brainstorming → spec → build
+**Date:** 2026-08-29 · **Status:** Core 4 increments DONE (AGENT-MEM + LOOP + POLICY + LEARN) + AGENT-MCP increment 1 (MCP client) DONE · **Method:** brainstorming → spec → build
+
+## AGENT-MCP — the loop as an MCP client (increment 1 done)
+
+The brain loop can connect to external tools' **MCP servers**, discover their tools at runtime,
+and call them — every call through the policy gate, every result untrusted. `agent/mcp/client.py`
+(`MCPManager`, streamable-HTTP via the `mcp` SDK, network isolated behind an injectable
+connector). Per-brand config `brand_env("MCP_SERVERS")` = JSON `[{name,url,headers}]`. Discovered
+tools are namespaced `mcp__<server>__<tool>` and merged into the loop's tool set (`runner.run`
+auto-connects on the production path). Policy: side-effect-looking MCP tool names
+(`publish|send|delete|pay|…`) are denied unless per-brand allowlisted or publishing is on; read/gen
+tools pass. Introspect via `GET /internal/agent/mcp/tools?brand=`. Wiring a real server (e.g.
+HeyGen's MCP with `X-Api-Key`) is config, not code.
 
 ## LLM routing (who uses which model)
 

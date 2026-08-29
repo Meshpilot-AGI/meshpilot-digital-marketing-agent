@@ -357,6 +357,19 @@ async def internal_agent_curate(request: Request) -> dict:
     return {"ok": True, "brand": brand, **res}
 
 
+@app.get("/internal/agent/mcp/tools", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_mcp_tools(brand: str = "glitch_executor") -> dict:
+    """List the MCP tools discovered from a brand's configured MCP servers (auth: x-jobs-token)."""
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    from glitch_signal.agent.mcp import manager_for_brand
+
+    mgr = await manager_for_brand(brand)
+    async with mgr:
+        tools = mgr.tool_descriptions()
+    return {"ok": True, "brand": brand, "tools": tools, "count": len(tools)}
+
+
 _HEYGEN_SEEN: set[str] = set()  # best-effort per-worker event-id dedup
 
 

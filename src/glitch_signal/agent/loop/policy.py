@@ -14,11 +14,21 @@ one from settings, and `allow()` is a thin back-compat wrapper over the default 
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Mapping
 
 # Tools that perform an outward-facing publish.
 PUBLISH_TOOLS = frozenset({"publish", "post", "publish_facebook", "publish_instagram", "buffer_post"})
+
+# External MCP tools whose NAME suggests an outward side effect. We can't know an arbitrary MCP
+# tool's blast radius, so anything matching this is denied unless explicitly allowlisted per brand
+# (or publishing is enabled). Read/generate MCP tools pass.
+_MCP_SIDE_EFFECT = re.compile(
+    r"(publish|post|send|delete|remove|destroy|pay|transfer|buy|purchase|charge|refund|"
+    r"email|dm|message|tweet|comment|reply|share|upload|revoke|disable|deactivate)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +45,7 @@ class Policy:
     publish_enabled: bool = False
     max_media_per_run: int = 3
     brand_denied: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    mcp_allow: Mapping[str, frozenset[str]] = field(default_factory=dict)  # brand -> allowed mcp__ tools
 
     def check(self, tool_name: str, args: dict, brand_id: str, *,
               counts: Mapping[str, int] | None = None) -> Decision:
@@ -45,7 +56,16 @@ class Policy:
         if tool_name in self.brand_denied.get(brand_id, frozenset()):
             return Decision(False, f"tool '{tool_name}' is denied for brand {brand_id}")
 
-        # 2. publish kill-switch
+        # 2. external MCP tools — allowlist wins; side-effect-looking names denied unless publishing on
+        if tool_name.startswith("mcp__"):
+            if tool_name in self.mcp_allow.get(brand_id, frozenset()):
+                return Decision(True, "")
+            if _MCP_SIDE_EFFECT.search(tool_name) and not self.publish_enabled:
+                return Decision(False, f"MCP tool '{tool_name}' looks side-effectful; "
+                                       "denied (not allowlisted, publishing off)")
+            return Decision(True, "")
+
+        # 3. publish kill-switch
         if tool_name in PUBLISH_TOOLS and not self.publish_enabled:
             return Decision(False, "posting is disabled (agent_publish_enabled is off)")
 
