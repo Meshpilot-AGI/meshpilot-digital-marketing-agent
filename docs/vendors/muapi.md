@@ -5,6 +5,16 @@ Our **media-generation** vendor — images and video (and audio) across 100+ mod
 the pluggable media capability (MEDIA-1); fal / HeyGen slot in behind the same
 `Engine` protocol later. Operating guide — validate against https://muapi.ai/docs.
 
+## What we can do today
+
+Images (recipes `muapi-logo-creator`, `muapi-ad-creative`, `muapi-instagram-post`,
+`muapi-nano-banana`, `muapi-ui-design`, `muapi-youtube-thumbnail`) and video (`muapi-seedance-2`,
+`muapi-cinema-director` (Kling), `muapi-product-video-ad-maker`, `muapi-social-media-video`,
+`muapi-ugc-video-factory`). One key powers the **premium third-party catalog** — Seedance 2,
+Kling v2.5, Flux 2 Pro, Google Imagen 4 Ultra, GPT Image 2, Nano Banana Pro. **This is where
+Seedance/Kling/Flux/GPT-Image/Imagen live** (not Higgsfield). See [README.md](README.md) for the
+cross-vendor matrix.
+
 ## Key (global infra — not brand-scoped)
 
 - `MUAPI_API_KEY` — one muapi account for all brands. **Global**, like the DB /

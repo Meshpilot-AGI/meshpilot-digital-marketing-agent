@@ -3,6 +3,15 @@
 Second media engine behind the shared `Engine` protocol (alongside MUapi). Used for
 avatar / talking-head video from a script.
 
+## What we can do today
+
+**Live path is the agent's MCP client → HeyGen's real MCP over OAuth** (112 tools, incl.
+`video_agent.generate`, `create_photo_avatar`, translation, voices) — the vendor-sanctioned v3
+Video-Agent pipeline. Capabilities: avatar/talking-head video from a prompt or script, digital-twin
+/ photo-avatar creation, video translation (175+ languages), voice + template listing. The raw
+`/v3/videos` engine below is superseded by MCP (HeyGen's v3 create is Video-Agent-only). See
+[README.md](README.md). Access token ~10 days (refresh token stashed for renewal).
+
 ## Keys (global infra, FastAPI Cloud secrets)
 
 - `HEYGEN_API_KEY` — the account API key (`sk_V2_…`), sent as `X-Api-Key`. Set as a cloud
