@@ -34,63 +34,51 @@ dependencies = [
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "python-dotenv>=1.0",
-
   # Observability — Logfire (FastAPI Cloud injects LOGFIRE_TOKEN when the
   # integration is connected in the dashboard).
   "logfire[fastapi]>=2",
   # Observability — Sentry (errors + tracing). Auto-enables the FastAPI
   # integration; init'd in main.py behind SENTRY_DSN.
   "sentry-sdk>=2",
-
   # Agent stack
   "langgraph>=0.2",
   "langchain-core>=0.3",
   "litellm>=1.52",
-
   # LLM providers
   "anthropic>=0.40",
   "google-genai>=0.3",
-
   # MCP client — the agent connects to external tools' MCP servers (AGENT-MCP)
   "mcp>=1.2",
-
   # Native deterministic image editing (resize/crop/text/format) — complements AI media gen
   "pillow>=10.2",
-
   # Higgsfield — third media provider (image/video/3D/audio gen via its SDK)
   "higgsfield-client>=0.1",
-
   # Database
   "sqlmodel>=0.0.21",
   "asyncpg>=0.30",
   # SQLAlchemy's async engine requires greenlet; it is not auto-installed on
   # every arch (e.g. macOS arm64), so pin it explicitly for local + cloud.
   "greenlet>=3.0",
-
   # Video assembly
   "ffmpeg-python>=0.2.0",
-
   # Utilities
   "structlog>=24.4",
   "tenacity>=9.0",
   "aiofiles>=24.1",
   "cryptography>=43.0",
-
   # Google APIs (Drive for drive_footage content source; YouTube Data for
   # uploads — moved from phase2 into core because the drive_footage path
   # needs google-api-python-client at boot)
   "google-api-python-client>=2.150",
   "google-auth>=2.35",
   "google-auth-httplib2>=0.2",
-
   # Replicate — image generation via recraft-v3 / FLUX for LinkedIn image posts.
   "replicate>=1.0",
-
   # fal.ai — primary image generation provider (FLUX.1-schnell, fast + cheap).
   "fal-client>=0.5",
-
   # img2pdf — lossless PNG→PDF for LinkedIn carousel document posts.
   "img2pdf>=0.5",
+  "croniter>=6.2.4",
 ]
 
 [project.optional-dependencies]

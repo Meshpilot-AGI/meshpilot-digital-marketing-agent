@@ -167,6 +167,15 @@ async def healthz() -> dict:
 import hmac as _hmac
 
 
+async def _json(request: Request) -> dict:
+    """Best-effort JSON body → dict (empty dict on no/invalid body)."""
+    try:
+        body = await request.json()
+        return body if isinstance(body, dict) else {}
+    except Exception:
+        return {}
+
+
 async def _require_jobs_auth(x_jobs_token: str = Header(default="")) -> None:
     """Gate the manual /jobs/* triggers (bug-2, 2026-06-10).
 
@@ -411,6 +420,105 @@ async def internal_analytics_spend(brand: str = "glitch_executor", days: int = 3
     from_ts = to_ts - timedelta(days=days)
     summary = await spend_summary(brand, from_ts, to_ts)
     return {"ok": True, "days": days, "estimated": True, **summary}
+
+
+@app.post("/internal/cron/jobs", dependencies=[Depends(_require_jobs_auth)])
+async def internal_cron_create(request: Request) -> dict:
+    """Create a self-cron job (AGENT-CRON; auth: x-jobs-token).
+
+    Body: {brand, name, schedule_kind: at|every|cron, schedule:{at|every_ms|cron_expr,tz?},
+    payload_kind: agentTurn|capability, payload:{goal,max_steps}|{name,args}, enabled?, pacing?,
+    delete_after_run?}. Owner is `operator`.
+    """
+    from datetime import datetime, timezone
+
+    from glitch_signal.agent.cron import store as cron_store
+
+    body = await _json(request)
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    for field in ("name", "schedule_kind", "schedule", "payload_kind"):
+        if not body.get(field):
+            raise HTTPException(status_code=400, detail=f"{field} is required")
+    try:
+        job_id = await cron_store.create_job(
+            brand_id=brand, name=str(body["name"]), owner="operator",
+            schedule_kind=str(body["schedule_kind"]), schedule=body["schedule"],
+            payload_kind=str(body["payload_kind"]), payload=body.get("payload", {}) or {},
+            pacing=body.get("pacing") or {}, enabled=bool(body.get("enabled", True)),
+            delete_after_run=bool(body.get("delete_after_run", body.get("schedule_kind") == "at")),
+            now=datetime.now(timezone.utc),
+        )
+    except Exception as exc:  # noqa: BLE001 — validation errors → 400
+        raise HTTPException(status_code=400, detail=str(exc)[:200])
+    return {"ok": True, "id": job_id}
+
+
+@app.get("/internal/cron/jobs", dependencies=[Depends(_require_jobs_auth)])
+async def internal_cron_list(brand: str = "glitch_executor") -> dict:
+    from glitch_signal.agent.cron import store as cron_store
+
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    jobs = await cron_store.list_jobs(brand)
+    return {"ok": True, "brand": brand, "jobs": jobs, "count": len(jobs)}
+
+
+@app.get("/internal/cron/jobs/{job_id}", dependencies=[Depends(_require_jobs_auth)])
+async def internal_cron_get(job_id: str) -> dict:
+    from glitch_signal.agent.cron import store as cron_store
+
+    job = await cron_store.get_job(job_id, with_runs=20)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    return {"ok": True, "job": job}
+
+
+@app.patch("/internal/cron/jobs/{job_id}", dependencies=[Depends(_require_jobs_auth)])
+async def internal_cron_update(job_id: str, request: Request) -> dict:
+    """Patch a job: {enabled?, payload?, pacing?, schedule_kind?+schedule?} (reschedule needs both)."""
+    from datetime import datetime, timezone
+
+    from glitch_signal.agent.cron import store as cron_store
+
+    patch = await _json(request)
+    try:
+        job = await cron_store.update_job(job_id, patch, now=datetime.now(timezone.utc))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)[:200])
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    return {"ok": True, "job": job}
+
+
+@app.delete("/internal/cron/jobs/{job_id}", dependencies=[Depends(_require_jobs_auth)])
+async def internal_cron_delete(job_id: str) -> dict:
+    from glitch_signal.agent.cron import store as cron_store
+
+    await cron_store.delete_job(job_id)
+    return {"ok": True, "id": job_id, "deleted": True}
+
+
+@app.post("/internal/cron/jobs/{job_id}/run", dependencies=[Depends(_require_jobs_auth)])
+async def internal_cron_run(job_id: str) -> dict:
+    """Force one run now, out-of-band (preserves the natural next slot)."""
+    from glitch_signal.agent.cron import service as cron_service
+
+    run_id = await cron_service.run_now(job_id)
+    if run_id is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    return {"ok": True, "id": job_id, "run_id": run_id, "status": "running"}
+
+
+@app.get("/internal/cron/runs", dependencies=[Depends(_require_jobs_auth)])
+async def internal_cron_runs(job_id: str, limit: int = 20) -> dict:
+    from glitch_signal.agent.cron import store as cron_store
+
+    job = await cron_store.get_job(job_id, with_runs=max(1, min(int(limit), 100)))
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    return {"ok": True, "job_id": job_id, "runs": job.get("recent_runs", [])}
 
 
 _HEYGEN_SEEN: set[str] = set()  # best-effort per-worker event-id dedup

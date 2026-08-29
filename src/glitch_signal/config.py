@@ -278,6 +278,13 @@ class Settings(BaseSettings):
     agent_publish_enabled: bool = False
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
+    # Self-cron kill-switch (AGENT-CRON): while False, the scheduler fires no jobs and the
+    # agent's `schedule` tool is denied. Flip to True to enable self-scheduling.
+    agent_cron_enabled: bool = False
+    # Max active agent-owned scheduled jobs per brand (self-scheduling creator-cap).
+    agent_cron_max_jobs_per_brand: int = 20
+    # Consecutive scheduled-job failures before the job auto-disables.
+    agent_cron_max_failures: int = 3
 
     # --- ElevenLabs (TTS for YouTube Shorts pipeline) ---
     elevenlabs_api_key: str = ""
