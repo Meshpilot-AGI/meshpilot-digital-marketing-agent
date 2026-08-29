@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from glitch_signal.media.generation.engines.base import Engine, EngineError
 from glitch_signal.media.generation.engines.heygen import HeyGenEngine
+from glitch_signal.media.generation.engines.higgsfield import HiggsfieldEngine
 from glitch_signal.media.generation.engines.muapi import MuapiEngine
 
 _ENGINES: dict[str, type] = {
     "muapi": MuapiEngine,
     "heygen": HeyGenEngine,
+    "higgsfield": HiggsfieldEngine,
 }
 
 
@@ -20,4 +22,4 @@ def get_engine(name: str) -> Engine:
     return cls()  # type: ignore[return-value]
 
 
-__all__ = ["Engine", "EngineError", "MuapiEngine", "HeyGenEngine", "get_engine"]
+__all__ = ["Engine", "EngineError", "MuapiEngine", "HeyGenEngine", "HiggsfieldEngine", "get_engine"]
