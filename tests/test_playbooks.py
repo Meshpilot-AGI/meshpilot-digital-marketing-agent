@@ -56,3 +56,13 @@ async def test_list_playbooks_tool():
 
     out = await tools.execute("list_playbooks", {}, "glitch_executor")
     assert "paid-media-auditor" in out and "social-copy" in out
+
+
+def test_system_prompt_lists_the_handbooks():
+    # the handbook index is in-prompt so the agent reads directly (no list_playbooks loop)
+    from glitch_signal.agent.loop.prompt import system_prompt
+
+    p = system_prompt()
+    assert "YOUR HANDBOOKS" in p
+    for slug in ("paid-media-auditor", "social-copy", "seo-audit", "youtube", "orm"):
+        assert slug in p
