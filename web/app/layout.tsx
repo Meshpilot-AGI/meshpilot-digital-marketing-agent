@@ -15,9 +15,9 @@ const fontHeading = FontHeading({
 });
 
 export const metadata: Metadata = {
-  title: "Waitly: Waiting list Next.js template.",
+  title: "Mesh Pilot — Digital Marketing AGI Agent",
   description:
-    "A simple and useful waiting list Next.js template. It's free and open source. Built with React, Tailwind CSS, and shadcn/ui. Typescript compatible.",
+    "Mesh Pilot is an autonomous digital marketing agent that runs 24/7 in the cloud, fully AI-native. It creates, decides, and ships content for your brands around the clock.",
 };
 
 export default function RootLayout({
