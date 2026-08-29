@@ -38,6 +38,9 @@ dependencies = [
   # Observability — Logfire (FastAPI Cloud injects LOGFIRE_TOKEN when the
   # integration is connected in the dashboard).
   "logfire[fastapi]>=2",
+  # Observability — Sentry (errors + tracing). Auto-enables the FastAPI
+  # integration; init'd in main.py behind SENTRY_DSN.
+  "sentry-sdk>=2",
 
   # Agent stack
   "langgraph>=0.2",
