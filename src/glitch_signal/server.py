@@ -301,6 +301,84 @@ async def oauth_tiktok_callback(
     )
 
 
+# --- YouTube OAuth (per-brand; a service account can't act on a channel) ---
+@app.get("/oauth/youtube/start")
+async def oauth_youtube_start(brand: str) -> RedirectResponse:
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    from glitch_signal.oauth import youtube as yt_oauth
+
+    url = yt_oauth.build_authorize_url(brand)
+    log.info("oauth.youtube.start", brand=brand)
+    return RedirectResponse(url=url, status_code=302)
+
+
+@app.get("/oauth/youtube/callback")
+async def oauth_youtube_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+) -> HTMLResponse:
+    if error:
+        log.warning("oauth.youtube.callback_error", error=error, desc=error_description)
+        return HTMLResponse(
+            _html_page("YouTube authorization cancelled", f"Error: <code>{error}</code>"),
+            status_code=400,
+        )
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
+
+    from glitch_signal.oauth import youtube as yt_oauth
+
+    try:
+        brand_id = yt_oauth.parse_state(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid state: {exc}") from exc
+    if brand_id not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand_id!r}")
+
+    try:
+        tokens = await yt_oauth.exchange_code_for_tokens(code, brand_id)
+        await yt_oauth.persist_tokens(brand_id, tokens)
+    except Exception as exc:
+        log.exception("oauth.youtube.exchange_failed", brand=brand_id)
+        return HTMLResponse(
+            _html_page("YouTube connection failed", f"Token exchange failed: <code>{exc}</code>"),
+            status_code=502,
+        )
+
+    got_refresh = bool(tokens.get("refresh_token"))
+    log.info("oauth.youtube.connected", brand=brand_id, has_refresh=got_refresh)
+    return HTMLResponse(
+        _html_page(
+            "YouTube connected",
+            f"Brand <code>{brand_id}</code> is connected to YouTube. "
+            f"Refresh token stored: <code>{got_refresh}</code>. You can close this tab.",
+        )
+    )
+
+
+@app.get("/internal/youtube/whoami", dependencies=[Depends(_require_jobs_auth)])
+async def internal_youtube_whoami(brand: str = "glitch_executor") -> dict:
+    """Verify the stored YouTube token reaches the channel (auth: x-jobs-token)."""
+    from glitch_signal.oauth import youtube as yt_oauth
+
+    token = await yt_oauth.get_fresh_access_token(brand)
+
+    def _list_channels(access_token: str) -> list[dict]:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+
+        yt = build("youtube", "v3", credentials=Credentials(token=access_token),
+                   cache_discovery=False)
+        r = yt.channels().list(part="snippet", mine=True).execute()
+        return [{"id": it["id"], "title": it["snippet"]["title"]} for it in r.get("items", [])]
+
+    channels = await asyncio.to_thread(_list_channels, token)
+    return {"ok": True, "brand": brand, "channels": channels}
+
+
 # ---------------------------------------------------------------------------
 # Media-serve — HMAC-signed short-lived URL for vendor fetch
 # ---------------------------------------------------------------------------

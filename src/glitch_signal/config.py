@@ -184,6 +184,19 @@ class Settings(BaseSettings):
     # (page id, IG user id, system-user token) resolve via brand_env().
     meta_graph_api_version: str = "v21.0"
 
+    # --- YouTube OAuth2 (per-brand: <PREFIX>_YOUTUBE_CLIENT_ID/SECRET via brand_env) ---
+    # Redirect URI must exactly match the one registered on the OAuth client.
+    youtube_redirect_uri: str = "https://api.meshpilot.app/oauth/youtube/callback"
+    # Full pragmatic channel control for the agent: upload videos, manage the
+    # account (videos/playlists/channel), and force-ssl (read/write incl comments
+    # + moderation). All restricted scopes — fine under the 100-user cap while
+    # the consent screen is unverified.
+    youtube_oauth_scopes: str = (
+        "https://www.googleapis.com/auth/youtube.upload "
+        "https://www.googleapis.com/auth/youtube "
+        "https://www.googleapis.com/auth/youtube.force-ssl"
+    )
+
     # --- Storage ---
     video_storage_path: str = "/var/lib/glitch-signal/videos"
 
