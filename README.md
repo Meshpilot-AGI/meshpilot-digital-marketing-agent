@@ -145,6 +145,31 @@ Patterns adapted from **Hermes** (memory-first + curator) and **OpenClaw**
 
 ---
 
+## Tech stack
+
+| Layer | Technology | Notes |
+|---|---|---|
+| Language / runtime | **Python ≥ 3.11**, `uv` | one import root under `src/` |
+| API framework | **FastAPI** (`fastapi[standard]`, uvicorn) | the agent's only control surface |
+| Hosting | **FastAPI Cloud** | `api.meshpilot.app`; multi-worker |
+| Edge / CDN | **Cloudflare** | WAF, TLS/HSTS, origin-auth; Pages for the web |
+| Database | **Supabase Postgres** (asyncpg, SQLModel/SQLAlchemy) | `agent_memory`, `agent_runs`, `oauth_tokens`, … |
+| Vectors | **pgvector** (`halfvec`, HNSW) | semantic recall in `agent_memory` |
+| Object storage | **Supabase Storage** | per-brand media buckets (`<prefix>-media`) |
+| Brain LLM | **Anthropic Claude** (Messages API) | the ReAct loop + curator |
+| Embeddings | **NVIDIA NIM** (nemotron) | memory recall |
+| Media — generate | **MUapi** (image/video/text) · **HeyGen** (avatar video, via MCP) · **Higgsfield** (Soul/DoP) | pluggable `Engine` protocol |
+| Media — edit | **Pillow** | native deterministic `edit_image` |
+| Agent framework | **custom ReAct loop** + **MCP client** (`mcp` SDK) | LangGraph for the legacy video pipeline |
+| Publishing | **Buffer** · **Meta Graph API** · **YouTube** | gated OFF by policy |
+| Web (waitlist) | **Next.js** (App Router, static export) → **Cloudflare Pages** | `web/`, `meshpilot.app` |
+| Migrations | **Supabase-native SQL** | `supabase/migrations/*.sql` (Alembic retired) |
+| CI/CD | **GitHub Actions** (drift-aware) | runs on push to `production` |
+| Observability | **Logfire** · **Sentry** · **structlog** | |
+| Secrets / auth | FastAPI Cloud env secrets · **Fernet** (token storage) · **OAuth 2.0** (HeyGen MCP) | per-brand `<PREFIX>_*`, no globals |
+
+---
+
 ## Projects × Capabilities
 
 The agent serves **many brands (projects) at once**, and gains **capabilities**
