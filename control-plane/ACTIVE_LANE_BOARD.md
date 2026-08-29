@@ -5,13 +5,6 @@
 
 ## Active
 
-### BUFFER-1 — extend Buffer publisher to X + LinkedIn          [IN PROGRESS]
-Owner: Claude        Opened: 2026-08-28
-Reading: ARCHITECTURE.md, src/glitch_signal/platforms/buffer.py
-Acceptance: buffer.publish() supports x + linkedin (not just tiktok); reads the Buffer token (reconcile `BUFFER_API_TOKEN` vs the cloud-set `GE_BUFFER_API_KEY`); a scheduled post reaches X and LinkedIn via Buffer; NotImplementedError paths removed for those targets.
-Write-back: ARCHITECTURE.md (Buffer platform matrix + token env name), control-plane/ENGINEERING_SUPERVISOR.md
-Notes: today buffer.py hard-codes tiktok-only (raises NotImplementedError otherwise); X not in its platform map.
-
 ### PRUNE-1 — remove ORM / comment-engagement subsystem          [OPEN]
 Owner: unassigned        Opened: 2026-08-28
 Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/comments/, src/glitch_signal/orm/, src/glitch_signal/scheduler/queue.py
@@ -34,6 +27,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **BUFFER-1 — extend Buffer publisher to X + LinkedIn** (2026-08-28) — per-brand token + all-platform create_post; live-verified: GE channels listed + real X post queued (6a9253af). → supervisor
 
 - **GE-1 — per-brand `GE_` env resolver + Facebook publisher** (2026-08-28) — per-brand resolver + Meta FB publisher live; real FB post verified; GE_JOBS_AUTH_TOKEN gate enforced. → supervisor
 

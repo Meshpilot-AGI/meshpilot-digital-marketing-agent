@@ -22,11 +22,17 @@ endpoint specifics as needing confirmation in **BUFFER-1**.
 - Platform keys: `buffer_tiktok`, `buffer_linkedin`, `buffer_instagram`,
   `buffer_youtube` (brand config).
 
-## Current state / gap (BUFFER-1)
-- `publish()` **only supports TikTok today** — it raises `NotImplementedError`
-  for other targets, and X is not yet in its platform map.
-- BUFFER-1 extends it to **X + LinkedIn**, reconciles the token env name to
-  `<PREFIX>_BUFFER_API_KEY`, and validates the GraphQL calls against Buffer's docs.
+## State (BUFFER-1 done)
+- Token is per-brand via `brand_env("BUFFER_API_KEY")` → `GE_BUFFER_API_KEY` (no global).
+- `create_post(brand, service, text, media_url, mode)` posts to any connected
+  service with **dynamic channel resolution** (`account → organization → channels`,
+  matched by service; x/twitter aliased). No per-platform config needed.
+- GE connected channels (verified live): TikTok `glitchexec`, X `GlitchExecutor`,
+  LinkedIn `glitch-executor` (org `69e4c24477ef919b5a3837d5`). A real X post was
+  queued via `/internal/buffer/test-post`.
+- Endpoints: `/internal/buffer/channels`, `/internal/buffer/test-post` (x-jobs-token).
+- ⚠️ The legacy video `publish()` still reads channel/org id from brand config;
+  `create_post` (the new path) resolves them dynamically.
 
 ## Notes
 - Buffer is **publish-only** — it cannot read comments/mentions. Engagement (if
