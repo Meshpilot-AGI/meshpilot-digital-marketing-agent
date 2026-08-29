@@ -52,3 +52,33 @@ def test_missing_credentials_raises(monkeypatch):
 def test_registry_resolves_higgsfield():
     from glitch_signal.media.generation.engines import get_engine
     assert get_engine("higgsfield").name == "higgsfield"
+
+
+def test_soul_recipe_loads_with_vendor_skill():
+    from glitch_signal.media.generation import get_recipe
+    r = get_recipe("higgsfield-soul-image")
+    assert r.engine == "higgsfield"
+    assert r.phases[0].model == "higgsfield-ai/soul/v2/standard"   # a real account slug
+    assert "higgsfield" in r.skill_md.lower() and len(r.skill_md) > 10_000  # bundled vendor SKILL.md
+
+
+async def test_soul_recipe_routes_to_higgsfield():
+    from glitch_signal.media.generation import generate
+    from glitch_signal.media.generation.spec import Brief
+
+    class _FakeEng:
+        name = "higgsfield"
+
+        def __init__(self):
+            self.call = None
+
+        async def generate(self, model, prompt, *, images=None, params=None, timeout_s=360):
+            self.call = {"model": model, "prompt": prompt, "params": params}
+            return "https://cdn/soul.png"
+
+    eng = _FakeEng()
+    asset = await generate(Brief(brand_id="glitch_executor", recipe="higgsfield-soul-image",
+                                 inputs={"prompt": "a red cube"}), engine=eng)
+    assert eng.call["model"] == "higgsfield-ai/soul/v2/standard"
+    assert eng.call["prompt"] == "a red cube"
+    assert asset.url == "https://cdn/soul.png"

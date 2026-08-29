@@ -1,0 +1,22 @@
+{
+  "slug": "higgsfield-soul-image",
+  "engine": "higgsfield",
+  "description": "Generate an image from a text prompt via Higgsfield Soul 2 (text-to-image). Distilled from the official higgsfield-generate skill; bundled verbatim as SKILL.md.",
+  "triggers": ["higgsfield image", "soul image", "higgsfield soul", "soul 2 image", "higgsfield photo"],
+  "inputs": [
+    {"name": "prompt", "type": "text", "required": true, "description": "What to generate (subject, style, setting)."},
+    {"name": "aspect_ratio", "type": "text", "required": false, "default": "1:1", "description": "e.g. 1:1, 16:9, 9:16."}
+  ],
+  "phases": [
+    {
+      "id": "render",
+      "op": "image.generate",
+      "output": "final_image",
+      "model": "higgsfield-ai/soul/v2/standard",
+      "prompt_mode": "template",
+      "prompt": "{{prompt}}",
+      "params": {"aspect_ratio": "{{aspect_ratio}}"}
+    }
+  ],
+  "returns": "final_image"
+}
