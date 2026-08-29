@@ -1,0 +1,33 @@
+{
+  "slug": "muapi-ugc-video-factory",
+  "description": "Turn a person photo + a product photo + an optional script into a vertical 9:16 UGC-style video ad. Hero image via Nano-Banana Pro Edit, animated with native audio via Seedance 2.0 VIP image-to-video.",
+  "triggers": ["ugc video factory", "ugc video ad", "person plus product video", "talking product ad", "ugc reel", "lifestyle product video", "vertical ugc video"],
+  "inputs": [
+    {"name": "person", "type": "image_url", "required": true, "description": "Photo of the person who will appear in the ad."},
+    {"name": "product", "type": "image_url", "required": true, "description": "Clear photo of the product."},
+    {"name": "script", "type": "text", "required": false, "default": "Okay… first of all, ship happens. And this hat is honestly my favorite. It also comes in navy and black, so you can pick your vibe.", "description": "The exact line the on-screen person will say."},
+    {"name": "environment", "type": "text", "required": false, "default": "study room, laptop in front of it", "description": "Scene / context where the person is using the product."}
+  ],
+  "phases": [
+    {
+      "id": "director_prompt", "op": "llm", "prompt_mode": "llm",
+      "prompt": "Uploaded images are being analyzed. Ultra-realistic lifestyle photography with {{person}} and {{product}} and {{environment}}.\n\nIf the product is wearable (e.g., hat, glasses, hooded sweatshirt), the person wears the product naturally.\n\nIf the product is carried in the hand (e.g., cream, bottle, thermos), the person holds the product naturally.\n\nThe product is clearly visible and is the main focus of the image. The logo or text on the product must be legible.\n\nThe person has a natural and modern look with a minimalist style.\n\nThe scene is consistent with the context of the product's use: {{environment}}.\n\nLighting: soft natural daylight.\nBackground: clean, aesthetic, slightly blurred (shallow depth of field).\nStyle: high-end commercial lifestyle photography, realistic textures, 4K quality, vertical 9:16 composition, social-media advertising style. The person's facial details and the product must remain unchanged.",
+      "output": "step1_prompt"
+    },
+    {
+      "id": "hero_image", "op": "image.edit", "model": "nano-banana-pro-edit", "prompt_mode": "template",
+      "prompt": "{{step1_prompt}}",
+      "images": ["{{person}}", "{{product}}"],
+      "params": {"aspect_ratio": "9:16", "num_images": 1, "resolution": "1K", "output_format": "jpeg"},
+      "output": "hero_image"
+    },
+    {
+      "id": "ugc_video", "op": "video.from_image", "model": "seedance-2-vip-image-to-video", "prompt_mode": "template",
+      "prompt": "Create a 10-second vertical UGC-style video (9:16).\n\nA person is interacting naturally with their setting and product.\n\nThe product is used naturally:\n- If wearable → the person is wearing it.\n- If handheld → the person is holding or applying it.\n\nThe video is a single, uninterrupted shot. No cuts. No color changes. No text on screen.\n\nThe person looks directly at the camera with a relaxed and natural expression.\nThey interact comfortably with the product using their hands (adjusting, holding, pointing).\n\nThey say in a natural, conversational tone:\n\n\"{{script}}\"\n\nSubtle hand gestures while speaking.\nEnd with a small smile or nod.\n\nStyle: authentic UGC, handheld phone feel, light natural movement, soft daylight, shallow depth of field, TikTok/Reels aesthetic.",
+      "images": ["{{hero_image}}"],
+      "params": {"aspect_ratio": "9:16", "duration": 10, "generate_audio": true, "cfg_scale": 0.5, "negative_prompt": "blur, distort, low quality"},
+      "output": "final_video"
+    }
+  ],
+  "returns": "final_video"
+}
