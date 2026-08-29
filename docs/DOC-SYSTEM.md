@@ -31,6 +31,7 @@ precedence, so an agent never guesses where the truth lives.
 | `control-plane/SESSION_COORDINATION.md` | who's active now | sessions start/stop |
 | `control-plane/ENGINEERING_SUPERVISOR.md` | evidence log | every lane close |
 | `ARCHITECTURE.md` | the agent's internal design — pipeline, publishers, scheduler, DB, brand/env conventions | a component, integration, or the `GE_`-prefixed per-brand env contract changes |
+| `docs/plans/2026-08-28-phase1-source-to-publish.md` | the Phase-1 scope: source→publish, no ORM; what's kept vs removed; lane order | the phase scope changes (retire when the phase closes) |
 
 ### Add your repo's spoke docs here
 

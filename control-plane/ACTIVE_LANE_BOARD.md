@@ -19,6 +19,20 @@ Acceptance: buffer.publish() supports x + linkedin (not just tiktok); reads the 
 Write-back: ARCHITECTURE.md (Buffer platform matrix + token env name), control-plane/ENGINEERING_SUPERVISOR.md
 Notes: today buffer.py hard-codes tiktok-only (raises NotImplementedError otherwise); X not in its platform map.
 
+### PRUNE-1 — remove ORM / comment-engagement subsystem          [OPEN]
+Owner: unassigned        Opened: 2026-08-28
+Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/comments/, src/glitch_signal/orm/, src/glitch_signal/scheduler/queue.py
+Acceptance: comments/ + orm/ + x-engagement (x_sweeper, integrations/x engagement use) removed; scheduler ORM ticks removed from queue.py; app imports + boots; /healthz 200; suite green. Independent of GE-1/BUFFER-1 — safe deletion.
+Write-back: ARCHITECTURE.md, control-plane/ENGINEERING_SUPERVISOR.md
+Notes: Phase 1 is source→publish only; engagement is out of scope (see plan).
+
+### VENDOR-1 — remove Upload-Post + redundant direct integrations; re-point sources          [OPEN]
+Owner: unassigned        Opened: 2026-08-28
+Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/platforms/, src/glitch_signal/sheet_posting/, src/glitch_signal/agent/nodes/publisher.py
+Acceptance: platforms/upload_post.py + webhooks/analytics/onboarding upload_post removed; tiktok/twitter/instagram + integrations/linkedin removed; orphaned TikTok OAuth removed; publisher.py + _PUBLISH_PRIORITY route only to Buffer/Meta/YouTube; DB scheduler + sheet_posting publish through them; suite green; a real post verified per platform.
+Write-back: ARCHITECTURE.md, control-plane/ENGINEERING_SUPERVISOR.md
+Notes: BLOCKED until GE-1 + BUFFER-1 land (can't re-point onto Buffer/Meta until they can do the job). Keep platforms/youtube.py.
+
 ## Recently closed
 
 - **DEPLOY-1 — resolve `upload-post` private dep + first FastAPI Cloud deploy** (2026-08-28) — live + /healthz 200 at meshpilot-social-media-agent.fastapicloud.dev; DB migrated (us-east-2). → supervisor
