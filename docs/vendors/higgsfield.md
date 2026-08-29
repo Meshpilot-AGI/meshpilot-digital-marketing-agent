@@ -2,6 +2,14 @@
 
 Behind the same `Engine` protocol as MUapi and HeyGen, via the official `higgsfield-client` SDK.
 
+## What we can do today
+
+Higgsfield's **own** models only (8 on the API): **Soul** text→image (recipe `higgsfield-soul-image`,
+verified live), **DoP** video (`dop/standard`, `dop/turbo`, `dop/lite`, each with a `first-last-frame`
+variant), **Soul Cinema**, and **Popcorn Auto**. **Not** a source for Seedance / GPT-Image / Recraft —
+those aren't on the Higgsfield API (they're CLI/Marketing-Studio only); use **MUapi** for them. See
+[README.md](README.md).
+
 ## Keys (global infra, FastAPI Cloud secrets)
 
 - `HIGGSFIELD_API_KEY` and `HIGGSFIELD_API_SECRET` — the SDK credential is the pair joined as
