@@ -2,6 +2,18 @@
 
 **Date:** 2026-08-29 · **Status:** ALL 4 INCREMENTS DONE (AGENT-MEM + LOOP + POLICY + LEARN, verified live) · **Method:** brainstorming → spec → build
 
+## LLM routing (who uses which model)
+
+- **Agent BRAIN (runtime): Claude.** The ReAct loop and the curator use `agent/loop/llm.py`
+  (Anthropic Messages API, synchronous) — they need a fast multi-step reasoner. `complete()`
+  for the loop/curator; `complete_messages()` (OpenAI-style + multimodal converter) for vision.
+- **Content pipeline: MUapi.** All text/caption generation (nodes, media, sheet_posting,
+  influencer) goes through `agent/llm.py` → `chat()` → MUapi text-to-text (one `MUAPI_API_KEY`,
+  same gateway as image/video). The old multi-provider LiteLLM router is retired.
+- **One exception — vision QC on Claude:** `nodes/quality_check.py` analyzes base64 video frames,
+  which MUapi text-to-text can't do, so it calls `brain_llm.complete_messages()` (Claude vision).
+- `nodes/caption_writer._generate_via_vision` uses `google-genai` directly (video modality).
+
 ## Goal
 
 Turn the current agent from a **fixed LangGraph video pipeline** (scout → script →

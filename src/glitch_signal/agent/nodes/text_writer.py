@@ -17,16 +17,9 @@ import pathlib
 import uuid
 from datetime import UTC, datetime, timedelta
 
-import litellm
 import structlog
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent import llm as agent_llm
 from glitch_signal.agent.state import SignalAgentState
 from glitch_signal.config import brand_config, settings
 from glitch_signal.db.models import ContentScript, ScheduledPost, Signal
@@ -344,22 +337,9 @@ async def text_writer_node(state: SignalAgentState) -> SignalAgentState:
 # LLM call (with retry for Gemini 503 bursts)
 # ---------------------------------------------------------------------------
 
-@retry(
-    reraise=True,
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type(
-        (litellm.ServiceUnavailableError, litellm.RateLimitError, litellm.APIConnectionError)
-    ),
-)
-async def _call_llm(mc, messages: list[dict]) -> str:
-    resp = await litellm.acompletion(
-        model=mc.model,
-        messages=messages,
-        max_tokens=4096,        # headroom for Gemini thinking tokens
-        **mc.kwargs,
-    )
-    return (resp.choices[0].message.content or "").strip()
+async def _call_llm(tier: str, messages: list[dict]) -> str:
+    raw = await agent_llm.chat(messages, tier=tier, max_tokens=4096)
+    return (raw or "").strip()
 
 
 async def _write_post(
@@ -390,12 +370,11 @@ async def _write_post(
     # reliably by smart-tier models.
     s_ = settings()
     tier = "smart" if (s_.openai_api_key or s_.anthropic_api_key) else "cheap"
-    mc = pick(tier)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
-    raw = await _call_llm(mc, messages)
+    raw = await _call_llm(tier, messages)
     body = _extract_body(raw)
 
     # Post-hoc forbidden-terms check. If the LLM slipped hype adjectives,
@@ -422,7 +401,7 @@ async def _write_post(
             {"role": "assistant", "content": body},
             {"role": "user", "content": ban_msg},
         ]
-        raw = await _call_llm(mc, retry_messages)
+        raw = await _call_llm(tier, retry_messages)
         body = _extract_body(raw)
         second_hits = _forbidden_hits(body)
         if second_hits:

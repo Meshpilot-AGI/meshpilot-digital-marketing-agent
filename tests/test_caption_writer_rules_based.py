@@ -101,19 +101,13 @@ class TestRulesBasedPromptComposition:
 
         captured_messages = []
 
-        class _FakeChoice:
-            def __init__(self, content): self.message = type("M", (), {"content": content})
-
-        class _FakeResp:
-            def __init__(self, content): self.choices = [_FakeChoice(content)]
-
-        async def fake_acompletion(**kwargs):
-            captured_messages.extend(kwargs["messages"])
-            return _FakeResp('{"title": "t", "caption": "c", "hashtags": ["x"]}')
+        async def fake_chat(messages, **kwargs):
+            captured_messages.extend(messages)
+            return '{"title": "t", "caption": "c", "hashtags": ["x"]}'
 
         monkeypatch.setattr(
-            "glitch_signal.agent.nodes.caption_writer.litellm.acompletion",
-            fake_acompletion,
+            "glitch_signal.agent.nodes.caption_writer.agent_llm.chat",
+            fake_chat,
         )
 
         data = await cw._generate_via_rules_based(
@@ -136,17 +130,12 @@ class TestRulesBasedPromptComposition:
     async def test_missing_catalog_logs_but_does_not_raise(self, tmp_path, monkeypatch):
         from glitch_signal.agent.nodes import caption_writer as cw
 
-        async def fake_acompletion(**kwargs):
-            class _M:
-                content = '{"title":"t","caption":"c","hashtags":[]}'
-            class _C:
-                message = _M()
-            class _R:
-                choices = [_C()]
-            return _R()
+        async def fake_chat(messages, **kwargs):
+            return '{"title":"t","caption":"c","hashtags":[]}'
+
         monkeypatch.setattr(
-            "glitch_signal.agent.nodes.caption_writer.litellm.acompletion",
-            fake_acompletion,
+            "glitch_signal.agent.nodes.caption_writer.agent_llm.chat",
+            fake_chat,
         )
 
         data = await cw._generate_via_rules_based(
@@ -164,20 +153,13 @@ class TestRulesBasedPromptComposition:
 
         captured_messages = []
 
-        class _Resp:
-            class _C:
-                class _M:
-                    content = '{"title":"t","caption":"c","hashtags":[]}'
-                message = _M()
-            choices = [_C()]
-
-        async def fake_acompletion(**kwargs):
-            captured_messages.extend(kwargs["messages"])
-            return _Resp()
+        async def fake_chat(messages, **kwargs):
+            captured_messages.extend(messages)
+            return '{"title":"t","caption":"c","hashtags":[]}'
 
         monkeypatch.setattr(
-            "glitch_signal.agent.nodes.caption_writer.litellm.acompletion",
-            fake_acompletion,
+            "glitch_signal.agent.nodes.caption_writer.agent_llm.chat",
+            fake_chat,
         )
 
         await cw._generate_via_rules_based(
