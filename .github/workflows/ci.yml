@@ -1,7 +1,10 @@
 name: CI
+# CI (the Python check) gates ONLY the promotion to production, i.e. PRs whose
+# base is `production` (in practice: preview -> production release PRs). Lane ->
+# preview merges are intentionally ungated for fast iteration.
 on:
   pull_request:
-    branches: [production, preview]
+    branches: [production]
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
