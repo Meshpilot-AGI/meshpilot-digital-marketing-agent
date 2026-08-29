@@ -17,9 +17,9 @@ Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS co
 ### AGENT-BRAIN — memory-first, self-improving agent (Hermes/OpenClaw patterns on our stack)
 Reading: docs/plans/2026-08-29-agent-brain.md
 - **AGENT-MEM** — per-brand Supabase memory (facts+episodes, hybrid pgvector+FTS recall, NVIDIA embeddings). **[CLOSED 2026-08-29]**
-- **AGENT-LOOP** — muapi-LLM loop: recall context → plan → call capability-tools → verify → write episode. [OPEN, next]
-- **AGENT-POLICY** — action gate (allow/deny before execution; posting stays off). [OPEN]
-- **AGENT-LEARN** — curator: distill episodes → durable facts + new/updated skills. [OPEN]
+- **AGENT-LOOP** — Claude ReAct loop: recall context → plan → call capability-tools → verify → write episode; backgrounded, DB-backed runs. **[CLOSED 2026-08-29]**
+- **AGENT-POLICY** — deterministic action gate (per-brand deny, MCP default-deny, publish kill-switch, per-run media budget). **[CLOSED 2026-08-29]**
+- **AGENT-LEARN** — curator: distill episodes → durable facts (nightly self-cron job). **[CLOSED 2026-08-29]**
 - **AGENT-CRON** — self-cron (the agent schedules its own future work). **[CLOSED 2026-08-29 — see Recently closed]**
 
 ## Recently closed
