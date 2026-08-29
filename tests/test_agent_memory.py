@@ -182,6 +182,6 @@ async def test_recall_hybrid_and_bumps_last_used():
 async def test_recall_kind_filter():
     eng = FakeEngine()
     eng.queue(_Result(rows=[]))
-    await store.recall("glitch_executor", "q", kinds=["fact"], embed_fn=_fake_embed, engine=eng)
+    await store.recall("glitch_executor", "q", kinds=["fact", "bogus"], embed_fn=_fake_embed, engine=eng)
     sql, params = eng.calls[0]
-    assert "kind = ANY(:kinds)" in sql and params["kinds"] == ["fact"]
+    assert "string_to_array(:kinds_csv" in sql and params["kinds_csv"] == "fact"  # invalid kind filtered

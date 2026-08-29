@@ -15,7 +15,7 @@ import json
 from typing import Any, Awaitable, Callable, Sequence
 
 import structlog
-from sqlalchemy import text
+from sqlalchemy import String, bindparam, text
 
 from glitch_signal.agent.memory import embeddings as emb
 from glitch_signal.agent.memory.spec import Memory
@@ -121,32 +121,36 @@ async def recall(
 ) -> list[Memory]:
     """Return top-k memories for a brand by fused semantic + lexical relevance."""
     qvec = await _embed_or_none(query, "query", embed_fn)
-    sem = "CASE WHEN embedding IS NULL OR :qvec IS NULL THEN 0 ELSE 1 - (embedding <=> CAST(:qvec AS halfvec)) END"
+    # :qvec bound as text (String) so asyncpg can type it; text -> halfvec via CAST.
+    sem = "(CASE WHEN embedding IS NULL OR :qvec IS NULL THEN 0 ELSE 1 - (embedding <=> CAST(:qvec AS halfvec)) END)"
     lex = "ts_rank(to_tsvector('english', content), plainto_tsquery('english', :q))"
     kind_clause = ""
     params: dict[str, Any] = {"brand": brand_id, "qvec": qvec, "q": query, "k": k,
                               "w_sem": W_SEM, "w_lex": W_LEX}
     if kinds:
-        kind_clause = "AND kind = ANY(:kinds)"
-        params["kinds"] = list(kinds)
+        valid = [k2 for k2 in kinds if k2 in ("fact", "episode")]
+        kind_clause = "AND kind = ANY(string_to_array(:kinds_csv, ',')::text[])"
+        params["kinds_csv"] = ",".join(valid)
     sql = text(f"""
         SELECT id, brand_id, kind, key, content, metadata, importance, source,
                created_at, last_used_at,
                {sem} AS semantic, {lex} AS lexical,
-               (:w_sem * ({sem}) + :w_lex * ({lex})) AS score
+               (:w_sem * {sem} + :w_lex * {lex}) AS score
         FROM agent_memory
         WHERE brand_id = :brand {kind_clause}
         ORDER BY score DESC, importance DESC, created_at DESC
         LIMIT :k
-    """)
+    """).bindparams(bindparam("qvec", type_=String))
     eng = engine or _engine()
     async with eng.connect() as conn:
         rows = (await conn.execute(sql, params)).fetchall()
         mems = [_row_to_memory(r) for r in rows]
         if mems:
             await conn.execute(
-                text("UPDATE agent_memory SET last_used_at = now() WHERE id = ANY(:ids)"),
-                {"ids": [m.id for m in mems]},
+                text("UPDATE agent_memory SET last_used_at = now() "
+                     "WHERE id = ANY(string_to_array(:ids_csv, ',')::uuid[])")
+                .bindparams(bindparam("ids_csv", type_=String)),
+                {"ids_csv": ",".join(m.id for m in mems)},
             )
             await conn.commit()
     return mems
