@@ -325,3 +325,25 @@ class TestConfig:
         from glitch_signal.config import Settings
         s = Settings(github_repos="glitch-cod-confirm,glitch-grow-ads-agent")
         assert s.github_repo_list == ["glitch-cod-confirm", "glitch-grow-ads-agent"]
+
+
+def test_lifespan_runs_startup_and_shutdown(monkeypatch):
+    # #107: startup/shutdown now run via the lifespan context manager (not deprecated on_event).
+    from fastapi.testclient import TestClient
+
+    import glitch_signal.server as server
+
+    events = []
+    monkeypatch.setattr(server, "get_graph", lambda: "graph", raising=False)
+
+    async def _start():
+        events.append("start")
+
+    async def _stop():
+        events.append("stop")
+
+    monkeypatch.setattr(server, "_on_startup", _start)
+    monkeypatch.setattr(server, "_on_shutdown", _stop)
+    with TestClient(server.app):
+        pass  # entering/exiting the context drives lifespan
+    assert events == ["start", "stop"]

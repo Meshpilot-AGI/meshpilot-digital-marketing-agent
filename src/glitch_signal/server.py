@@ -27,6 +27,20 @@ from glitch_signal.db.session import _session_factory
 
 log = structlog.get_logger(__name__)
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """App lifecycle (replaces the deprecated @app.on_event startup/shutdown). `_on_startup` /
+    `_on_shutdown` are defined below — resolved at run time, not import time."""
+    await _on_startup()
+    try:
+        yield
+    finally:
+        await _on_shutdown()
+
+
 # Interactive docs expose the entire route map (incl. /internal + /jobs shapes). Keep them OFF in
 # production; enable only when ENABLE_API_DOCS=true (local/dev). openapi_url gates /docs + /redoc too.
 _docs_on = bool(getattr(settings(), "enable_api_docs", False))
@@ -34,6 +48,7 @@ app = FastAPI(
     title="Glitch Social Media Agent",
     version=__version__,
     description="Autonomous social video + ORM agent for Glitch Executor.",
+    lifespan=lifespan,
     docs_url="/docs" if _docs_on else None,
     redoc_url="/redoc" if _docs_on else None,
     openapi_url="/openapi.json" if _docs_on else None,
@@ -101,8 +116,7 @@ async def _oauth_keepalive() -> None:
                 log.info("oauth.keepalive_skipped provider=%s reason=%s", provider, str(exc)[:120])
 
 
-@app.on_event("startup")
-async def startup() -> None:
+async def _on_startup() -> None:
     global _graph
 
     # #98: the origin gate + IP-trust both fail open without ORIGIN_SHARED_SECRET — warn loudly so a
@@ -135,8 +149,7 @@ async def startup() -> None:
     log.info("glitch_signal.started", version=__version__, port=3111)
 
 
-@app.on_event("shutdown")
-async def shutdown() -> None:
+async def _on_shutdown() -> None:
     from glitch_signal.scheduler.queue import stop as stop_scheduler
     stop_scheduler()
 
