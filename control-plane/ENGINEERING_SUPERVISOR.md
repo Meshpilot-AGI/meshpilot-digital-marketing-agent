@@ -347,3 +347,14 @@
 **Remains:** the media recipe library (separate, already present) and the playbook library are distinct; a future "skill-workshop" (agent authors its own playbooks) is a possible follow-on (OpenClaw pattern).
 
 ---
+
+### CONTENT-POLICY — zero AI footprints in all content — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Changed:** new `src/glitch_signal/content_policy.py` — `strip_footprints` (deterministic: em/en/bar dashes + double-hyphen → comma, en-dash number ranges → hyphen, smart quotes + ellipsis-char normalized, seams tidied), `scan_footprints` (flags filler words [leverage/seamless/robust/elevate/unlock/…], "not only…but also", remaining dashes, cliché phrases), `enforce`. Applied in `agent/nodes/caption_writer.py` to the caption + title before storing (both the LLM and human-sheet paths), logging any tells that remain. New loop tool `polish_copy` (mandatory before finalizing content). `SOUL.md` gains a non-negotiable "Content policy — zero AI footprints" section. `prompt.py` gains an anti-repeat rule (don't re-call a tool with the same input) to stop the cheap loop model over-calling verification tools.
+
+**Verified:** suite **431 pass** (13 content-policy tests). Live: an agent caption run used `polish_copy` + consulted `social-copy` and returned a caption with zero em/en-dashes. The deterministic node-gate guarantees the caption pipeline is clean regardless of agent behavior; `polish_copy` + the SOUL rule cover agent-generated content.
+
+**Remains:** the standalone sheet-poster path posts operator-authored captions directly (not through caption_writer) — left unsanitized on purpose (operator authorship); extend if the policy should override human text too. A future publish-time gate would be the single strongest chokepoint once publishing is enabled.
+
+---
