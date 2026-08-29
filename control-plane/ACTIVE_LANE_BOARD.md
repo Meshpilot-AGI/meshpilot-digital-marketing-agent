@@ -21,6 +21,8 @@ Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS co
 
 ## Recently closed
 
+- **SUPA-MIGRATE — Supabase-native migrations, retire Alembic (DB-OPT pt 1)** (2026-08-29) — `supabase/config.toml` + idempotent baseline `migrations/…_init_schema.sql` (from models, no-op on prod, builds fresh shadow DBs); deleted alembic/ + db-migrate.yml + the dep; ci.yml db job now `psql`-applies the SQL migrations from scratch. Validated no-op against live DB (MCP); suite 301 pass. **Remains:** schema-slim (drop unused ORM/video tables) as new supabase migrations; watch the Supabase integration's first apply. → supervisor
+
 - **PRUNE-1 — remove ORM / comment-engagement subsystem** (2026-08-29) — deleted `comments/` (sweeper, strategic, x_sweeper) + `orm/` (classifier, guardrails, monitor, responder); stripped the 3 engagement ticks (`_send_orm_auto_responses`, `_poll_orm_mentions`, `_sweep_comments_tick`) from scheduler/queue.py + the unused OrmResponse import; removed the 9 ORM tests. App boots; full suite 301 pass. Phase 1 = source→publish only. Unblocks VENDOR-1 (engagement no longer imports x/linkedin/upload_post). → supervisor
 
 - **STORAGE-1 — persist generated media to per-brand Supabase buckets** (2026-08-29) — every generated asset downloaded from muapi (URLs expire ~30d) and re-uploaded to the brand's own bucket `<env_prefix>-media` (GE → ge-media), created idempotently; endpoint returns the durable Supabase public URL (muapi URL in metadata.source_url). Storage REST API + service key over httpx, no new dep. New POST /internal/media/ensure-bucket. 6 tests; full suite 310 pass; **verified live** (ge-media created; logo persisted → …/public/ge-media/…png HTTP 200). → supervisor
