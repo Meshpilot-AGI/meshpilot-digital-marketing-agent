@@ -49,6 +49,31 @@ control-plane → supervisor evidence → generated `_meta/*` (aids only) →
 codebase → prior chat. When sources disagree, the higher wins. Never leave a
 key decision only in chat.
 
+## Branches & promotion (THIS repo — read before any git work)
+
+This repo has no `main`. Two long-lived branches:
+
+- **`production`** — the real deploy branch. It is the GitHub **default** branch,
+  and FastAPI Cloud auto-deploys it on every push. Protected: never commit
+  directly, never target lanes here. Only deliberate promotions land.
+- **`preview`** — the everyday **integration** branch (it plays the role `main`
+  normally plays). Docs and non-critical edits live here and may simply stay.
+
+Flow:
+
+1. **Lane branches** (`lane/*`, `agent/*`) branch off **`preview`** and PR **into
+   `preview`**. These merges are **not** CI-gated — fast iteration.
+   ⚠️ Never name a lane `*-production` — the `~/dev` commit-guard treats any
+   `*production` branch as a protected deploy branch and blocks commits on it.
+2. **Release = promote `preview` → `production`** via PR. This is the **only**
+   place the Python CI (`uv sync` + `pytest`) runs — it gates the promotion.
+   Merging it auto-deploys production.
+3. If a change does **not** need to go live, it just stays on `preview`.
+
+Pushing anything under `.github/workflows/**` needs a `gh` account with the
+`workflow` scope (`floating-astronaut`); repo-admin ops (e.g. branch rename)
+need the owner (`xenon2512`). Switch with `gh auth switch --user <x>`.
+
 ## Guardrails
 
 - Never print or commit secrets; keep real keys in local ignored files.

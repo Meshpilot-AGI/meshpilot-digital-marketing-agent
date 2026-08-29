@@ -11,6 +11,11 @@
       "pattern": "^[a-z][a-z0-9_]*$",
       "description": "Stable, kebab/snake-case identifier. Must match the config filename stem (e.g. 'glitch_executor' for brand/configs/glitch_executor.json)."
     },
+    "env_prefix": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*$",
+      "description": "Env-key prefix for this project's per-brand credentials, e.g. 'GE' -> GE_META_APP_ID. Every capability reads secrets as <env_prefix>_<KEY>; there are no global keys."
+    },
     "display_name": {
       "type": "string",
       "minLength": 1

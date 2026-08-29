@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # GitHub Actions — keeps workflow action versions current (e.g. avoids the
+  # Node 20 deprecation on checkout / setup-uv recurring).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # Flow updates through our integration branch, not straight to the deploy branch.
+    target-branch: "preview"
+    commit-message:
+      prefix: "ci"
+
+  # Python dependencies (uv — pyproject.toml + uv.lock).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    target-branch: "preview"
+    commit-message:
+      prefix: "deps"

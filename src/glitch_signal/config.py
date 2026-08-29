@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import pathlib
 from functools import lru_cache
 from typing import Any
@@ -178,6 +179,11 @@ class Settings(BaseSettings):
     ig_access_token: str = ""
     ig_user_id: str = ""
 
+    # --- Meta (Facebook / Instagram) Graph API ---
+    # Version is a platform constant (not per-brand). Per-brand creds
+    # (page id, IG user id, system-user token) resolve via brand_env().
+    meta_graph_api_version: str = "v21.0"
+
     # --- Storage ---
     video_storage_path: str = "/var/lib/glitch-signal/videos"
 
@@ -233,12 +239,6 @@ class Settings(BaseSettings):
     make_api_base: str = "https://us2.make.com/api/v2"
     make_org_id: str = ""
     make_api_token: str = ""
-
-    # --- Zernio (audited multi-platform social-posting API) ---
-    # Used as a parallel publisher ("zernio_tiktok", "zernio_instagram", …)
-    # when our own per-platform dev apps are unaudited. See platforms/zernio.py.
-    zernio_api_key: str = ""
-    zernio_base_url: str = "https://zernio.com/api"
 
     # --- Upload-Post (alternative audited multi-platform vendor) ---
     # Cheaper than Zernio at real volume. Platform keys: "upload_post_tiktok",
@@ -464,6 +464,31 @@ def brand_config(brand_id: str | None = None) -> dict:
     return cfg
 
 
+def brand_env_prefix(brand_id: str | None = None) -> str | None:
+    """The env-key prefix declared by a brand's config (e.g. "GE"), or None."""
+    prefix = brand_config(brand_id).get("env_prefix")
+    return prefix or None
+
+
+def brand_env(name: str, brand_id: str | None = None, default: str = "") -> str:
+    """Resolve a per-brand credential/config value from the environment.
+
+    This is the ONE way capabilities read project-scoped secrets. Every value
+    is looked up as ``<ENV_PREFIX>_<name>`` where the prefix comes from the
+    brand's config (`env_prefix`). There are no global keys: a project brings
+    its own `<TAG>_*` set, and a new project just declares its own prefix.
+
+    Returns `default` when the brand declares no prefix or the var is unset.
+
+        brand_env("META_APP_ID")               # -> os.environ["GE_META_APP_ID"]
+        brand_env("BUFFER_API_KEY", "acme")     # -> os.environ["ACME_BUFFER_API_KEY"]
+    """
+    prefix = brand_env_prefix(brand_id)
+    if not prefix:
+        return default
+    return os.environ.get(f"{prefix}_{name}", default)
+
+
 # Priority order for picking a publisher when a brand has multiple enabled.
 # Upload-Post is preferred — it's audited, cheap, and gives us access to
 # 10+ platforms under one integration. Zernio is the fallback (also
@@ -476,11 +501,11 @@ def brand_config(brand_id: str | None = None) -> dict:
 # file URL untouched and the audio plays everywhere. Diagnosed 2026-04-19
 # with A/B posts of the same byte-identical file. See platforms/buffer.py.
 _PUBLISH_PRIORITY = {
-    "tiktok":    ["buffer_tiktok", "upload_post_tiktok", "zernio_tiktok", "tiktok"],
-    "instagram": ["upload_post_instagram", "zernio_instagram", "instagram_reels"],
-    "youtube":   ["upload_post_youtube", "zernio_youtube", "youtube_shorts"],
-    "facebook":  ["upload_post_facebook", "zernio_facebook"],
-    "x":         ["upload_post_x", "zernio_twitter", "twitter"],
+    "tiktok":    ["buffer_tiktok", "upload_post_tiktok", "tiktok"],
+    "instagram": ["upload_post_instagram", "instagram_reels"],
+    "youtube":   ["upload_post_youtube", "youtube_shorts"],
+    "facebook":  ["upload_post_facebook"],
+    "x":         ["upload_post_x", "twitter"],
     "threads":   ["upload_post_threads"],
     "pinterest": ["upload_post_pinterest"],
     "bluesky":   ["upload_post_bluesky"],
@@ -521,6 +546,10 @@ def _default_brand_config() -> dict[str, Any]:
     return {
         "brand_id": s.default_brand_id,
         "display_name": "Glitch Social Media Agent",
+        # Per-project env-key prefix. Every credential this brand uses is read
+        # as <ENV_PREFIX>_<KEY> (e.g. GE_META_APP_ID). A new project declares
+        # its own prefix in its brand config; there are no global keys.
+        "env_prefix": "GE",
         "timezone": "UTC",
         "content_source": "ai_generated",
         "brand": {

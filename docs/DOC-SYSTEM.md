@@ -30,7 +30,21 @@ precedence, so an agent never guesses where the truth lives.
 | `control-plane/ACTIVE_LANE_BOARD.md` | the live work queue | every lane state change |
 | `control-plane/SESSION_COORDINATION.md` | who's active now | sessions start/stop |
 | `control-plane/ENGINEERING_SUPERVISOR.md` | evidence log | every lane close |
+| `docs/VISION.md` | the north star — cloud agent, Projects × Capabilities, runs-on-app, per-project keys | the product vision or a core principle shifts |
+| `docs/BRANDS.md` | the brand registry — which projects/brands are onboarded, their tags, keys, status | a brand is onboarded/retired or its wiring changes |
+| `docs/vendors/*.md` | vendor runbooks — how WE operate each vendor (Meta, Buffer, FastAPI Cloud, Supabase); validated against official docs | a vendor integration or our usage of it changes |
+
+## Docs layout (keep it from sprawling)
+
+- **`docs/` root** — the stable, small control set: this map (`DOC-SYSTEM.md`),
+  `VISION.md`, `BRANDS.md`, and the method docs (`THE-METHOD`, `AGENT-SYNC-PROTOCOL`,
+  `ROLES`, `LANE-LIFECYCLE`). These don't grow.
+- **`docs/vendors/`** — one runbook per vendor. Add a file when we adopt a vendor.
+- **`docs/plans/`** — time-bound plans (dated filenames), retired when the phase closes.
+- Future growing categories get their own folder (e.g. `docs/adr/` for decision
+  records) — register the folder here when you create it.
 | `ARCHITECTURE.md` | the agent's internal design — pipeline, publishers, scheduler, DB, brand/env conventions | a component, integration, or the `GE_`-prefixed per-brand env contract changes |
+| `docs/plans/2026-08-28-phase1-source-to-publish.md` | the Phase-1 scope: source→publish, no ORM; what's kept vs removed; lane order | the phase scope changes (retire when the phase closes) |
 
 ### Add your repo's spoke docs here
 

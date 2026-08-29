@@ -1,7 +1,10 @@
 name: CI
+# CI (the Python check) gates ONLY the promotion to production, i.e. PRs whose
+# base is `production` (in practice: preview -> production release PRs). Lane ->
+# preview merges are intentionally ungated for fast iteration.
 on:
   pull_request:
-    branches: [production, preview]
+    branches: [production]
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -11,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
       - name: Install deps
-        run: uv sync
+        run: uv sync --extra dev   # pytest/ruff live in the dev extra
       - name: Import smoke test (deploy entrypoint loads)
         # Proves FastAPI Cloud can import the app. Config has all-default
         # settings, so no env is required just to import.

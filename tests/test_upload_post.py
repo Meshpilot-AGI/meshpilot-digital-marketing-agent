@@ -289,8 +289,8 @@ class TestPollStatusForRequest:
 
 
 class TestResolvePublishPlatform:
-    """Brand config drives which publisher wins. Upload-Post beats Zernio
-    beats direct. If nothing is enabled, raise clearly."""
+    """Brand config drives which publisher wins. Upload-Post beats direct.
+    If nothing is enabled, raise clearly."""
 
     def _write_brand(self, configs_dir, brand_id: str, platforms: dict):
         import json
@@ -301,12 +301,11 @@ class TestResolvePublishPlatform:
             "platforms": platforms,
         }))
 
-    def test_upload_post_beats_zernio(self, tmp_path, monkeypatch):
+    def test_upload_post_beats_direct(self, tmp_path, monkeypatch):
         configs = tmp_path / "configs"
         configs.mkdir()
         self._write_brand(configs, "drive_brand", {
             "upload_post_tiktok": {"enabled": True, "user": "MyBrand"},
-            "zernio_tiktok":      {"enabled": True, "account_id": "z1"},
             "tiktok":             {"enabled": True},
         })
         monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
@@ -318,29 +317,11 @@ class TestResolvePublishPlatform:
 
         assert cfg.resolve_publish_platform("drive_brand", "tiktok") == "upload_post_tiktok"
 
-    def test_falls_back_to_zernio(self, tmp_path, monkeypatch):
-        configs = tmp_path / "configs"
-        configs.mkdir()
-        self._write_brand(configs, "drive_brand", {
-            "upload_post_tiktok": {"enabled": False},
-            "zernio_tiktok":      {"enabled": True, "account_id": "z1"},
-            "tiktok":             {"enabled": True},
-        })
-        monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
-        monkeypatch.setenv("DEFAULT_BRAND_ID", "drive_brand")
-
-        from glitch_signal import config as cfg
-        cfg.settings.cache_clear()
-        cfg._reset_brand_registry_for_tests()
-
-        assert cfg.resolve_publish_platform("drive_brand", "tiktok") == "zernio_tiktok"
-
     def test_falls_back_to_direct(self, tmp_path, monkeypatch):
         configs = tmp_path / "configs"
         configs.mkdir()
         self._write_brand(configs, "drive_brand", {
             "upload_post_tiktok": {"enabled": False},
-            "zernio_tiktok":      {"enabled": False},
             "tiktok":             {"enabled": True},
         })
         monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
