@@ -7,8 +7,8 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    # Flow updates through our integration branch, not straight to the deploy branch.
-    target-branch: "preview"
+    # Single trunk: updates open as PRs against production (drift-aware CI gates them).
+    target-branch: "production"
     commit-message:
       prefix: "ci"
 
@@ -18,6 +18,6 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    target-branch: "preview"
+    target-branch: "production"
     commit-message:
       prefix: "deps"

@@ -1,16 +1,42 @@
 name: CI
-# CI (the Python check) gates ONLY the promotion to production, i.e. PRs whose
-# base is `production` (in practice: preview -> production release PRs). Lane ->
-# preview merges are intentionally ungated for fast iteration.
+# Drift-aware gate on PRs to `production` (the single trunk — no `preview`).
+# A `changes` job diffs the PR and only runs what actually drifted:
+#   - API code changed  -> import smoke + pytest
+#   - web/ changed      -> Next.js build (type-checks the frontend)
+#   - only docs/logs    -> nothing runs, the PR passes fast.
 on:
   pull_request:
     branches: [production]
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # need the base commit to diff against
+      - id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          files=$(git diff --name-only "$BASE_SHA"...HEAD)
+          echo "changed files:"; echo "$files"
+          api=false; web=false
+          if echo "$files" | grep -qE '^(src/|main\.py$|pyproject\.toml$|uv\.lock$|alembic/|alembic\.ini$|tests/)'; then api=true; fi
+          if echo "$files" | grep -qE '^web/'; then web=true; fi
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "=> api=$api web=$web"
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -19,8 +45,24 @@ jobs:
       - name: Install deps
         run: uv sync --extra dev   # pytest/ruff live in the dev extra
       - name: Import smoke test (deploy entrypoint loads)
-        # Proves FastAPI Cloud can import the app. Config has all-default
-        # settings, so no env is required just to import.
         run: uv run python -c "import main; assert main.app is not None; print('app import OK')"
       - name: Run tests
         run: uv run pytest -q
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install
+        run: npm ci
+      - name: Build (type-checks the frontend)
+        run: npm run build
