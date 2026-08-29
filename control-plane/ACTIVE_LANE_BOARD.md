@@ -5,8 +5,8 @@
 
 ## Active
 
-### BUFFER-1 — extend Buffer publisher to X + LinkedIn          [OPEN]
-Owner: unassigned        Opened: 2026-08-28
+### BUFFER-1 — extend Buffer publisher to X + LinkedIn          [IN PROGRESS]
+Owner: Claude        Opened: 2026-08-28
 Reading: ARCHITECTURE.md, src/glitch_signal/platforms/buffer.py
 Acceptance: buffer.publish() supports x + linkedin (not just tiktok); reads the Buffer token (reconcile `BUFFER_API_TOKEN` vs the cloud-set `GE_BUFFER_API_KEY`); a scheduled post reaches X and LinkedIn via Buffer; NotImplementedError paths removed for those targets.
 Write-back: ARCHITECTURE.md (Buffer platform matrix + token env name), control-plane/ENGINEERING_SUPERVISOR.md
