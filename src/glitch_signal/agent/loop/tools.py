@@ -33,6 +33,20 @@ async def _t_schedule(args: dict, brand_id: str) -> str:
     return await schedule_tool(args, brand_id)
 
 
+async def _t_list_playbooks(args: dict, brand_id: str) -> str:
+    from glitch_signal.agent.playbooks import list_playbooks
+    return json.dumps([{"slug": p.slug, "description": p.description} for p in list_playbooks()]) or "[]"
+
+
+async def _t_read_playbook(args: dict, brand_id: str) -> str:
+    from glitch_signal.agent.playbooks import get_playbook
+    pb = get_playbook(str(args.get("slug", "")))
+    if pb is None:
+        from glitch_signal.agent.playbooks import list_playbooks
+        return f"ERROR: no playbook {args.get('slug')!r}. Available: {', '.join(p.slug for p in list_playbooks())}"
+    return pb.body
+
+
 async def _t_list_recipes(args: dict, brand_id: str) -> str:
     from glitch_signal.media.generation import list_recipes
     return json.dumps([{"slug": r.slug, "kind": r.kind, "description": r.description[:80]}
@@ -102,6 +116,12 @@ TOOLS: dict[str, dict[str, Any]] = {
                                   "text overlay/format) and return a stored URL. args: {image_url, ops:[{op:resize|fit|text|format, ...}]}"},
     "publish": {"fn": _t_publish,
                 "description": "Publish content to a platform. args: {platform, ...}. NOTE: currently DISABLED."},
+    "list_playbooks": {"fn": _t_list_playbooks,
+                       "description": "List your domain-knowledge handbooks (name + what each teaches). "
+                                      "Consult the relevant one BEFORE specialized work — ads audits, "
+                                      "per-platform captions/copy, SEO, YouTube, ORM, tracking. args: {}"},
+    "read_playbook": {"fn": _t_read_playbook,
+                      "description": "Read a handbook's full guidance by slug (from list_playbooks). args: {slug}"},
     "schedule": {"fn": _t_schedule,
                  "description": "Schedule your OWN future work (self-cron). args: {action: create|list|cancel|next_check, ...}. "
                                 "create: {name, schedule_kind: at|every|cron, schedule:{at|every_ms|cron_expr,tz?}, "
