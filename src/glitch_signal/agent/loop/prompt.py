@@ -21,8 +21,11 @@ Rules:
 - Output ONLY the JSON object. No markdown fences, no prose outside the JSON."""
 
 
-def system_prompt() -> str:
-    return SYSTEM.format(tools=tool_descriptions())
+def system_prompt(extra_tools: dict[str, str] | None = None) -> str:
+    tools = tool_descriptions()
+    if extra_tools:
+        tools += "\n" + "\n".join(f"- {name}: {desc}" for name, desc in extra_tools.items())
+    return SYSTEM.format(tools=tools)
 
 
 def build_prompt(goal: str, seed_context: str, transcript: list[dict]) -> str:

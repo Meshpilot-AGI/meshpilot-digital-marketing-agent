@@ -53,39 +53,63 @@ async def run(
     *,
     llm: LLMFn | None = None,
     execute: ExecFn | None = None,
+    mcp: Any = None,
     max_steps: int = 8,
 ) -> dict[str, Any]:
-    """Run the loop for a goal. Returns {final, transcript, steps}."""
+    """Run the loop for a goal. Returns {final, transcript, steps}.
+
+    When `execute` is not injected (production), the brand's configured MCP servers are connected,
+    their tools discovered and offered to the LLM (namespaced `mcp__server__tool`), and calls to
+    them routed through the same policy gate. `mcp` (an entered MCPManager) can be injected for tests.
+    """
     llm = llm or agent_llm.complete
-    execute = execute or tools.execute
-    sys = system_prompt()
+    base_execute = execute or tools.execute
 
-    seed = await execute("recall", {"query": goal, "k": 5}, brand_id)
-    transcript: list[dict] = []
-    counts: dict[str, int] = {}  # executed tool counts this run — feeds per-run budgets
+    # Connect MCP only on the production path (execute not injected) and only if not already given.
+    own_mcp = False
+    if mcp is None and execute is None:
+        from glitch_signal.agent.mcp import manager_for_brand
+        mcp = await manager_for_brand(brand_id)
+        await mcp.__aenter__()
+        own_mcp = True
 
-    for step in range(max_steps):
-        raw = await llm(build_prompt(goal, seed, transcript), system=sys)
-        action = parse_action(raw)
-        if action is None:
-            transcript.append({"error": "unparseable", "raw": (raw or "")[:300]})
-            continue
-        if "final" in action:
-            final = str(action.get("final", ""))
-            await _write_episode(brand_id, goal, transcript, final, execute)
-            return {"final": final, "transcript": transcript, "steps": step + 1}
+    extra_tools = mcp.tool_descriptions() if mcp is not None else {}
+    sys = system_prompt(extra_tools=extra_tools)
 
-        tool = str(action.get("action", ""))
-        args = action.get("args", {}) or {}
-        allowed, reason = policy.allow(tool, args, brand_id, counts=counts)
-        if allowed:
-            obs = await execute(tool, args, brand_id)
-            counts[tool] = counts.get(tool, 0) + 1  # only count what actually ran
-        else:
-            obs = f"DENIED: {reason}"
-        transcript.append({
-            "thought": action.get("thought"), "action": tool, "args": args, "observation": obs,
-        })
+    async def dispatch(tool_name: str, args: dict, bid: str) -> str:
+        if mcp is not None and mcp.has(tool_name):
+            return await mcp.call(tool_name, args)
+        return await base_execute(tool_name, args, bid)
 
-    await _write_episode(brand_id, goal, transcript, "(max steps reached)", execute)
-    return {"final": None, "transcript": transcript, "steps": max_steps}
+    try:
+        seed = await base_execute("recall", {"query": goal, "k": 5}, brand_id)
+        transcript: list[dict] = []
+        counts: dict[str, int] = {}  # executed tool counts this run — feeds per-run budgets
+
+        for step in range(max_steps):
+            raw = await llm(build_prompt(goal, seed, transcript), system=sys)
+            action = parse_action(raw)
+            if action is None:
+                transcript.append({"error": "unparseable", "raw": (raw or "")[:300]})
+                continue
+            if "final" in action:
+                final = str(action.get("final", ""))
+                await _write_episode(brand_id, goal, transcript, final, base_execute)
+                return {"final": final, "transcript": transcript, "steps": step + 1}
+
+            tool = str(action.get("action", ""))
+            args = action.get("args", {}) or {}
+            allowed, reason = policy.allow(tool, args, brand_id, counts=counts)
+            if allowed:
+                obs = await dispatch(tool, args, brand_id)
+                counts[tool] = counts.get(tool, 0) + 1  # only count what actually ran
+            else:
+                obs = f"DENIED: {reason}"
+            transcript.append({
+                "thought": action.get("thought"), "action": tool, "args": args, "observation": obs,
+            })
+        await _write_episode(brand_id, goal, transcript, "(max steps reached)", base_execute)
+        return {"final": None, "transcript": transcript, "steps": max_steps}
+    finally:
+        if own_mcp:
+            await mcp.__aexit__(None, None, None)
