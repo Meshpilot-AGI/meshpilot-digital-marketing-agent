@@ -20,7 +20,6 @@ import { Toaster } from "@/components/ui/sonner";
 import { WaitlistForm } from "@/components/waitlist-form";
 import IntegrationHub from "@/components/illustration5";
 import StackMarquee from "@/components/illustration7";
-import { Logo } from "@/components/logo";
 
 /* ── motion helpers ─────────────────────────────────────────────── */
 function Reveal({ children, delay = 0, className }: { children: React.ReactNode; delay?: number; className?: string }) {
@@ -110,7 +109,8 @@ export default function Page() {
       <header className="sticky top-0 z-40 border-b border-white/5 bg-neutral-950/70 backdrop-blur-xl">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
           <a href="#top" className="flex items-center gap-2.5">
-            <Logo className="h-8 w-8 text-emerald-400" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/mesh-pilot-mark.png" alt="Mesh Pilot" className="h-9 w-auto" />
             <span className="font-heading text-lg tracking-tight text-neutral-50">Mesh Pilot</span>
           </a>
           <div className="hidden items-center gap-8 text-sm text-neutral-400 md:flex">
@@ -290,7 +290,8 @@ export default function Page() {
         <footer className="border-t border-white/5">
           <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-10 text-sm text-neutral-500 sm:flex-row">
             <div className="flex items-center gap-2.5">
-              <Logo className="h-7 w-7 text-neutral-400" nodes={false} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/mesh-pilot-mark.png" alt="" className="h-8 w-auto opacity-80" />
               <span className="text-neutral-300">Mesh Pilot</span>
             </div>
             <Separator className="bg-white/10 sm:hidden" />
