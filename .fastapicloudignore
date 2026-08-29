@@ -1,6 +1,7 @@
 # Exclude dev-only and non-runtime material from the FastAPI Cloud bundle.
 # The service needs the `glitch_signal` package, `main.py`, `pyproject.toml`,
-# and (for migrations) `alembic/` + `alembic.ini`. Everything below is dev
+# and `pyproject.toml`. DB migrations live in `supabase/` (dev/CI only, ignored
+# below — the app never applies them). Everything below is dev
 # tooling, tests, ops scaffolding, or examples that the running app never
 # imports.
 
@@ -37,3 +38,6 @@ tmp/
 
 # Frontend (Next.js) — deploys separately (web-production), never in the API bundle
 web/
+
+# Supabase migration files (applied by the Supabase GitHub integration, not the app)
+supabase/

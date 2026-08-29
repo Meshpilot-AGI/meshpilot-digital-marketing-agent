@@ -28,40 +28,33 @@ postgresql+asyncpg://postgres.<ref>:<url-encoded-password>@aws-0-<region>.pooler
 - `statement_cache_size=0` for the pgbouncer pooler (`pooler.supabase.com` / :6543).
 - Requires **`greenlet`** (SQLAlchemy async).
 
-## Migrations (app-driven — never from a laptop in normal ops)
-Alembic; `alembic/env.py` uses `settings().resolved_db_url()` + `db_connect_args()`
-and feeds the URL straight to the engine (a `%`-encoded password breaks alembic's
-configparser interpolation). Ordering: **additive migrations before deploy,
-removals after**.
-```bash
-uv run alembic upgrade head      # bootstrap / emergencies only
-```
+## Migrations — Supabase-native (Alembic retired 2026-08-29)
 
-### CI migrations (GitHub Actions — the normal path, not the Mac)
-`.github/workflows/db-migrate.yml` runs `alembic upgrade head` against the
-production DB when migrations land on `production` (paths `alembic/**`) or on
-manual `workflow_dispatch`. The GitHub runner is IPv4 → reaches the session
-pooler. DSN is the repo secret **`SIGNAL_DB_URL`** (session pooler, us-east-2).
-`upgrade head` is idempotent, so re-runs are safe no-ops.
+DB changes are **SQL migration files** in `supabase/migrations/*.sql`, pushed to
+Supabase by the **Supabase GitHub integration** when they land on `production`.
+`supabase/config.toml` pins the project (`qkztphfjwgluwwlgeyys`, PG major 17).
+The app still *connects* via `SIGNAL_DB_URL` (asyncpg) — only the migration
+mechanism changed; Alembic (`alembic/`, `db-migrate*.yml`) is gone.
 
-**PR gate** — `.github/workflows/db-migrate-check.yml` runs on any PR that
-touches `alembic/**` or `db/**`: it spins up a throwaway Postgres, applies the
-full migration chain from scratch (`alembic upgrade head`), and flags model
-drift (`alembic check`, informational). A broken migration fails the PR — never
-production. Never touches the real Supabase DB.
+**Baseline:** `supabase/migrations/20260829054500_init_schema.sql` — the schema
+generated from `glitch_signal.db.models`, written **idempotent** (`CREATE TABLE/
+INDEX IF NOT EXISTS`, `ENABLE ROW LEVEL SECURITY`) so it is a safe no-op on the
+existing prod DB and builds fresh preview/shadow DBs from scratch. (The old
+`alembic_version` table lingers harmlessly; drop it whenever.)
 
-**Ordering** (the app auto-deploys on the same production push):
-- **Additive** migration (new column/table the new code uses) → backward-compatible,
-  fine to run alongside the deploy.
-- **Removal** → ship the code first, then run this via `workflow_dispatch` **after**,
-  so you never drop something the running code still reads.
+**Add a change:** write a new `supabase/migrations/<timestamp>_<name>.sql` (plain
+SQL). Make it forward-only and, where sensible, idempotent. Merge to `production`
+→ the integration applies it; the "Supabase Preview" check applies it to a shadow
+DB on PRs. Ordering still holds: **additive before the code deploys, removals after.**
 
-> Not Supabase Branching (yet): that expects Supabase-CLI SQL migrations in
-> `supabase/migrations/` + `config.toml`. We use Alembic, so the "Supabase
-> Preview" check skips (harmless). **DECIDED 2026-08-28:** we adopt Supabase-native
-> SQL migrations + enable Branching (preview DBs) **as part of DB-OPT**, when the
-> lean schema is rewritten — retiring Alembic + `db-migrate*.yml` in one clean
-> move, rather than doing it now and re-churning it.
+**CI check:** the `db` job in `.github/workflows/ci.yml` (fires on `supabase/
+migrations/**` or `db/**` drift) spins up a throwaway Postgres and applies every
+migration from scratch with `psql -v ON_ERROR_STOP=1`, then re-applies to prove
+idempotency. Never touches the real DB.
+
+> ⚠️ CLI note: the local `supabase` CLI must be logged into the **Meshpilot**
+> Supabase account to `link`/`db pull` this project. The MCP server is the
+> reliable path for schema reads/one-off SQL against prod.
 
 ## Storage — per-brand media buckets (STORAGE-1)
 
