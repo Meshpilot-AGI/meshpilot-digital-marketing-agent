@@ -179,6 +179,70 @@ async def internal_instagram_test_post(request: Request) -> dict:
     return {"ok": True, "media_id": media_id, "permalink": permalink}
 
 
+# ---------------------------------------------------------------------------
+# Agent memory (AGENT-MEM) — per-brand facts + episodes with hybrid recall
+# ---------------------------------------------------------------------------
+@app.post("/internal/agent/remember", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_remember(request: Request) -> dict:
+    """Store a fact or episode (auth: x-jobs-token).
+
+    Body: {kind: fact|episode, content, brand?, key?, metadata?, importance?, source?}.
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    kind = body.get("kind")
+    content = body.get("content")
+    if kind not in ("fact", "episode") or not content:
+        raise HTTPException(status_code=400, detail="kind (fact|episode) and content are required")
+    from glitch_signal.agent.memory import remember
+
+    m = await remember(
+        brand, kind, content,
+        key=body.get("key"), metadata=body.get("metadata"),
+        importance=float(body.get("importance", 0.5)), source=body.get("source"),
+    )
+    return {"ok": True, "id": m.id, "kind": m.kind, "key": m.key}
+
+
+@app.post("/internal/agent/recall", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_recall(request: Request) -> dict:
+    """Recall top-k memories for a brand (auth: x-jobs-token).
+
+    Body: {query, brand?, k?, kinds?} → ranked memories with fused/semantic/lexical scores.
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    query = body.get("query")
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    from glitch_signal.agent.memory import recall
+
+    mems = await recall(brand, query, k=int(body.get("k", 8)), kinds=body.get("kinds"))
+    return {
+        "ok": True,
+        "memories": [
+            {
+                "id": m.id, "kind": m.kind, "key": m.key, "content": m.content,
+                "importance": m.importance, "score": m.score,
+                "semantic": m.semantic, "lexical": m.lexical,
+            }
+            for m in mems
+        ],
+    }
+
+
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
