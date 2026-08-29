@@ -76,6 +76,25 @@ _install_middleware()
 _graph = None
 
 
+_OAUTH_KEEPALIVE_PROVIDERS = ("heygen",)
+_OAUTH_KEEPALIVE_INTERVAL_S = 1800   # every 30 min
+_OAUTH_KEEPALIVE_MIN_REMAINING_S = 2000  # refresh when < ~33 min of a ~60 min token remains
+
+
+async def _oauth_keepalive() -> None:
+    """Periodically refresh OAuth-backed MCP tokens so the rotating refresh chain never goes stale.
+    Refresh-on-demand (get_bearer) covers active use; this covers long idle. Fail-soft."""
+    from glitch_signal.agent.mcp.oauth import get_bearer
+
+    while True:
+        await asyncio.sleep(_OAUTH_KEEPALIVE_INTERVAL_S)
+        for provider in _OAUTH_KEEPALIVE_PROVIDERS:
+            try:
+                await get_bearer(provider, min_remaining_s=_OAUTH_KEEPALIVE_MIN_REMAINING_S)
+            except Exception as exc:  # noqa: BLE001 — no token stored / transient; never crash the loop
+                log.info("oauth.keepalive_skipped provider=%s reason=%s", provider, str(exc)[:120])
+
+
 @app.on_event("startup")
 async def startup() -> None:
     global _graph
@@ -87,6 +106,10 @@ async def startup() -> None:
     # Start scheduler
     from glitch_signal.scheduler.queue import start as start_scheduler
     start_scheduler()
+
+    # Keep OAuth-backed MCP tokens (e.g. HeyGen: ~1h access + rotating refresh) alive 24/7,
+    # so the agent's MCP client always resolves a fresh Bearer even when idle.
+    asyncio.create_task(_oauth_keepalive())
 
     # Mesh Pilot brand-drift audit: log every locally-configured brand
     # against the hub `core.brands` table. Observation-only — never
