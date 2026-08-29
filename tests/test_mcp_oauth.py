@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from glitch_signal.agent.mcp import ServerSpec, parse_servers
 from glitch_signal.agent.mcp.oauth import _needs_refresh, get_bearer
+from glitch_signal.crypto import decrypt
 
 
 def test_needs_refresh():
@@ -35,8 +36,8 @@ class _Conn:
         if s.lstrip().startswith("SELECT"):
             return _Res(dict(self.store) if self.store else None)
         if "UPDATE" in s:
-            self.store.update({"access_token": params["a"], "refresh_token": params["r"],
-                               "expires_at": params["e"]})
+            self.store.update({"access_token_enc": params["a_enc"], "refresh_token_enc": params["r_enc"],
+                               "access_token": None, "refresh_token": None, "expires_at": params["e"]})
         return _Res(None)
 
     async def __aenter__(self):
@@ -55,7 +56,9 @@ class _Engine:
 
 
 def _row(exp_delta_s):
-    return {"access_token": "old_at", "refresh_token": "old_rt",
+    # legacy row: plaintext columns populated, *_enc still null (un-migrated) → exercises dual-read
+    return {"access_token_enc": None, "refresh_token_enc": None,
+            "access_token": "old_at", "refresh_token": "old_rt",
             "expires_at": datetime.now(timezone.utc) + timedelta(seconds=exp_delta_s),
             "client_id": "cid", "token_endpoint": "https://as/token", "resource": "https://mcp"}
 
@@ -81,8 +84,11 @@ async def test_refreshes_and_rotates_when_expiring():
 
     tok = await get_bearer("heygen", engine=eng, refresh=refresh)
     assert tok == "new_at"
-    assert eng.store["access_token"] == "new_at"           # persisted
-    assert eng.store["refresh_token"] == "new_rt"          # rotation persisted
+    # persisted ENCRYPTED (#91): ciphertext at rest, plaintext columns nulled
+    assert eng.store["access_token_enc"] != "new_at"
+    assert eng.store["access_token"] is None
+    assert decrypt(eng.store["access_token_enc"]) == "new_at"
+    assert decrypt(eng.store["refresh_token_enc"]) == "new_rt"   # rotation persisted (encrypted)
 
 
 async def test_keeps_old_refresh_if_provider_did_not_rotate():
@@ -92,7 +98,35 @@ async def test_keeps_old_refresh_if_provider_did_not_rotate():
         return {"access_token": "new_at", "expires_in": 3600}   # no new refresh_token
 
     await get_bearer("heygen", engine=eng, refresh=refresh)
-    assert eng.store["refresh_token"] == "old_rt"          # kept the old one
+    assert decrypt(eng.store["refresh_token_enc"]) == "old_rt"   # kept the old one (encrypted)
+
+
+async def test_refresh_happens_outside_the_lock():
+    # #96: the HTTP refresh must run with no open transaction. Track begin() vs refresh ordering.
+    events = []
+
+    class _TrackConn(_Conn):
+        async def __aenter__(self):
+            events.append("txn_open")
+            return self
+
+        async def __aexit__(self, *a):
+            events.append("txn_close")
+            return False
+
+    class _TrackEngine(_Engine):
+        def begin(self):
+            return _TrackConn(self.store)
+
+    eng = _TrackEngine(_row(30))
+
+    async def refresh(row):
+        events.append("refresh")
+        return {"access_token": "new_at", "refresh_token": "new_rt", "expires_in": 3600}
+
+    await get_bearer("heygen", engine=eng, refresh=refresh)
+    # refresh occurs between two closed transactions, never inside an open one
+    assert events == ["txn_open", "txn_close", "refresh", "txn_open", "txn_close"]
 
 
 def test_parse_servers_oauth_field():
