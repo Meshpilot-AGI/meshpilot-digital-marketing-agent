@@ -527,6 +527,21 @@ async def internal_cron_runs(job_id: str, limit: int = 20) -> dict:
     return {"ok": True, "job_id": job_id, "runs": job.get("recent_runs", [])}
 
 
+@app.post("/internal/analytics/reconcile", dependencies=[Depends(_require_jobs_auth)])
+async def internal_analytics_reconcile(request: Request) -> dict:
+    """Run balance-delta reconciliation across credit vendors now (COST-METER INC-2; auth: x-jobs-token).
+
+    Body: {vendors?: ["muapi","heygen","higgsfield"]}. Snapshots each vendor's balance, diffs it
+    against the previous snapshot, and compares that true spend to our summed usage_events for the
+    window. Account-level (no per-brand). Also runnable as the `reconcile` cron capability.
+    """
+    from glitch_signal.analytics.cost import reconcile
+
+    body = await _json(request)
+    summary = await reconcile.run(body.get("vendors"))
+    return {"ok": True, **summary}
+
+
 _HEYGEN_SEEN: set[str] = set()  # best-effort per-worker event-id dedup
 
 

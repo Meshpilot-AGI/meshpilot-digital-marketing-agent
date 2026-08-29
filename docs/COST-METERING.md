@@ -64,9 +64,18 @@ curl -sS "$BASE/internal/analytics/spend?brand=glitch_executor&days=30" -H "x-jo
 - **INC-1 (this lane):** the metering core — table, context, price book, meter, spend endpoint,
   Logfire emit. Capture wired for **Anthropic** (loop LLM `_post`) and **Higgsfield** (engine
   `generate`). These are the two vendors whose per-call usage we can read at our layer today.
-- **INC-2 (next):** MUapi + HeyGen price-book & capture, plus a **balance-delta reconciliation**
-  job — poll each vendor's queryable balance (HeyGen remaining_quota, MUapi balance, Higgsfield
-  credits, Anthropic Cost API by workspace), diff against summed events, alert on >5% drift, and
-  flip reconciled rows to `estimated=false`. This is how the "tough" credit vendors (no per-tenant
-  tagging) get trued up.
+- **INC-2 (done 2026-08-29):** MUapi + HeyGen capture (coarse per-call estimate from the price book,
+  reconciled by balance-delta) + a **balance-delta reconciliation** job. Capture: `MuapiEngine.generate`
+  (covers both media and the content-text path, which share the engine) and `HeyGenEngine.generate`.
+  Reconciliation (`analytics/cost/reconcile.py`, run via the `reconcile` cron capability or
+  `POST /internal/analytics/reconcile`): snapshots each credit vendor's queryable balance
+  (`balance_snapshots`), diffs it against the previous snapshot (= true account-wide spend for the
+  window), and compares that to our summed `usage_events`; drift > 5% logs a warning. Robust to any
+  vendor's balance being unavailable (per-vendor `unavailable` status, never raises). Reconciliation
+  is an aggregate accuracy check + drift alarm — per-brand attribution stays from self-metering, so
+  `estimated` remains true (an aggregate delta can't set per-event true cost). Anthropic is not
+  reconciled here: its per-call token cost is already accurate (the "easy" vendor). Vendor balance
+  endpoints: HeyGen `/v2/user/remaining_quota` (legacy, sunset 2026-10-31 → migrate to `/v3/users/me`);
+  MUapi `/account/balance`; Higgsfield `/v1/account` — the latter two are best-effort and verified
+  against the live account.
 - **INC-3 (later):** per-brand budget enforcement in the policy gate + an ops/anomaly view.

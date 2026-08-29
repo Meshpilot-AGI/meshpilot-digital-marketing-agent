@@ -127,4 +127,25 @@ class MuapiEngine:
         """Submit + poll to completion; return the finished asset URL."""
         async with httpx.AsyncClient(timeout=60) as client:
             rid = await self._submit(client, model, prompt, images or [], params or {})
-            return await self._wait(client, rid, timeout_s)
+            url = await self._wait(client, rid, timeout_s)
+        await _meter(model, rid)
+        return url
+
+
+async def _meter(model: str, request_id: str) -> None:
+    """Attribute this MUapi call (text or media — same engine) to the active brand. Never raises."""
+    try:
+        from glitch_signal.analytics.cost import get_brand, record_usage  # noqa: PLC0415
+        from glitch_signal.analytics.cost.pricing import muapi_cost  # noqa: PLC0415
+
+        await record_usage(
+            brand_id=get_brand(),
+            vendor="muapi",
+            operation="generate",
+            model=model,
+            units={"request_id": request_id},
+            cost_usd=muapi_cost(model),
+            request_id=request_id,
+        )
+    except Exception:  # noqa: BLE001 — metering never breaks generation
+        pass
