@@ -61,12 +61,17 @@ async def _t_edit_image(args: dict, brand_id: str) -> str:
 
     from glitch_signal.media.generation.storage import upload_bytes
     from glitch_signal.media.imaging import apply_ops
+    from glitch_signal.media.net import assert_safe_media_url
 
     url = str(args.get("image_url", "")).strip()
     ops = args.get("ops", []) or []
     if not url:
         return "ERROR: edit_image requires image_url"
-    async with httpx.AsyncClient(timeout=60) as c:
+    try:
+        assert_safe_media_url(url)  # SSRF guard: https + public IP only (#92)
+    except ValueError as exc:
+        return f"ERROR: unsafe image_url: {exc}"
+    async with httpx.AsyncClient(timeout=60, follow_redirects=False) as c:
         r = await c.get(url)
         if r.status_code >= 400:
             return f"ERROR: could not fetch image ({r.status_code})"

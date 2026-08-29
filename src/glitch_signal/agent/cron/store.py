@@ -58,9 +58,12 @@ _ON_ERROR = text(
     "disabled_reason = CASE WHEN fail_count+1 >= :max THEN :reason ELSE disabled_reason END, "
     "updated_at=now() WHERE id=:id"
 )
-_DELETE_JOB = text("DELETE FROM scheduled_jobs WHERE id=:id")
+# `(:brand IS NULL OR brand_id=:brand)` — brand-scoped when the REST layer passes a brand (closes the
+# cron-job IDOR, #95); unscoped for internal callers (force-run) that pass brand=None.
+_BRAND_PRED = "(cast(:brand as text) IS NULL OR brand_id = cast(:brand as text))"
+_DELETE_JOB = text(f"DELETE FROM scheduled_jobs WHERE id=:id AND {_BRAND_PRED} RETURNING id")
 _DELETE_JOB_SCOPED = text("DELETE FROM scheduled_jobs WHERE id=:id AND owner=:owner RETURNING id")
-_GET_JOB = text("SELECT * FROM scheduled_jobs WHERE id=:id")
+_GET_JOB = text(f"SELECT * FROM scheduled_jobs WHERE id=:id AND {_BRAND_PRED}")
 _LIST_ALL = text("SELECT * FROM scheduled_jobs WHERE brand_id=:brand ORDER BY created_at DESC")
 _LIST_OWNED = text(
     "SELECT * FROM scheduled_jobs WHERE brand_id=:brand AND owner=:owner ORDER BY created_at DESC"
@@ -72,7 +75,7 @@ _RECENT_RUNS = text(
     "SELECT id, status, result, error, started_at, finished_at FROM scheduled_runs "
     "WHERE job_id=:job_id ORDER BY started_at DESC LIMIT :limit"
 )
-_SET_NEXT = text("UPDATE scheduled_jobs SET next_run_at=:next, updated_at=now() WHERE id=:id")
+_SET_NEXT = text(f"UPDATE scheduled_jobs SET next_run_at=:next, updated_at=now() WHERE id=:id AND {_BRAND_PRED}")
 
 
 def _decode(row: Any) -> dict:
@@ -151,10 +154,11 @@ async def finish_run(run_id: str, job_id: str, *, status: str, result: dict | No
                                            "reason": f"auto-disabled after {max_failures} failures"})
 
 
-async def get_job(job_id: str, *, with_runs: int = 10, engine: Any | None = None) -> dict | None:
+async def get_job(job_id: str, *, brand_id: str | None = None, with_runs: int = 10,
+                  engine: Any | None = None) -> dict | None:
     eng = engine or _engine()
     async with eng.connect() as conn:
-        row = (await conn.execute(_GET_JOB, {"id": job_id})).mappings().first()
+        row = (await conn.execute(_GET_JOB, {"id": job_id, "brand": brand_id})).mappings().first()
         if row is None:
             return None
         job = _decode(row)
@@ -181,22 +185,26 @@ async def count_active_owned(brand_id: str, owner: str, *, engine: Any | None = 
     return int(row["n"]) if row else 0
 
 
-async def delete_job(job_id: str, *, owner: str | None = None, engine: Any | None = None) -> bool:
-    """Delete a job. If `owner` is given (self-scoped cancel), only deletes a job with that owner."""
+async def delete_job(job_id: str, *, brand_id: str | None = None, owner: str | None = None,
+                     engine: Any | None = None) -> bool:
+    """Delete a job. `brand_id` scopes to that brand (REST layer, #95); `owner` scopes to a
+    self-owned job (agent cancel). Returns True only if a matching row was deleted."""
     eng = engine or _engine()
     async with eng.begin() as conn:
-        if owner is None:
-            await conn.execute(_DELETE_JOB, {"id": job_id})
-            return True
-        row = (await conn.execute(_DELETE_JOB_SCOPED, {"id": job_id, "owner": owner})).mappings().first()
+        if owner is not None:
+            row = (await conn.execute(_DELETE_JOB_SCOPED, {"id": job_id, "owner": owner})).mappings().first()
+        else:
+            row = (await conn.execute(_DELETE_JOB, {"id": job_id, "brand": brand_id})).mappings().first()
     return row is not None
 
 
-async def update_job(job_id: str, patch: dict, *, now: datetime, engine: Any | None = None) -> dict | None:
-    """Patch a job. Supports enabled, payload, pacing, and rescheduling (schedule_kind+schedule)."""
+async def update_job(job_id: str, patch: dict, *, now: datetime, brand_id: str | None = None,
+                     engine: Any | None = None) -> dict | None:
+    """Patch a job. Supports enabled, payload, pacing, and rescheduling (schedule_kind+schedule).
+    `brand_id`, when given, scopes the update to that brand (#95)."""
     eng = engine or _engine()
     sets: list[str] = ["updated_at=now()"]
-    params: dict[str, Any] = {"id": job_id}
+    params: dict[str, Any] = {"id": job_id, "brand": brand_id}
     if "enabled" in patch:
         sets.append("enabled=:enabled")
         params["enabled"] = bool(patch["enabled"])
@@ -217,10 +225,10 @@ async def update_job(job_id: str, patch: dict, *, now: datetime, engine: Any | N
         params["schedule_kind"] = patch["schedule_kind"]
         params["schedule"] = json.dumps(patch["schedule"])
         params["next"] = sched.compute_first_run(patch["schedule"], patch["schedule_kind"], now=now)
-    stmt = text(f"UPDATE scheduled_jobs SET {', '.join(sets)} WHERE id=:id")
+    stmt = text(f"UPDATE scheduled_jobs SET {', '.join(sets)} WHERE id=:id AND {_BRAND_PRED}")
     async with eng.begin() as conn:
         await conn.execute(stmt, params)
-    return await get_job(job_id, engine=engine)
+    return await get_job(job_id, brand_id=brand_id, engine=engine)
 
 
 async def open_run(job_id: str, brand_id: str, *, engine: Any | None = None) -> str:
@@ -232,8 +240,9 @@ async def open_run(job_id: str, brand_id: str, *, engine: Any | None = None) -> 
     return run_id
 
 
-async def set_next_run(job_id: str, next_run_at: datetime, *, engine: Any | None = None) -> None:
-    """Used by `next_check` self-pacing to move a job's next fire."""
+async def set_next_run(job_id: str, next_run_at: datetime, *, brand_id: str | None = None,
+                       engine: Any | None = None) -> None:
+    """Used by `next_check` self-pacing to move a job's next fire (brand-scoped when given, #95)."""
     eng = engine or _engine()
     async with eng.begin() as conn:
-        await conn.execute(_SET_NEXT, {"id": job_id, "next": next_run_at})
+        await conn.execute(_SET_NEXT, {"id": job_id, "next": next_run_at, "brand": brand_id})

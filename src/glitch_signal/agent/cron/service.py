@@ -52,13 +52,13 @@ async def sweep(*, now: datetime | None = None, engine=None) -> int:
     return len(claimed)
 
 
-async def run_now(job_id: str, *, engine=None) -> str | None:
+async def run_now(job_id: str, *, brand_id: str | None = None, engine=None) -> str | None:
     """Force one run of a job immediately, out-of-band — does NOT touch its natural next slot.
 
-    Returns the opened run_id, or None if the job is unknown. Ignores the kill-switch (operator
-    action). Dispatched in the background like a normal claim.
+    `brand_id`, when given, scopes the lookup to that brand (#95). Returns the opened run_id, or None
+    if the job is unknown/not that brand's. Ignores the kill-switch (operator action).
     """
-    job = await store.get_job(job_id, with_runs=0, engine=engine)
+    job = await store.get_job(job_id, brand_id=brand_id, with_runs=0, engine=engine)
     if job is None:
         return None
     run_id = await store.open_run(job_id, job["brand_id"], engine=engine)

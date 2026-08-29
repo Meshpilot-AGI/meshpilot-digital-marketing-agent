@@ -14,21 +14,17 @@ one from settings, and `allow()` is a thin back-compat wrapper over the default 
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Mapping
 
 # Tools that perform an outward-facing publish.
 PUBLISH_TOOLS = frozenset({"publish", "post", "publish_facebook", "publish_instagram", "buffer_post"})
 
-# External MCP tools whose NAME suggests an outward side effect. We can't know an arbitrary MCP
-# tool's blast radius, so anything matching this is denied unless explicitly allowlisted per brand
-# (or publishing is enabled). Read/generate MCP tools pass.
-_MCP_SIDE_EFFECT = re.compile(
-    r"(publish|post|send|delete|remove|destroy|pay|transfer|buy|purchase|charge|refund|"
-    r"email|dm|message|tweet|comment|reply|share|upload|revoke|disable|deactivate)",
-    re.IGNORECASE,
-)
+# External MCP tools default-DENY (#93): we can't know an arbitrary MCP tool's blast radius, so a
+# tool is allowed only if it is explicitly allowlisted per brand, has a read-only verb prefix, or
+# publishing is deliberately enabled. A denylist of "bad" verbs is leaky (misses create/update/run/
+# grant/…) — an allowlist is the safe default.
+_MCP_READONLY_PREFIXES = ("get_", "list_", "search_", "describe_", "read_", "fetch_", "query_", "find_")
 
 
 @dataclass(frozen=True)
@@ -56,14 +52,18 @@ class Policy:
         if tool_name in self.brand_denied.get(brand_id, frozenset()):
             return Decision(False, f"tool '{tool_name}' is denied for brand {brand_id}")
 
-        # 2. external MCP tools — allowlist wins; side-effect-looking names denied unless publishing on
+        # 2. external MCP tools — DEFAULT-DENY. Allow only: explicit per-brand allowlist, a read-only
+        #    verb prefix, or publishing deliberately enabled. Everything else is denied.
         if tool_name.startswith("mcp__"):
             if tool_name in self.mcp_allow.get(brand_id, frozenset()):
                 return Decision(True, "")
-            if _MCP_SIDE_EFFECT.search(tool_name) and not self.publish_enabled:
-                return Decision(False, f"MCP tool '{tool_name}' looks side-effectful; "
-                                       "denied (not allowlisted, publishing off)")
-            return Decision(True, "")
+            verb = tool_name.split("__", 2)[-1]
+            if verb.startswith(_MCP_READONLY_PREFIXES):
+                return Decision(True, "")
+            if self.publish_enabled:
+                return Decision(True, "")  # publishing explicitly on → side-effecting MCP tools permitted
+            return Decision(False, f"MCP tool '{tool_name}' not allowlisted for brand {brand_id} "
+                                   "(default-deny; add to <PREFIX>_MCP_ALLOW or enable publishing)")
 
         # 3. publish kill-switch
         if tool_name in PUBLISH_TOOLS and not self.publish_enabled:
@@ -77,13 +77,32 @@ class Policy:
 
 
 def from_config() -> Policy:
-    """Build the active policy from settings (publishing off by default)."""
-    from glitch_signal.config import settings
+    """Build the active policy from settings (publishing off by default).
+
+    Populates the per-brand MCP allowlist from each brand's `<PREFIX>_MCP_ALLOW` (a JSON array of
+    fully-namespaced tool names, e.g. `["mcp__heygen__create_video_agent"]`). Without it, only
+    read-only MCP tools pass by default (#93 default-deny) unless publishing is enabled.
+    """
+    import json
+
+    from glitch_signal.config import brand_env, brand_ids, settings
 
     s = settings()
+    mcp_allow: dict[str, frozenset[str]] = {}
+    for brand in brand_ids():
+        raw = brand_env("MCP_ALLOW", brand)
+        if not raw:
+            continue
+        try:
+            names = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(names, list):
+            mcp_allow[brand] = frozenset(str(x) for x in names)
     return Policy(
         publish_enabled=bool(getattr(s, "agent_publish_enabled", False)),
         max_media_per_run=int(getattr(s, "agent_max_media_per_run", 3)),
+        mcp_allow=mcp_allow,
     )
 
 
