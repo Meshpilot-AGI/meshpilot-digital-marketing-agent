@@ -1,0 +1,25 @@
+{
+  "slug": "muapi-ad-creative",
+  "description": "Generate a high-converting ad creative — hero image + a platform-optimized feed crop for Meta / social ads.",
+  "triggers": ["ad creative", "advertisement", "facebook ad", "meta ad", "google ad", "linkedin ad", "paid ad", "ad banner", "display ad"],
+  "inputs": [
+    {"name": "product_or_service", "type": "text", "required": true, "description": "What is being advertised (e.g. \"SaaS project management tool for remote teams\")."},
+    {"name": "target_audience", "type": "text", "required": true, "description": "Who the ad is for (e.g. \"startup founders aged 25-40, tech-savvy\")."},
+    {"name": "campaign_goal", "type": "text", "required": false, "default": "awareness", "description": "Campaign objective - awareness, consideration, or conversion."},
+    {"name": "tone", "type": "text", "required": false, "default": "professional, clean, modern", "description": "Creative tone and visual style."}
+  ],
+  "phases": [
+    {
+      "id": "hero", "op": "image.generate", "output": "hero_image", "model": "nano-banana-pro", "prompt_mode": "template",
+      "prompt": "{{tone}}, advertising photography, clean background, product focus, ultra detailed, commercial quality. Advertisement for {{product_or_service}} targeting {{target_audience}}. Capture the product/service benefit and a lifestyle cue for the audience, matching campaign goal: {{campaign_goal}}.",
+      "params": {"aspect_ratio": "1:1"}
+    },
+    {
+      "id": "crop_feed", "op": "image.edit", "output": "primary_crop", "model": "nano-banana-pro-edit", "prompt_mode": "template",
+      "prompt": "Reframe for Facebook/Instagram feed ad format (1080x1080). Keep product/subject centered and uncropped. Maintain original palette and tone. Leave headroom/footroom for text overlays.",
+      "images": ["{{hero_image}}"],
+      "params": {"aspect_ratio": "1:1"}
+    }
+  ],
+  "returns": "primary_crop"
+}

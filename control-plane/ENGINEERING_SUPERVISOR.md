@@ -2,6 +2,19 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### MEDIA-1 — vendor-pluggable media generation (MUapi) via the recipe library — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** docs/plans/2026-08-29-media-generation.md; the bible `meshpilot_creative/` (spec.py, engines/muapi.py submit→poll contract, router.py, recipes.py) for the reuse map; the 13 installed `~/dev/agent/skills/muapi-*` SKILL.md recipes (format: Inputs table + numbered `muapi <cmd>` phases with model + `{{prompt}}` templates + trigger keywords); the muapi CLI surface.
+
+**Changed:** new `src/glitch_signal/media/generation/` — `engines/base.py` (Engine Protocol + EngineError), `engines/muapi.py` (httpx submit→poll→wait; POSTs to `{base}/{model}` directly since recipes carry real endpoint slugs — no curated model map); `spec.py` (Brief/Asset); `loader.py` (Recipe/Phase/InputSpec from a structured `recipe.json`, SKILL.md kept as bundled provenance); `registry.py` (slug + trigger lookup); `runner.py` (deterministic: fill `{{placeholders}}` incl. params, execute phases, output→next input, injectable engine + optional LLM composer). Bundled 4 starter recipes (product-video-ad-maker, ugc-video-factory, instagram-post, youtube-thumbnail) as `SKILL.md` (verbatim) + `recipe.json`. `server.py`: `/internal/media/recipes` + `/internal/media/generate` (x-jobs-token). New `docs/vendors/muapi.md` runbook.
+
+**Verified (observed):** 14 new unit tests (fake engine, no network) — parse/fill/chain/trigger/param-render/missing-input/composer-required; full suite **300 passed, 1 skipped**. Live on api.meshpilot.app: `/internal/media/recipes` returns the library from the cloud; **`/internal/media/generate` produced a REAL video** — `product-video-ad-maker` → `https://cdn.muapi.ai/outputs/generated/8382032977314c54b96e22eceabbe271.mp4` (engine `muapi:wan2.5-image-to-video-fast`, 108s), proving image-edit → chain → image-to-video end-to-end.
+
+**Notes / remains:** blank cloud `MUAPI_API_KEY` (the FastAPI Cloud `env set` create-only quirk again — deleted + set fresh + redeployed to fix). Template recipes need no LLM; **LLM composer for prompt-authored recipes (instagram/youtube/ugc) + the other 9 recipes = MEDIA-2**; fal/HeyGen engines, cost metering, and scheduler/publisher wiring are follow-ons. Resolves DB-OPT scope: generation IS in scope → keep signal/scout/video_asset/video_job.
+
+---
+
 ### BUFFER-1 — Buffer per-brand, all-platform publishing — CLOSED 2026-08-28
 **Owner:** Claude
 

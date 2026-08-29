@@ -1,6 +1,6 @@
 # Plan — Media Generation Capability (MEDIA-1)
 
-**Date:** 2026-08-29 · **Status:** proposed (awaiting go)
+**Date:** 2026-08-29 · **Status:** DONE (starter subset 4/13 — real video generated live; see ENGINEERING_SUPERVISOR MEDIA-1)
 **Depends on:** GE-1 (brand_env), the publish capabilities (Meta/Buffer/YouTube — closed)
 **Related:** DB-OPT (this answers its open scope question — see §7)
 
