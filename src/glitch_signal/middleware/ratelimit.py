@@ -95,21 +95,43 @@ def client_ip(request: Any) -> str:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Per-IP + constant-keyed global speed bump. `/healthz` is exempt (platform probes)."""
+    """Per-IP + constant-keyed global speed bump. `/healthz` is exempt (platform probes).
 
-    def __init__(self, app: Any, *, per_ip: int, window_s: int, global_limit: int) -> None:
+    `shared=True` (config `RATE_LIMIT_SHARED`) backs the counters with Postgres so the limit is
+    enforced fleet-wide instead of per-worker (#98). Default is the in-process limiter — the shared
+    backend adds a DB round-trip per request, and this is a backstop with Cloudflare WAF as the real
+    control, so operators opt in per-env. Both backends fail open.
+    """
+
+    def __init__(self, app: Any, *, per_ip: int, window_s: int, global_limit: int,
+                 shared: bool = False) -> None:
         super().__init__(app)
-        self._ip = SlidingWindowLimiter(per_ip, window_s)
-        self._global = SlidingWindowLimiter(global_limit, window_s)
+        self._shared = shared
+        if shared:
+            from glitch_signal.middleware.shared_state import SharedWindowLimiter
+            self._ip = SharedWindowLimiter(per_ip, window_s)
+            self._global = SharedWindowLimiter(global_limit, window_s)
+        else:
+            self._ip = SlidingWindowLimiter(per_ip, window_s)
+            self._global = SlidingWindowLimiter(global_limit, window_s)
+
+    async def _check(self, ip: str) -> tuple[bool, int]:
+        """Return (allowed, retry_after). Unifies the sync in-process and async shared backends."""
+        if self._shared:
+            ip_ok, ip_retry = await self._ip.check(f"ip:{ip}")
+            g_ok, g_retry = await self._global.check("all")
+            return (ip_ok and g_ok), max(ip_retry, g_retry, 1)
+        if not self._ip.allow(ip) or not self._global.allow("all"):
+            return False, max(self._ip.retry_after(ip), self._global.retry_after("all"), 1)
+        return True, 0
 
     async def dispatch(self, request: Any, call_next: Any) -> Any:
         path = request.url.path
         # /healthz = platform probes; /webhooks/* = provider callbacks (HMAC-verified, retried).
         if path == "/healthz" or path.startswith("/webhooks"):
             return await call_next(request)
-        ip = client_ip(request)
-        if not self._ip.allow(ip) or not self._global.allow("all"):
-            retry = max(self._ip.retry_after(ip), self._global.retry_after("all"), 1)
+        allowed, retry = await self._check(client_ip(request))
+        if not allowed:
             return Response(
                 content=json.dumps({"detail": "Too many requests."}),
                 status_code=429,

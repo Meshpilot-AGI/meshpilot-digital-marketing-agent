@@ -74,8 +74,27 @@ async def _tick() -> None:
         _sheet_posting_tick(),
         _sheet_reconcile_tick(),
         _agent_cron_tick(),
+        _shared_state_cleanup_tick(),
         return_exceptions=True,
     )
+
+
+_shared_state_cleanup_last: datetime | None = None
+
+
+async def _shared_state_cleanup_tick() -> None:
+    """Hourly: prune expired rate-counter buckets + old webhook-dedup rows (#98). Fail-soft."""
+    global _shared_state_cleanup_last
+    now = datetime.now(UTC).replace(tzinfo=None)
+    if _shared_state_cleanup_last and (now - _shared_state_cleanup_last) < timedelta(hours=1):
+        return
+    _shared_state_cleanup_last = now
+    try:
+        from glitch_signal.middleware.shared_state import cleanup
+
+        await cleanup(window_s=settings().rate_limit_window_s)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scheduler.shared_state_cleanup_failed", error=str(exc)[:200])
 
 
 async def _agent_cron_tick() -> None:

@@ -271,6 +271,9 @@ class Settings(BaseSettings):
     rate_limit_window_s: int = 60
     rate_limit_per_ip: int = 120        # per client IP, per window
     rate_limit_global: int = 3000       # constant-keyed global backstop, per window
+    # #98: back the limiter with Postgres so it enforces fleet-wide (not per-worker). Off by default
+    # — it adds a DB round-trip per request, and CF WAF is the real control; opt in per-env.
+    rate_limit_shared: bool = False
 
     # --- Agent policy (AGENT-POLICY) — deterministic gate on tool calls ---
     # Publishing kill-switch: while False, every publish/post tool is denied regardless of
