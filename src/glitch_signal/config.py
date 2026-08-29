@@ -20,14 +20,93 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
 
+# The local-dev fallback DSN. Treated as a sentinel: if `signal_db_url` still
+# equals this, it was never explicitly set, so `database_url` (Supabase /
+# FastAPI Cloud's DATABASE_URL) takes over.
+_LOCAL_DB_DEFAULT = "postgresql+asyncpg://signal:changeme@127.0.0.1:5432/glitch_signal"
+
+
+def _to_asyncpg_url(url: str) -> str:
+    """Normalize a Postgres DSN to the SQLAlchemy asyncpg driver.
+
+    Accepts `postgres://`, `postgresql://`, or an already-qualified
+    `postgresql+asyncpg://` and returns the asyncpg form unchanged in the
+    last case. Query params are preserved here and stripped by
+    `_asyncpg_connect_args` where asyncpg needs them as connect kwargs.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+    return url
+
+
+def _asyncpg_connect_args(url: str) -> tuple[str, dict[str, Any]]:
+    """Split asyncpg-incompatible bits out of a DSN into connect kwargs.
+
+    Returns `(clean_url, connect_args)`:
+    - `sslmode=` (libpq syntax asyncpg doesn't accept) → `ssl=True` and the
+      param is dropped from the URL. Managed Postgres (Supabase) requires TLS.
+    - Supabase's transaction pooler (`pooler.supabase.com` or port 6543 runs
+      pgbouncer in transaction mode) can't use prepared statements, so asyncpg
+      needs `statement_cache_size=0`.
+    """
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query))
+    connect_args: dict[str, Any] = {}
+
+    sslmode = query.pop("sslmode", None)
+    host = parts.hostname or ""
+    if sslmode in {"require", "verify-ca", "verify-full", "prefer", "allow"} or host.endswith(
+        ".supabase.com"
+    ) or host.endswith(".supabase.co"):
+        # "require" = TLS on, but do NOT verify the cert chain. Supabase's
+        # pooler presents a self-signed root, so full verification (ssl=True)
+        # fails; "require" matches libpq sslmode=require behaviour.
+        connect_args["ssl"] = "require"
+
+    if host.endswith("pooler.supabase.com") or parts.port == 6543:
+        connect_args["statement_cache_size"] = 0
+
+    clean = urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
+    return clean, connect_args
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # --- Databases ---
-    signal_db_url: str = "postgresql+asyncpg://signal:changeme@127.0.0.1:5432/glitch_signal"
+    signal_db_url: str = _LOCAL_DB_DEFAULT
+    # Supabase / FastAPI Cloud convention. Used as the DB source when
+    # SIGNAL_DB_URL is left at its local default (i.e. not explicitly set).
+    # A plain `postgresql://…` DSN; normalized to the asyncpg driver at use.
+    database_url: str = ""
     # Read-only access to glitchexecutor DB for Phase 2 Scout
     glitch_ro_url: str = ""
+
+    def _raw_db_url(self) -> str:
+        """The chosen raw DSN: an explicit SIGNAL_DB_URL wins; otherwise
+        Supabase's DATABASE_URL; otherwise the local default."""
+        if self.signal_db_url and self.signal_db_url != _LOCAL_DB_DEFAULT:
+            return self.signal_db_url
+        if self.database_url:
+            return self.database_url
+        return self.signal_db_url
+
+    def resolved_db_url(self) -> str:
+        """asyncpg-driver DSN, ready for create_async_engine (SSL/pooler
+        params moved to db_connect_args)."""
+        clean, _ = _asyncpg_connect_args(_to_asyncpg_url(self._raw_db_url()))
+        return clean
+
+    def db_connect_args(self) -> dict[str, Any]:
+        """asyncpg connect kwargs (ssl / statement_cache_size) for this DSN."""
+        _, connect_args = _asyncpg_connect_args(_to_asyncpg_url(self._raw_db_url()))
+        return connect_args
 
     # --- LLMs ---
     anthropic_api_key: str = ""

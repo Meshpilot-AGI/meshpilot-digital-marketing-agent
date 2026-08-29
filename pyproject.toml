@@ -25,7 +25,10 @@ classifiers = [
 
 dependencies = [
   # Web / server
-  "fastapi>=0.115",
+  # `[standard]` pulls the `fastapi` CLI (+ uvicorn[standard]); FastAPI Cloud
+  # launches the app via `fastapi run`, which requires it. Bare `fastapi`
+  # crash-loops the runtime with "please install fastapi[standard]".
+  "fastapi[standard]>=0.115",
   "uvicorn[standard]>=0.32",
   "httpx>=0.27",
   "pydantic>=2.9",
@@ -45,6 +48,9 @@ dependencies = [
   "sqlmodel>=0.0.21",
   "alembic>=1.14",
   "asyncpg>=0.30",
+  # SQLAlchemy's async engine requires greenlet; it is not auto-installed on
+  # every arch (e.g. macOS arm64), so pin it explicitly for local + cloud.
+  "greenlet>=3.0",
 
   # Video assembly
   "ffmpeg-python>=0.2.0",
@@ -74,10 +80,6 @@ dependencies = [
 
   # img2pdf — lossless PNG→PDF for LinkedIn carousel document posts.
   "img2pdf>=0.5",
-
-  # Upload-Post — forked to glitch-exec-labs/upload-post-pip so we can
-  # track upstream releases and patch LinkedIn document support as needed.
-  "upload-post @ git+https://github.com/glitch-exec-labs/upload-post-pip.git@main",
 ]
 
 [project.optional-dependencies]
@@ -100,18 +102,12 @@ dev = [
 #   TypeError: URL `dependencies` of field `project.urls` must be a string
 [project.urls]
 Homepage = "https://meshpilot.app"
-Repository = "https://github.com/xenon2512/meshpilot-social-media-agent"
-Issues = "https://github.com/xenon2512/meshpilot-social-media-agent/issues"
+Repository = "https://github.com/xenon2512/meshpilot-digital-marketing-agent"
+Issues = "https://github.com/xenon2512/meshpilot-digital-marketing-agent/issues"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-# Required because we pin `upload-post` to our fork via a git URL
-# (git+https://github.com/glitch-exec-labs/upload-post-pip). Hatchling refuses
-# direct URL dependencies unless this is explicitly allowed.
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/glitch_signal"]
