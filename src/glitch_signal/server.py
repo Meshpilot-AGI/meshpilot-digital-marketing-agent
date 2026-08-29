@@ -336,6 +336,27 @@ async def internal_agent_run_status(run_id: str) -> dict:
     return {"ok": True, **rec}
 
 
+@app.post("/internal/agent/curate", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_curate(request: Request) -> dict:
+    """Distill a brand's recent episodes into durable lessons (AGENT-LEARN; auth: x-jobs-token).
+
+    Body: {brand?, limit?}. Reads uncurated episodes, asks the LLM to distill them into durable
+    facts (upserted by a stable key), and marks those episodes curated. One LLM call — synchronous.
+    """
+    from glitch_signal.agent.learn import curate as agent_curate
+
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    res = await agent_curate(brand, limit=int(body.get("limit", 20)))
+    return {"ok": True, "brand": brand, **res}
+
+
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
