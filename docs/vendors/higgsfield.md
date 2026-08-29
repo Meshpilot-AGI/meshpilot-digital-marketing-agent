@@ -27,17 +27,22 @@ Official skills: <https://github.com/higgsfield-ai/skills> — `higgsfield-gener
 audio generation plus Marketing Studio. Model display-name → id mapping lives in the skill's
 `references/model-catalog.md`; discover live with `higgsfield model list --json`.
 
-## ⚠️ Open blocker — models not accessible on this account
+## Discovering valid model slugs (important)
 
-Auth works, but **every tested application slug returns `model_not_found`** — including the SDK
-README's own example (`bytedance/seedream/v4/text-to-image`) and others (`gpt-image-2`,
-`recraft_v4_1`, `seedream_v4`, `higgsfield/text-to-image`). This is an **account/model-access
-issue on the Higgsfield side**, not our integration. To unblock:
+The application slug **is the URL path** (the SDK POSTs to `platform.higgsfield.ai/<slug>`), so the
+slug must be one your account actually has. The SDK README's example (`bytedance/seedream/v4/...`)
+is **not** on this account and 404s as `model_not_found`. List what's real with:
 
-1. In the Higgsfield dashboard (cloud.higgsfield.ai), confirm the account/plan has API model
-   access enabled, or
-2. Run `higgsfield model list --json` (authenticated) to get a **valid application slug** for this
-   account and share it.
+```bash
+curl -s https://platform.higgsfield.ai/models \
+  -H "Authorization: Key $HIGGSFIELD_API_KEY:$HIGGSFIELD_API_SECRET" -H "User-Agent: higgsfield-client-py"
+```
 
-Once a working slug is confirmed, add a `recipe_library/higgsfield-*` recipe (SKILL.md provenance +
-recipe.json with `"engine": "higgsfield"`) and verify a real generation.
+This account's models (namespace `higgsfield-ai/*`): `soul/v2/standard` (Soul 2, text→image),
+`soul/cinema`, `popcorn/auto`, and the `dop/*` video models (`dop/standard`, `dop/turbo`,
+`dop/lite`, each also a `first-last-frame` variant). Each record carries `operation_type`,
+`output_type`, and `base_credits`.
+
+**Verified working:** `higgsfield-ai/soul/v2/standard` produced a real 1536×1536 image through
+`HiggsfieldEngine`. Recipe: `recipe_library/higgsfield-soul-image` (bundles the official
+`higgsfield-generate` SKILL.md verbatim; `engine: "higgsfield"`, model the Soul 2 slug).
