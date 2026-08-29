@@ -224,3 +224,28 @@
 **Remains:** INC-2 — MUapi + HeyGen capture + a balance-delta reconciliation job (poll each vendor's queryable balance, diff vs summed events, alert on >5% drift, flip `estimated=false`) — this is how the credit vendors with no per-tenant tagging get trued up. INC-3 — per-brand budget enforcement in the policy gate + ops/anomaly view.
 
 ---
+
+### AGENT-CRON — self-cron (the agent schedules its own work) — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** OpenClaw's Automations subsystem (`docs/automation/cron-jobs.md`, `src/agents/tools/cron-tool*.ts`, `src/skills/loading/workspace-skill-loader.ts`) as prior art; our own runtime — the per-worker in-process scheduler loop (`scheduler/queue.py`) and the DB-backed run-store pattern (`agent/loop/runs.py`); the loop tool registry (`agent/loop/tools.py`), policy gate (`agent/loop/policy.py`), and `runner.run` signature. Spec: `docs/plans/2026-08-29-agent-cron.md`.
+
+**Changed:**
+- `supabase/migrations/20260829120000_scheduled_jobs.sql` — `scheduled_jobs` + `scheduled_runs` (RLS). Applied to prod Supabase (qkztphfjwgluwwlgeyys).
+- `src/glitch_signal/agent/cron/` — `schedule.py` (at/every/cron next-run via croniter + zoneinfo, no-drift interval), `store.py` (SKIP-LOCKED claim → advance/spend → open run in one txn = exactly-once; CRUD; finish_run success-reset / error-increment / auto-disable / one-shot delete; self-scoped delete), `capabilities.py` (allowlist: curate/drive_scout; reconcile=hook for COST-METER INC-2), `service.py` (sweep gated by kill-switch + rate-limited; dispatch agentTurn→runner.run+agent_runs / capability with wait_for; run_now for force), `tool.py` (self-scoped `schedule` create/list/cancel/next_check + creator-cap + duration parse), `runctx.py` (per-run job id for next_check pacing).
+- Wired `_agent_cron_tick` into `scheduler/queue.py` `_tick`; registered `schedule` in the loop TOOLS map; `/internal/cron/*` endpoints in `server.py` (create/list/get/patch/delete/run/runs); config flags `agent_cron_enabled` (default False), `agent_cron_max_jobs_per_brand`, `agent_cron_max_failures`. Added `croniter` dep.
+
+**Verified:** full suite **366 pass, 1 skipped**. Live (force-run, kill-switch off): capability=curate → `scheduled_runs.done` result `{lessons:3, episodes:5}`; one-shot agentTurn → `scheduled_runs.done` result `{run_id, steps:1}`, DB join confirms the linked `agent_runs` row is `done` steps=1, and the one-shot job auto-deleted. Commit SSH-signed; no secrets committed. Ships **disabled** — autonomous firing needs `AGENT_CRON_ENABLED=true` per env.
+
+**Remains:** `stream`/`on-exit` triggers + webhook delivery (this subsystem, INC-2); COST-METER INC-2 supplies the `reconcile` capability body (then schedule it daily); the agent **self-skills / skill-workshop** corpus is a separate lane (the other OpenClaw gap).
+
+### SECURITY — disable public API docs in production — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the FastAPI app construction in `server.py`; probed the live endpoints.
+
+**Changed:** `server.py` FastAPI() now sets `docs_url`/`redoc_url`/`openapi_url` to None unless `settings().enable_api_docs`; new config flag `enable_api_docs` (default False). `tests/test_docs_disabled.py` (2).
+
+**Verified:** `/docs`, `/redoc`, `/openapi.json` were public 200; after deploy all three return **404** through CF while `/healthz` and `/internal/cron/jobs` stay 200. Flagged by the operator (uneasy that the full API surface was public). Enable locally with `ENABLE_API_DOCS=true`.
+
+---
