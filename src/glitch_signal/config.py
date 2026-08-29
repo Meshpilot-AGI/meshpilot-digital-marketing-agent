@@ -502,28 +502,18 @@ def brand_env(name: str, brand_id: str | None = None, default: str = "") -> str:
     return os.environ.get(f"{prefix}_{name}", default)
 
 
-# Priority order for picking a publisher when a brand has multiple enabled.
-# Upload-Post is preferred — it's audited, cheap, and gives us access to
-# 10+ platforms under one integration. Zernio is the fallback (also
-# audited) if Upload-Post is disabled for a brand. Direct apps come last
-# because most aren't audited yet.
-#
-# TikTok exception: buffer_tiktok is preferred over upload_post_tiktok
-# because Upload-Post's server-side remux triggers TikTok's synthetic-
-# media audio mute on iOS/web for AI-voice content. Buffer forwards the
-# file URL untouched and the audio plays everywhere. Diagnosed 2026-04-19
-# with A/B posts of the same byte-identical file. See platforms/buffer.py.
+# Which publisher handles each target (VENDOR-1, 2026-08-29): Upload-Post + the
+# redundant direct integrations were removed, leaving three publishers —
+# Buffer (TikTok / X / LinkedIn), Meta (Facebook / Instagram), and YouTube direct.
+# Platforms that only Upload-Post served (threads/pinterest/bluesky/reddit) are
+# dropped until a real publisher exists for them.
 _PUBLISH_PRIORITY = {
-    "tiktok":    ["buffer_tiktok", "upload_post_tiktok", "tiktok"],
-    "instagram": ["upload_post_instagram", "instagram_reels"],
-    "youtube":   ["upload_post_youtube", "youtube_shorts"],
-    "facebook":  ["upload_post_facebook"],
-    "x":         ["upload_post_x", "twitter"],
-    "threads":   ["upload_post_threads"],
-    "pinterest": ["upload_post_pinterest"],
-    "bluesky":   ["upload_post_bluesky"],
-    "reddit":    ["upload_post_reddit"],
-    "linkedin":  ["upload_post_linkedin"],
+    "tiktok":    ["buffer_tiktok"],
+    "x":         ["buffer_x"],
+    "linkedin":  ["buffer_linkedin"],
+    "facebook":  ["meta_facebook"],
+    "instagram": ["meta_instagram"],
+    "youtube":   ["youtube_shorts"],
 }
 
 

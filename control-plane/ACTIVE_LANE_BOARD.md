@@ -5,13 +5,6 @@
 
 ## Active
 
-### VENDOR-1 — remove Upload-Post + redundant direct integrations; re-point sources          [OPEN]
-Owner: unassigned        Opened: 2026-08-28
-Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/platforms/, src/glitch_signal/sheet_posting/, src/glitch_signal/agent/nodes/publisher.py
-Acceptance: platforms/upload_post.py + webhooks/analytics/onboarding upload_post removed; tiktok/twitter/instagram + integrations/linkedin removed; orphaned TikTok OAuth removed; publisher.py + _PUBLISH_PRIORITY route only to Buffer/Meta/YouTube; DB scheduler + sheet_posting publish through them; suite green; a real post verified per platform.
-Write-back: ARCHITECTURE.md, control-plane/ENGINEERING_SUPERVISOR.md
-Notes: BLOCKED until GE-1 + BUFFER-1 land (can't re-point onto Buffer/Meta until they can do the job). Keep platforms/youtube.py.
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [OPEN]
 Owner: unassigned        Opened: 2026-08-28
 Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/db/models.py, alembic/versions/
@@ -20,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **VENDOR-1 — remove Upload-Post + redundant integrations; re-point publishing** (2026-08-29) — deleted platforms/{upload_post,tiktok,twitter} + webhooks/analytics/onboarding upload_post + integrations/{linkedin,x} + oauth/tiktok + routes + their tests; built the Meta **Instagram** publisher (container→publish, uses STORAGE-1 public URLs); repointed `_PUBLISH_PRIORITY` + publisher.py + the sheet-poster to **Buffer (TikTok/X/LinkedIn) / Meta (FB/IG) / YouTube**; scheduler analytics tick removed, webhook-reconcile now Buffer-only. Full suite **232 pass**, no live imports of removed modules. New `/internal/instagram/test-post`. **Remains:** live IG post verification; carousel degraded to single image; threads/pinterest/bluesky/reddit dropped; influencer/posting.py left as dead code (imports the removed upload_post pip pkg). → supervisor
 
 - **SUPA-MIGRATE — Supabase-native migrations, retire Alembic (DB-OPT pt 1)** (2026-08-29) — `supabase/config.toml` + idempotent baseline `migrations/…_init_schema.sql` (from models, no-op on prod, builds fresh shadow DBs); deleted alembic/ + db-migrate.yml + the dep; ci.yml db job now `psql`-applies the SQL migrations from scratch. Validated no-op against live DB (MCP); suite 301 pass. **Remains:** schema-slim (drop unused ORM/video tables) as new supabase migrations; watch the Supabase integration's first apply. → supervisor
 

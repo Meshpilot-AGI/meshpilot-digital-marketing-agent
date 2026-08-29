@@ -323,12 +323,18 @@ class TestBufferPollStatus:
 
 
 class TestPublishPriority:
-    """Priority list must prefer buffer_tiktok over upload_post_tiktok."""
+    """Post-VENDOR-1: TikTok/X/LinkedIn route to Buffer; FB/IG to Meta; YT direct."""
 
-    def test_tiktok_priority_order(self):
+    def test_priority_routes_to_buffer_meta_youtube(self):
         from glitch_signal.config import _PUBLISH_PRIORITY
-        tiktok_list = _PUBLISH_PRIORITY["tiktok"]
-        assert tiktok_list[0] == "buffer_tiktok", (
-            f"buffer_tiktok must be first for tiktok; got {tiktok_list}"
-        )
-        assert "upload_post_tiktok" in tiktok_list
+        assert _PUBLISH_PRIORITY["tiktok"] == ["buffer_tiktok"]
+        assert _PUBLISH_PRIORITY["x"] == ["buffer_x"]
+        assert _PUBLISH_PRIORITY["linkedin"] == ["buffer_linkedin"]
+        assert _PUBLISH_PRIORITY["facebook"] == ["meta_facebook"]
+        assert _PUBLISH_PRIORITY["instagram"] == ["meta_instagram"]
+        assert _PUBLISH_PRIORITY["youtube"] == ["youtube_shorts"]
+        # Upload-Post-only platforms are gone.
+        for gone in ("threads", "pinterest", "bluesky", "reddit"):
+            assert gone not in _PUBLISH_PRIORITY
+        flat = [k for v in _PUBLISH_PRIORITY.values() for k in v]
+        assert not any("upload_post" in k for k in flat)

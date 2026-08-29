@@ -2,6 +2,24 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### VENDOR-1 — remove Upload-Post + redundant integrations; re-point publishing — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** docs/plans/2026-08-28-phase1-source-to-publish.md; the full blast radius across publisher.py, config._PUBLISH_PRIORITY, scheduler/queue.py, sheet_posting/, server routes, and every importer of the removed modules.
+
+**Changed:**
+- **New Meta Instagram publisher** `platforms/instagram.py` (per-brand creds via brand_env; page-token via facebook._fetch_page_token; image → `/media` + `/media_publish`, reel → REELS container + poll; needs a PUBLIC media URL, which STORAGE-1 provides). New `/internal/instagram/test-post`.
+- **Repointed the publish path to Buffer/Meta/YouTube:** `_PUBLISH_PRIORITY` = tiktok/x/linkedin→buffer_*, facebook/instagram→meta_*, youtube→youtube_shorts (dropped threads/pinterest/bluesky/reddit). `publisher.py._publish_to_platform` now routes youtube_shorts / buffer_* / meta_facebook / meta_instagram only (builds a signed media URL + caption for Meta, via buffer helpers); webhook-pending sentinel now from buffer (`is_webhook_pending`/`extract_post_id`).
+- **Scheduler:** `_reconcile_awaiting_webhook` is Buffer-only (dropped the upload_post poll); removed `_pull_post_analytics` (Upload-Post analytics).
+- **Sheet poster** (`sheet_posting/{poster,reader,reconciler}.py`, via subagent + verified): normalizes the legacy `upload_post_*` platform values, resolves via `resolve_publish_platform`, posts through Buffer/Meta; quote_card renders + posts via a signed public URL; carousel **degrades to a single image** (no PDF); reconciler is a no-op (Buffer create_post is synchronous). Sheet read/write-back/audit preserved (test_sheet_tracker green).
+- **Deleted:** platforms/{upload_post,tiktok,twitter}.py, webhooks/analytics/onboarding upload_post.py, integrations/{linkedin,x}.py, oauth/tiktok.py, the /oauth/tiktok/* + /webhooks/upload_post routes, and tests test_upload_post*.py + test_tiktok.py + test_upload_post_onboarding.py.
+
+**Verified (observed):** app boots (`import server` + `scheduler.queue` clean); grep confirms **no live imports** of any removed module in src; full suite **232 passed, 1 skipped** (5 new IG unit tests). Real posts already proven earlier: Facebook (GE-1), Buffer X (BUFFER-1).
+
+**Notes / remains:** **live IG post not yet run** (needs a public image + posts to GE's real IG — `/internal/instagram/test-post` is ready). `influencer/posting.py` left as dead code (it imports the top-level `upload_post` **pip** package removed in DEPLOY-1 — already non-functional, no active caller; a PRUNE candidate). Unused settings (`upload_post_api_key`, etc.) left harmless. carousel-as-PDF dropped; threads/pinterest/bluesky/reddit dropped (no publisher).
+
+---
+
 ### SUPA-MIGRATE — adopt Supabase-native migrations, retire Alembic (DB-OPT part 1) — CLOSED 2026-08-29
 **Owner:** Claude
 

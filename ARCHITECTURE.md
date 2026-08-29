@@ -60,13 +60,15 @@ The agent runs **three independent content-production paths** feeding into a **t
 
 3. **`drive_footage`** — polls a brand's Google Drive folder for pre-edited clips; downloads via service-account auth; LLM writes caption + hashtags per brand voice; skips the entire video-gen + assembler + QC chain (the footage is already post-ready).
 
-### Publishers (tried in priority order per brand)
+### Publishers (per target, VENDOR-1 2026-08-29)
 
-1. **Upload-Post** (default) — audited partner app, $16/mo Basic covers 5 brands × unlimited posts × 10+ platforms.
-2. **Zernio** (fallback) — second audited partner app, kept wired for vendor-redundancy.
-3. **Direct per-platform apps** (YouTube Data API, TikTok Content Posting API) — used once the respective dev app is audited.
+Upload-Post + Zernio + the redundant direct integrations were removed. Three publishers remain, chosen per target by `config._PUBLISH_PRIORITY` / `resolve_publish_platform`:
 
-All three are gated behind `DISPATCH_MODE=dry_run|live` and short-circuited to synthetic ids in dry-run.
+1. **Buffer** — TikTok / X / LinkedIn (`platforms/buffer.py`).
+2. **Meta Graph API** — Facebook (`platforms/facebook.py`) and Instagram (`platforms/instagram.py`, container→publish; needs a public media URL — STORAGE-1 provides it).
+3. **YouTube** direct (`platforms/youtube.py`).
+
+Both source paths — the DB scheduler (`agent/nodes/publisher.py`) and the Google-Sheet poster (`sheet_posting/`) — route through these. Gated behind `DISPATCH_MODE=dry_run|live` (synthetic ids in dry-run). Platforms only Upload-Post served (threads/pinterest/bluesky/reddit) are dropped until a real publisher exists.
 
 ### ORM + review — REMOVED (PRUNE-1, 2026-08-29)
 
