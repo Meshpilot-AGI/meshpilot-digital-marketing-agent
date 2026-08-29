@@ -125,6 +125,22 @@
   }
 }
 
+/* Anchor jumps land below the sticky nav; smooth only when motion is welcome. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Visible keyboard focus on every interactive element (a11y). */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgb(52 211 153 / 0.75); /* emerald-400 */
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .bg-pattern {
   position: fixed;
   inset: 0;
