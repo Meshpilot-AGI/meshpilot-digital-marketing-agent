@@ -1,13 +1,13 @@
 """Scheduler — Python port of glitch-cod-confirm/src/lib/scheduler.js.
 
-Six concurrent tick functions run every SCHEDULER_TICK_MS (default 30s):
+Concurrent tick functions run every SCHEDULER_TICK_MS (default 30s):
 
 1. dispatch_video_jobs       — poll VideoJob(dispatched), call model.poll(), update status
 2. check_shots_complete      — for ContentScript(generating), if all shots done → trigger assembler
 3. promote_veto_windows      — ScheduledPost(pending_veto, deadline ≤ now) → queued
 4. dispatch_scheduled_posts  — ScheduledPost(queued, scheduled_for ≤ now) → dispatching → publish
-5. send_orm_auto_responses   — OrmResponse(pending_review, auto_send_at ≤ now) → send
-6. sweep_stuck               — ScheduledPost(dispatching, last_attempt > 5min) → requeue
+5. sweep_stuck               — ScheduledPost(dispatching, last_attempt > 5min) → requeue
+   (ORM/comment-engagement ticks removed in PRUNE-1 — Phase 1 is source→publish only)
 
 DISPATCH_MODE=dry_run: all ticks log intent but make no external calls.
 """
@@ -22,7 +22,6 @@ from sqlmodel import select
 from glitch_signal.config import settings
 from glitch_signal.db.models import (
     ContentScript,
-    OrmResponse,
     ScheduledPost,
     VideoJob,
 )
@@ -69,13 +68,10 @@ async def _tick() -> None:
         _check_shots_complete(),
         _promote_veto_windows(),
         _dispatch_scheduled_posts(),
-        _send_orm_auto_responses(),
         _sweep_stuck(),
-        _poll_orm_mentions(),
         _reconcile_awaiting_webhook(),
         _pull_post_analytics(),
         _cleanup_posted_media(),
-        _sweep_comments_tick(),
         _sheet_posting_tick(),
         _sheet_reconcile_tick(),
         return_exceptions=True,
@@ -140,31 +136,6 @@ async def _sheet_posting_tick() -> None:
         await post_one(row)
     except Exception as exc:
         log.warning("scheduler.sheet_posting_tick_failed", error=str(exc)[:200])
-
-
-_comment_sweep_last: datetime | None = None
-
-
-async def _sweep_comments_tick() -> None:
-    """Fire comments.sweep_comments() at most once every 10 minutes.
-
-    The scheduler tick itself runs every 30s; we don't need that cadence for
-    comment polling. 10 min keeps the engagement window tight without
-    spamming Upload-Post's get_post_comments endpoint.
-    """
-    global _comment_sweep_last
-
-    now = datetime.now(UTC).replace(tzinfo=None)
-    if _comment_sweep_last and (now - _comment_sweep_last) < timedelta(minutes=10):
-        return
-    _comment_sweep_last = now
-
-    from glitch_signal.comments.sweeper import sweep_comments
-
-    try:
-        await sweep_comments()
-    except Exception as exc:
-        log.warning("scheduler.comments_sweep_failed", error=str(exc)[:200])
 
 
 async def _cleanup_posted_media() -> None:
@@ -744,35 +715,7 @@ async def _recent_brand_post_keys(
 
 
 # ---------------------------------------------------------------------------
-# 5. send_orm_auto_responses
-# ---------------------------------------------------------------------------
-
-async def _send_orm_auto_responses() -> None:
-    now = datetime.now(UTC).replace(tzinfo=None)
-    factory = _session_factory()
-    async with factory() as session:
-        result = await session.execute(
-            select(OrmResponse).where(
-                OrmResponse.status == "pending_review",
-                OrmResponse.auto_send_at <= now,
-            )
-        )
-        responses = result.scalars().all()
-
-    for orm_resp in responses:
-        try:
-            from glitch_signal.orm.responder import send_approved_response
-            await send_approved_response(orm_resp.id)
-        except Exception as exc:
-            log.warning(
-                "scheduler.orm_auto_send_error",
-                orm_resp_id=orm_resp.id,
-                error=str(exc),
-            )
-
-
-# ---------------------------------------------------------------------------
-# 6. sweep_stuck — dispatching > 5min → requeue with backoff
+# sweep_stuck — dispatching > 5min → requeue with backoff
 # ---------------------------------------------------------------------------
 
 async def _sweep_stuck() -> None:
@@ -980,15 +923,3 @@ async def _resolve_drive_filename(session, asset_id: str | None) -> str | None:
     return sig.summary.replace("Drive clip: ", "", 1)
 
 
-# ---------------------------------------------------------------------------
-# 8. poll_orm_mentions — Phase 1 Twitter monitor
-# ---------------------------------------------------------------------------
-
-async def _poll_orm_mentions() -> None:
-    try:
-        from glitch_signal.orm.monitor import poll_all
-        new = await poll_all()
-        if new:
-            log.info("scheduler.orm_poll", new_mentions=new)
-    except Exception as exc:
-        log.warning("scheduler.orm_poll_error", error=str(exc))
