@@ -107,6 +107,15 @@ async def test_record_usage_inserts_row():
     assert params["cost_usd"] == 0.001
 
 
+async def test_record_usage_insert_is_dedup_guarded():
+    # #97: the INSERT carries ON CONFLICT ... DO NOTHING keyed on (vendor, request_id)
+    eng = _FakeEngine()
+    await record_usage(brand_id="b", vendor="heygen", operation="video.generate",
+                       request_id="vid-1", engine=eng)
+    stmt = eng.calls[0][0].lower()
+    assert "on conflict (vendor, request_id)" in stmt and "do nothing" in stmt
+
+
 async def test_record_usage_defaults_unattributed_brand():
     eng = _FakeEngine()
     await record_usage(brand_id=None, vendor="higgsfield", operation="image.generate", engine=eng)

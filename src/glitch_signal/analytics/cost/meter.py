@@ -21,7 +21,9 @@ log = logging.getLogger("glitch_signal.cost")
 
 _INSERT = text(
     "INSERT INTO usage_events (brand_id, vendor, operation, model, units, cost_usd, estimated, request_id) "
-    "VALUES (:brand_id, :vendor, :operation, :model, cast(:units as jsonb), :cost_usd, :estimated, :request_id)"
+    "VALUES (:brand_id, :vendor, :operation, :model, cast(:units as jsonb), :cost_usd, :estimated, :request_id) "
+    # dedup: a retried/re-polled call carrying the same vendor request_id must not double-count (#97)
+    "ON CONFLICT (vendor, request_id) WHERE request_id IS NOT NULL DO NOTHING"
 )
 _SUMMARY = text(
     "SELECT vendor, count(*) as events, coalesce(sum(cost_usd), 0) as cost_usd "
