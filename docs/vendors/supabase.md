@@ -56,10 +56,12 @@ production. Never touches the real Supabase DB.
 - **Removal** → ship the code first, then run this via `workflow_dispatch` **after**,
   so you never drop something the running code still reads.
 
-> Not Supabase Branching: that expects Supabase-CLI SQL migrations in
+> Not Supabase Branching (yet): that expects Supabase-CLI SQL migrations in
 > `supabase/migrations/` + `config.toml`. We use Alembic, so the "Supabase
-> Preview" check skips. Adopting native branching would mean rewriting migrations
-> as SQL — a later call, best paired with DB-OPT.
+> Preview" check skips (harmless). **DECIDED 2026-08-28:** we adopt Supabase-native
+> SQL migrations + enable Branching (preview DBs) **as part of DB-OPT**, when the
+> lean schema is rewritten — retiring Alembic + `db-migrate*.yml` in one clean
+> move, rather than doing it now and re-churning it.
 
 ## Gotchas we hit
 - Direct `db.<ref>.supabase.co` failed with `nodename nor servname` (IPv6-only).
