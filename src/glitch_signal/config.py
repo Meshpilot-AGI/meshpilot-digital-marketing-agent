@@ -240,6 +240,25 @@ class Settings(BaseSettings):
     muapi_api_key: str = ""
     muapi_api_base: str = "https://api.muapi.ai/api/v1"
 
+    # --- CF / origin hardening (mirrors leaselens; see docs) -----------------
+    # Origin shared-secret gate: Cloudflare injects `origin_auth_header` with this value
+    # on api.meshpilot.app once proxied; the app then requires it on /internal + /jobs so a
+    # direct-to-origin hit (bypassing the WAF) is 403'd. Unset = fail-open (no outage risk).
+    origin_shared_secret: str | None = None
+    origin_auth_header: str = "x-origin-auth"
+    # TrustedHostMiddleware allowlist (comma-separated). "*" = allow all (keeps FastAPI
+    # Cloud health probes from being 400'd; host filtering happens at the CF edge).
+    trusted_hosts: str = "*"
+    # CORS allowlist (comma-separated). Empty = no browser origin (internal API by default).
+    cors_allow_origins: str = ""
+    # Raw-ASGI request body cap (JSON only → 2 MiB is generous headroom).
+    max_request_body_bytes: int = 2 * 1024 * 1024
+    # In-app rate limiting (per-instance speed bump; real enforcer is the CF WAF).
+    rate_limit_enabled: bool = True
+    rate_limit_window_s: int = 60
+    rate_limit_per_ip: int = 120        # per client IP, per window
+    rate_limit_global: int = 3000       # constant-keyed global backstop, per window
+
     # --- ElevenLabs (TTS for YouTube Shorts pipeline) ---
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel (default)

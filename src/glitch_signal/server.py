@@ -33,6 +33,46 @@ app = FastAPI(
     description="Autonomous social video + ORM agent for Glitch Executor.",
 )
 
+# --- CF / origin hardening middleware (mirrors leaselens) --------------------
+# Starlette runs the LAST-added middleware OUTERMOST, so add inner→outer:
+# SecurityHeaders → CORS → TrustedHost → RateLimit → BodySizeLimit → OriginAuth (outer).
+def _install_middleware() -> None:
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.middleware.trustedhost import TrustedHostMiddleware
+
+    from glitch_signal.middleware import (
+        BodySizeLimitMiddleware,
+        OriginAuthMiddleware,
+        RateLimitMiddleware,
+        SecurityHeadersMiddleware,
+    )
+
+    s = settings()
+    app.add_middleware(SecurityHeadersMiddleware)
+    cors = [o.strip() for o in s.cors_allow_origins.split(",") if o.strip()]
+    if cors:
+        app.add_middleware(
+            CORSMiddleware, allow_origins=cors, allow_methods=["*"], allow_headers=["*"]
+        )
+    hosts = [h.strip() for h in s.trusted_hosts.split(",") if h.strip()] or ["*"]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+    if s.rate_limit_enabled:
+        app.add_middleware(
+            RateLimitMiddleware,
+            per_ip=s.rate_limit_per_ip,
+            window_s=s.rate_limit_window_s,
+            global_limit=s.rate_limit_global,
+        )
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=s.max_request_body_bytes)
+    app.add_middleware(
+        OriginAuthMiddleware,
+        secret=s.origin_shared_secret,
+        header=s.origin_auth_header,
+    )
+
+
+_install_middleware()
+
 _graph = None
 
 
