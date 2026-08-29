@@ -40,11 +40,15 @@ async def _t_list_recipes(args: dict, brand_id: str) -> str:
 
 
 async def _t_generate_media(args: dict, brand_id: str) -> str:
+    from glitch_signal.analytics.cost import budget as cost_budget
     from glitch_signal.media.generation import generate
     from glitch_signal.media.generation.compose import llm_compose
     from glitch_signal.media.generation.spec import Brief
     from glitch_signal.media.generation.storage import persist
 
+    allowed, reason = await cost_budget.check(brand_id)  # INC-3: don't spend past the daily cap
+    if not allowed:
+        return f"DENIED: {reason}"
     brief = Brief(brand_id=brand_id, recipe=str(args.get("recipe", "")), inputs=args.get("inputs", {}) or {})
     asset = await generate(brief, compose=llm_compose)
     asset = await persist(asset, brand_id)

@@ -78,4 +78,11 @@ curl -sS "$BASE/internal/analytics/spend?brand=glitch_executor&days=30" -H "x-jo
   endpoints: HeyGen `/v2/user/remaining_quota` (legacy, sunset 2026-10-31 → migrate to `/v3/users/me`);
   MUapi `/account/balance`; Higgsfield `/v1/account` — the latter two are best-effort and verified
   against the live account.
-- **INC-3 (later):** per-brand budget enforcement in the policy gate + an ops/anomaly view.
+- **INC-3 (done 2026-08-29):** per-brand daily budget gate + a hard `max_steps` ceiling + an
+  ops/anomaly view. `analytics/cost/budget.py`: `clamp_steps` (caps any caller/payload `max_steps` to
+  `agent_max_steps_ceiling`, default 12 — closes the unbounded-steps cost hole), `budget_status` /
+  `check` (today's metered spend vs the brand's daily cap; 0 = unlimited, per-brand override via
+  `brand_env("DAILY_BUDGET_USD")`). Enforced at the agent-run choke point (`runner.run` halts before
+  spending when over) and on the paid-media tool. **Fail-open** — a broken meter never blocks work.
+  Ops view: `GET /internal/analytics/budget?brand=` returns cap/spent/remaining/pct + a spend-spike
+  anomaly flag (today-so-far vs yesterday-to-now).

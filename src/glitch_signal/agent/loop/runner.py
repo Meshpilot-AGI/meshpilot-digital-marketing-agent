@@ -62,8 +62,17 @@ async def run(
     their tools discovered and offered to the LLM (namespaced `mcp__server__tool`), and calls to
     them routed through the same policy gate. `mcp` (an entered MCPManager) can be injected for tests.
     """
+    from glitch_signal.analytics.cost import budget as cost_budget
     from glitch_signal.analytics.cost import set_brand
     set_brand(brand_id)  # attribute every vendor call in this run to the brand (COST-METER)
+
+    max_steps = cost_budget.clamp_steps(max_steps)  # INC-3: hard ceiling (fixes unbounded max_steps)
+
+    # INC-3: on the production path, halt before spending if the brand is over its daily budget.
+    if execute is None:
+        allowed, reason = await cost_budget.check(brand_id)
+        if not allowed:
+            return {"final": f"halted: {reason}", "transcript": [], "steps": 0, "denied": "budget"}
 
     llm = llm or agent_llm.complete
     base_execute = execute or tools.execute

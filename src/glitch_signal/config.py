@@ -278,6 +278,12 @@ class Settings(BaseSettings):
     agent_publish_enabled: bool = False
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
+    # Hard ceiling on agent-loop steps (COST-METER INC-3) — clamps any caller/payload max_steps so an
+    # unbounded value can't drive recursive cost blow-up. Applied at the single runner choke point.
+    agent_max_steps_ceiling: int = 12
+    # Per-brand DAILY spend cap in USD (COST-METER INC-3). 0 = unlimited. Per-brand override via
+    # brand_env("DAILY_BUDGET_USD"). When today's metered spend >= cap, agent runs + paid media are denied.
+    agent_brand_daily_budget_usd: float = 0.0
     # Interactive API docs (Swagger /docs, /redoc, /openapi.json). OFF by default so the full
     # API surface isn't published to the public internet in production; flip on per env locally.
     enable_api_docs: bool = False
