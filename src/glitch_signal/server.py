@@ -172,6 +172,41 @@ async def healthz() -> dict:
     }
 
 
+import re as _re
+
+from sqlalchemy import text as _sqltext
+
+_EMAIL_RE = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_WAITLIST_INSERT = _sqltext(
+    "INSERT INTO waitlist (email, source, user_agent) VALUES (:email, :source, :ua) "
+    "ON CONFLICT (lower(email)) DO NOTHING"
+)
+
+
+@app.post("/waitlist")
+async def waitlist_signup(request: Request) -> dict:
+    """Public marketing-site waitlist capture (#99). Body: {email, source?}. Idempotent per email.
+
+    Public + unauthenticated (it's a signup); protected by the app's rate-limit middleware and a
+    strict server-side email check. Persists to the `waitlist` table.
+    """
+    from glitch_signal.db.session import _engine
+
+    body = await _json(request)
+    email = str(body.get("email", "")).strip().lower()
+    if not email or len(email) > 254 or not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=422, detail="a valid email is required")
+    source = str(body.get("source", "") or "")[:120] or None
+    ua = (request.headers.get("user-agent") or "")[:300] or None
+    try:
+        async with _engine().begin() as conn:
+            await conn.execute(_WAITLIST_INSERT, {"email": email, "source": source, "ua": ua})
+    except Exception as exc:  # noqa: BLE001
+        log.warning("waitlist.insert_failed", error=str(exc)[:200])
+        raise HTTPException(status_code=503, detail="could not record signup, please try again")
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Manual triggers
 # ---------------------------------------------------------------------------
