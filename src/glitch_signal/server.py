@@ -283,6 +283,31 @@ async def internal_agent_recall(request: Request) -> dict:
     }
 
 
+@app.post("/internal/agent/run", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_run(request: Request) -> dict:
+    """Run the agent loop for a goal (auth: x-jobs-token).
+
+    Body: {goal, brand?, max_steps?}. The agent recalls memory, plans, and calls its
+    capability-tools (media generation, memory) — but publishing is DISABLED (AGENT-POLICY).
+    Returns the final answer + the step transcript.
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    goal = body.get("goal")
+    if not goal:
+        raise HTTPException(status_code=400, detail="goal is required")
+    from glitch_signal.agent.loop import run as agent_run
+
+    result = await agent_run(brand, goal, max_steps=int(body.get("max_steps", 8)))
+    return {"ok": True, **result}
+
+
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
