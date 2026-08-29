@@ -5,8 +5,10 @@
 
 ## Active
 
-### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [OPEN]
-Owner: unassigned        Opened: 2026-08-28
+### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
+Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
+Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
+(decides whether signal/scout_checkpoint/video_asset/video_job stay). Unpark once that's decided.
 Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/db/models.py, alembic/versions/
 Acceptance: schema holds only what source→publish needs; orphaned old-SaaS tables (ORM: comment_reply/strategic_reply/mention_event/orm_response; + whatever else the pruned code no longer uses — video/scout/metrics pending the AI-generation scope call) dropped via one consolidation migration; migration app-driven; app boots; /healthz 200.
 Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.md
