@@ -129,3 +129,28 @@ async def persist(
     meta.update({"source_url": asset.url, "bucket": bucket, "path": path})
     log.info("storage.persisted", brand=brand_id, bucket=bucket, path=path)
     return replace(asset, url=public_url, metadata=meta)
+
+
+async def upload_bytes(
+    data: bytes, brand_id: str, *, ext: str = "png", content_type: str = "image/png",
+    prefix: str = "edited", client: httpx.AsyncClient | None = None,
+) -> str:
+    """Upload raw bytes to the brand's media bucket; return the durable public URL."""
+    url, key = _supabase()
+    bucket = bucket_for(brand_id)
+    owns = client is None
+    client = client or httpx.AsyncClient(timeout=120)
+    try:
+        await ensure_bucket(bucket, client=client)
+        path = f"{prefix}/{uuid.uuid4().hex}.{ext}"
+        up = await client.post(
+            f"{url}/storage/v1/object/{bucket}/{path}",
+            headers={**_headers(key), "Content-Type": content_type, "x-upsert": "true"},
+            content=data,
+        )
+        if up.status_code not in (200, 201):
+            raise EngineError(f"upload to {bucket}/{path} -> {up.status_code}: {up.text[:200]}")
+    finally:
+        if owns:
+            await client.aclose()
+    return f"{url}/storage/v1/object/public/{bucket}/{path}"
