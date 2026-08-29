@@ -1,0 +1,26 @@
+{
+  "slug": "muapi-product-video-ad-maker",
+  "description": "Create a high-end cinematic product video advertisement starting from a simple product photo.",
+  "triggers": ["product video ad", "video ad maker", "cinematic product video", "commercial video maker", "professional product ad"],
+  "inputs": [
+    {"name": "product_image", "type": "image_url", "required": true, "description": "A photo of the product to be used in the advertisement."},
+    {"name": "scene_description", "type": "text", "required": false, "default": "surrounded by fresh flowers and soft morning sunlight", "description": "Description of the scene or background for the product."}
+  ],
+  "phases": [
+    {
+      "id": "render", "op": "image.edit", "model": "flux-2-pro-edit", "prompt_mode": "template",
+      "prompt": "A high-end, professional commercial photograph of the product from the reference image, {{scene_description}}. Soft studio lighting, realistic reflections, cinematic depth of field, sharp focus on the product. 8k resolution, elegant and minimal composition.",
+      "images": ["{{product_image}}"],
+      "params": {"aspect_ratio": "1:1"},
+      "output": "premium_image"
+    },
+    {
+      "id": "animate", "op": "video.from_image", "model": "wan2.5-image-to-video-fast", "prompt_mode": "template",
+      "prompt": "A cinematic product advertisement video. Smooth, slow-motion camera movement panning across the product. Subtle environmental movements (e.g., leaves swaying, light shifting). High-quality commercial cinematography, elegant transitions, professional look.",
+      "images": ["{{premium_image}}"],
+      "params": {"aspect_ratio": "16:9"},
+      "output": "final_video"
+    }
+  ],
+  "returns": "final_video"
+}
