@@ -78,9 +78,12 @@ def build_post(
 async def _fetch_page_token(page_id: str, system_user_token: str) -> str:
     """Exchange a system-user token for the Page's access token."""
     async with httpx.AsyncClient(timeout=30) as client:
+        # Token in the Authorization header, not the query string, so it never
+        # lands in access logs / Sentry span URLs. Graph API accepts Bearer.
         r = await client.get(
             _base(page_id),
-            params={"fields": "access_token", "access_token": system_user_token},
+            params={"fields": "access_token"},
+            headers={"Authorization": f"Bearer {system_user_token}"},
         )
         if r.status_code >= 400:
             log.error("facebook.page_token_failed", status=r.status_code, body=r.text[:500])
@@ -100,6 +103,9 @@ async def publish_facebook(
     video_url: str | None = None,
 ) -> tuple[str, str]:
     """Publish to the brand's Facebook Page. Returns (post_id, permalink)."""
+    if settings().is_dry_run:
+        log.info("facebook.publish.dry_run", brand_id=brand_id, has_message=bool(message))
+        return "fb-dry-run", ""
     page_id, system_user_token = resolve_facebook_creds(brand_id)
     page_token = await _fetch_page_token(page_id, system_user_token)
     url, data = build_post(

@@ -111,6 +111,12 @@ async def persist_tokens(brand_id: str, tokens: dict) -> str:
         else None
     )
     scopes = [s for s in str(tokens.get("scope") or "").split() if s]
+    # Never persist raw tokens in the plaintext raw_provider_response column —
+    # they belong only in the Fernet-encrypted access/refresh columns.
+    safe_raw = {
+        k: v for k, v in tokens.items()
+        if k not in ("access_token", "refresh_token", "id_token")
+    }
     return await storage.upsert(
         brand_id=brand_id,
         platform="youtube",
@@ -119,7 +125,7 @@ async def persist_tokens(brand_id: str, tokens: dict) -> str:
         refresh_token=tokens.get("refresh_token"),
         access_token_expires_at=expires_at,
         scopes=scopes,
-        raw_provider_response=tokens,
+        raw_provider_response=safe_raw,
     )
 
 
@@ -137,8 +143,10 @@ async def get_fresh_access_token(brand_id: str) -> str:
             await storage.mark_needs_reauth(brand_id, "youtube")
             raise RuntimeError("YouTube access token expired and no refresh token available")
         refreshed = await refresh_access_token(auth.refresh_token, brand_id)
-        # Google does not return a new refresh_token on refresh — keep the stored one.
+        # Google's refresh omits the refresh_token (keep the stored one) and may
+        # omit scope (keep the stored scopes rather than clobbering with []).
         refreshed.setdefault("refresh_token", auth.refresh_token)
+        refreshed.setdefault("scope", " ".join(getattr(auth, "scopes", []) or []))
         await persist_tokens(brand_id, refreshed)
         return refreshed["access_token"]
     return auth.access_token

@@ -19,10 +19,28 @@ import os
 if os.environ.get("SENTRY_DSN"):
     import sentry_sdk
 
+    def _sentry_scrub(event, _hint):
+        """Strip auth material before events leave the process: OAuth codes +
+        signed media tokens live in the query string; tokens live in headers."""
+        req = event.get("request") or {}
+        if "query_string" in req:
+            req["query_string"] = ""
+        if "url" in req and "?" in req["url"]:
+            req["url"] = req["url"].split("?", 1)[0]
+        req.pop("cookies", None)
+        headers = req.get("headers")
+        if isinstance(headers, dict):
+            for h in list(headers):
+                if h.lower() in ("x-jobs-token", "authorization", "cookie"):
+                    headers.pop(h, None)
+        return event
+
     sentry_sdk.init(
         dsn=os.environ["SENTRY_DSN"],
-        send_default_pii=True,
-        traces_sample_rate=1.0,
+        send_default_pii=False,          # no request headers/IP/cookies by default
+        traces_sample_rate=0.2,
+        before_send=_sentry_scrub,
+        before_send_transaction=_sentry_scrub,
     )
 
 from glitch_signal.server import app  # noqa: E402  (app import after Sentry init, by design)
