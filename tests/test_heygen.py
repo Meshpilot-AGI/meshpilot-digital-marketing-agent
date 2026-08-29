@@ -88,6 +88,18 @@ def test_engine_registry_resolves_heygen():
     assert get_engine("muapi").name == "muapi"
 
 
+def test_build_body_prefers_params_avatar_id():
+    body = HeyGenEngine._build_body("static-tag", "hi", {"avatar_id": "av_real", "voice_id": "v1"})
+    assert body["avatar_id"] == "av_real"                 # params override the static model tag
+    assert body["voice"] == {"voice_id": "v1"}
+
+
+# A recipe may declare its engine; runner.generate resolves it (default "muapi").
+def test_recipe_engine_field_defaults_to_muapi():
+    from glitch_signal.media.generation import get_recipe
+    assert get_recipe("muapi-cinema-director").engine == "muapi"
+
+
 # ── webhook receiver ──────────────────────────────────────────────────
 def _client_with_secret(monkeypatch, secret):
     from glitch_signal import config

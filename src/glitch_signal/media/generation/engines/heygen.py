@@ -53,9 +53,11 @@ class HeyGenEngine:
     @staticmethod
     def _build_body(model: str, prompt: str, params: dict[str, Any]) -> dict[str, Any]:
         body: dict[str, Any] = {"input_text": prompt}
-        if model:
-            body["avatar_id"] = model
         p = dict(params or {})
+        # avatar_id: prefer params (recipe params are templated; `model` is a static tag), else model
+        avatar_id = p.pop("avatar_id", None) or model
+        if avatar_id:
+            body["avatar_id"] = avatar_id
         # convenience: voice_id → the nested voice object HeyGen expects
         if "voice_id" in p and "voice" not in p:
             p["voice"] = {"voice_id": p.pop("voice_id")}
