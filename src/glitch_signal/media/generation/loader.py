@@ -72,6 +72,7 @@ class Recipe:
     inputs: tuple[InputSpec, ...]
     phases: tuple[Phase, ...]
     returns: str  # the phase output that is the final asset
+    engine: str = "muapi"  # which generation engine runs this recipe's phases ("muapi" | "heygen")
     skill_md: str = ""
 
     @property
@@ -141,6 +142,7 @@ def load_recipe(recipe_dir: Path) -> Recipe:
         ),
         phases=phases,
         returns=returns,
+        engine=str(m.get("engine", "muapi")),
         skill_md=skill,
     )
 

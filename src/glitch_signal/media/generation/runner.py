@@ -138,12 +138,14 @@ async def generate(
     from glitch_signal.media.generation.engines import get_engine
 
     recipe = get_recipe(brief.recipe)
+    if engine is None:
+        engine = recipe.engine        # recipe declares its vendor (default "muapi")
     if isinstance(engine, str):
         engine = get_engine(engine)
     return await run_recipe(
         recipe,
         brief.inputs,
-        engine=engine or MuapiEngine(),
+        engine=engine,
         compose=compose,
         timeout_s=timeout_s,
     )

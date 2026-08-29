@@ -674,8 +674,8 @@ async def internal_media_generate(request: Request) -> dict:
 
     brief = Brief(brand_id=brand, recipe=slug, inputs=body.get("inputs", {}) or {})
     try:
-        # engine: 'muapi' (default) or 'heygen'. The LLM composer handles prompt-authored recipes.
-        asset = await media_generate(brief, engine=body.get("engine", "muapi"), compose=llm_compose)
+        # engine: explicit override, else the recipe's declared engine (muapi/heygen).
+        asset = await media_generate(brief, engine=body.get("engine"), compose=llm_compose)
     except EngineError as exc:
         msg = str(exc)
         code = 422 if "composer is required" in msg else 400

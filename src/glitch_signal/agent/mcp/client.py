@@ -21,6 +21,9 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
+_DEFAULT_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/128.0 Safari/537.36")
+
 
 @dataclass(frozen=True)
 class ServerSpec:
@@ -59,11 +62,16 @@ Connector = Callable[[ServerSpec, AsyncExitStack], Awaitable[_Session]]
 async def _default_connector(spec: ServerSpec, stack: AsyncExitStack) -> _Session:
     """Open a streamable-HTTP MCP session (real network). Imported lazily so import never fails."""
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
+    from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
-    read, write, _ = await stack.enter_async_context(
-        streamablehttp_client(spec.url, headers=spec.headers or None)
+    # A browser-like UA is required — some MCP hosts sit behind Cloudflare, which blocks
+    # default SDK/urllib agents (HeyGen returns CF error 1010 otherwise).
+    headers = {"User-Agent": _DEFAULT_UA, **(spec.headers or {})}
+    http_client = create_mcp_http_client(headers=headers)
+    streams = await stack.enter_async_context(
+        streamable_http_client(spec.url, http_client=http_client)
     )
+    read, write = streams[0], streams[1]  # TransportStreams: (read, write[, get_session_id])
     session = await stack.enter_async_context(ClientSession(read, write))
     await session.initialize()
     return session
@@ -129,8 +137,17 @@ class MCPManager:
 
 
 async def manager_for_brand(brand_id: str, *, connector: Connector | None = None) -> MCPManager:
-    """Build an (unentered) MCPManager from the brand's configured MCP servers."""
+    """Build an (unentered) MCPManager from the agent-wide + per-brand MCP servers.
+
+    `AGENT_MCP_SERVERS` (global infra, e.g. the MeshPilot HeyGen account) applies to every brand;
+    `<BRAND>_MCP_SERVERS` adds project-specific servers. Same-name brand servers override global.
+    """
+    import os
+
     from glitch_signal.config import brand_env
 
-    servers = parse_servers(brand_env("MCP_SERVERS", brand_id))
-    return MCPManager(servers, connector=connector)
+    servers = parse_servers(os.environ.get("AGENT_MCP_SERVERS"))
+    by_name = {s.name: s for s in servers}
+    for s in parse_servers(brand_env("MCP_SERVERS", brand_id)):
+        by_name[s.name] = s
+    return MCPManager(list(by_name.values()), connector=connector)
