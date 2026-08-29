@@ -1,6 +1,6 @@
 # Plan — Media Generation Capability (MEDIA-1)
 
-**Date:** 2026-08-29 · **Status:** DONE (starter subset 4/13 — real video generated live; see ENGINEERING_SUPERVISOR MEDIA-1)
+**Date:** 2026-08-29 · **Status:** DONE — MEDIA-1 (4 starter recipes, real video live) + MEDIA-2 (LLM composer via muapi + 7 more recipes = **11 total**, real LLM-authored image live; 2 clipping recipes deferred to a future video-edit lane). See ENGINEERING_SUPERVISOR MEDIA-1 / MEDIA-2.
 **Depends on:** GE-1 (brand_env), the publish capabilities (Meta/Buffer/YouTube — closed)
 **Related:** DB-OPT (this answers its open scope question — see §7)
 
