@@ -146,13 +146,6 @@ async def internal_facebook_test_post(request: Request) -> dict:
     return {"ok": True, "post_id": post_id, "permalink": permalink}
 
 
-@app.get("/internal/sentry-debug", dependencies=[Depends(_require_jobs_auth)])
-async def internal_sentry_debug() -> dict:
-    """Trigger an error to verify Sentry capture (auth: x-jobs-token)."""
-    _ = 1 / 0  # noqa - intentional: exercises Sentry error capture
-    return {"ok": True}  # unreachable
-
-
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
