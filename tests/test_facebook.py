@@ -62,6 +62,7 @@ def test_resolve_creds_from_brand_env(monkeypatch, tmp_path):
 def test_resolve_creds_raises_when_page_missing(monkeypatch, tmp_path):
     _setup_brand(monkeypatch, tmp_path)
     monkeypatch.delenv("GE_META_PAGE_ID", raising=False)
+    monkeypatch.delenv("META_PAGE_ID", raising=False)  # and no agent-wide default
     monkeypatch.setenv("GE_SYSTEM_USER_TOKEN", "sys-tok")
     with pytest.raises(RuntimeError):
         fb.resolve_facebook_creds()

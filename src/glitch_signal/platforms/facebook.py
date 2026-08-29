@@ -20,7 +20,7 @@ from __future__ import annotations
 import httpx
 import structlog
 
-from glitch_signal.config import brand_env, settings
+from glitch_signal.config import brand_env, brand_env_or_default, settings
 
 log = structlog.get_logger(__name__)
 
@@ -33,8 +33,8 @@ def _base(page_id: str) -> str:
 
 def resolve_facebook_creds(brand_id: str | None = None) -> tuple[str, str]:
     """(page_id, system_user_token) for the brand, from brand_env. Raises if unset."""
-    page_id = brand_env("META_PAGE_ID", brand_id)
-    system_user_token = brand_env("SYSTEM_USER_TOKEN", brand_id)
+    page_id = brand_env_or_default("META_PAGE_ID", brand_id)
+    system_user_token = brand_env_or_default("SYSTEM_USER_TOKEN", brand_id)
     if not page_id:
         raise RuntimeError("facebook: <PREFIX>_META_PAGE_ID is not set for this brand.")
     if not system_user_token:
