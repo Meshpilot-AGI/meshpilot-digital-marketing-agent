@@ -44,6 +44,12 @@ manual `workflow_dispatch`. The GitHub runner is IPv4 → reaches the session
 pooler. DSN is the repo secret **`SIGNAL_DB_URL`** (session pooler, us-east-2).
 `upgrade head` is idempotent, so re-runs are safe no-ops.
 
+**PR gate** — `.github/workflows/db-migrate-check.yml` runs on any PR that
+touches `alembic/**` or `db/**`: it spins up a throwaway Postgres, applies the
+full migration chain from scratch (`alembic upgrade head`), and flags model
+drift (`alembic check`, informational). A broken migration fails the PR — never
+production. Never touches the real Supabase DB.
+
 **Ordering** (the app auto-deploys on the same production push):
 - **Additive** migration (new column/table the new code uses) → backward-compatible,
   fine to run alongside the deploy.
