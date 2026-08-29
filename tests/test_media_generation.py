@@ -321,6 +321,96 @@ async def test_instagram_end_to_end_with_muapi_composer():
     assert asset.kind == "image"
 
 
+# ── Supabase storage (STORAGE-1) ─────────────────────────────────────
+class _FakeResp:
+    def __init__(self, status=200, text="", headers=None, content=b""):
+        self.status_code = status
+        self.text = text
+        self.headers = headers or {}
+        self.content = content
+
+
+class FakeStorageClient:
+    """Fake httpx client: create-bucket + fetch-source + upload-object."""
+
+    def __init__(self, bucket_status=200):
+        self.calls: list[tuple[str, str]] = []
+        self._bucket_status = bucket_status
+
+    async def post(self, url, headers=None, json=None, content=None):
+        self.calls.append(("POST", url))
+        if "/storage/v1/bucket" in url:
+            return _FakeResp(self._bucket_status, text="created" if self._bucket_status < 300 else "exists")
+        if "/storage/v1/object/" in url:
+            return _FakeResp(200, text="ok")
+        return _FakeResp(404, text="?")
+
+    async def get(self, url, headers=None):
+        self.calls.append(("GET", url))
+        return _FakeResp(200, headers={"content-type": "image/png"}, content=b"PNGDATA")
+
+    async def aclose(self):
+        pass
+
+
+def _sb_env(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://proj.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_x")
+
+
+def test_bucket_for_derives_from_env_prefix():
+    from glitch_signal.media.generation.storage import bucket_for
+
+    assert bucket_for("glitch_executor") == "ge-media"  # env_prefix GE -> ge-media
+
+
+def test_ext_for():
+    from glitch_signal.media.generation.storage import _ext_for
+
+    assert _ext_for("https://cdn/x/abc.mp4", "", "video") == "mp4"
+    assert _ext_for("https://cdn/x/abc", "image/png", "image") == "png"  # from content-type
+    assert _ext_for("https://cdn/x/noext", "", "video") == "mp4"  # kind fallback
+
+
+async def test_persist_uploads_and_rewrites_url(monkeypatch):
+    _sb_env(monkeypatch)
+    from glitch_signal.media.generation.spec import Asset
+    from glitch_signal.media.generation.storage import persist
+
+    src = Asset(url="https://cdn.muapi.ai/outputs/x.png", kind="image",
+                engine="muapi:nano-banana-pro", recipe="muapi-nano-banana")
+    fake = FakeStorageClient()
+    out = await persist(src, "glitch_executor", client=fake)
+
+    assert out.url.startswith("https://proj.supabase.co/storage/v1/object/public/ge-media/muapi-nano-banana/")
+    assert out.url.endswith(".png")
+    assert out.metadata["source_url"] == "https://cdn.muapi.ai/outputs/x.png"
+    assert out.metadata["bucket"] == "ge-media"
+    # ensured bucket, fetched source, uploaded object
+    kinds = [c[0] for c in fake.calls]
+    assert kinds == ["POST", "GET", "POST"]
+    assert "/storage/v1/bucket" in fake.calls[0][1]
+    assert "/storage/v1/object/ge-media/" in fake.calls[2][1]
+
+
+async def test_ensure_bucket_tolerates_existing(monkeypatch):
+    _sb_env(monkeypatch)
+    from glitch_signal.media.generation.storage import ensure_bucket
+
+    await ensure_bucket("ge-media", client=FakeStorageClient(bucket_status=409))  # no raise
+
+
+async def test_persist_requires_supabase_env(monkeypatch):
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
+    from glitch_signal.media.generation.spec import Asset
+    from glitch_signal.media.generation.storage import persist
+
+    with pytest.raises(EngineError, match="SUPABASE_URL / SUPABASE_SECRET_KEY not set"):
+        await persist(Asset(url="x", kind="image", engine="e"), "glitch_executor",
+                      client=FakeStorageClient())
+
+
 def test_no_placeholders_leak_in_templates():
     """Non-llm template prompts should only reference known inputs/outputs."""
     for recipe in list_recipes():
