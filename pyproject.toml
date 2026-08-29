@@ -74,10 +74,6 @@ dependencies = [
 
   # img2pdf — lossless PNG→PDF for LinkedIn carousel document posts.
   "img2pdf>=0.5",
-
-  # Upload-Post — forked to glitch-exec-labs/upload-post-pip so we can
-  # track upstream releases and patch LinkedIn document support as needed.
-  "upload-post @ git+https://github.com/glitch-exec-labs/upload-post-pip.git@main",
 ]
 
 [project.optional-dependencies]
@@ -106,12 +102,6 @@ Issues = "https://github.com/xenon2512/meshpilot-social-media-agent/issues"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-# Required because we pin `upload-post` to our fork via a git URL
-# (git+https://github.com/glitch-exec-labs/upload-post-pip). Hatchling refuses
-# direct URL dependencies unless this is explicitly allowed.
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/glitch_signal"]

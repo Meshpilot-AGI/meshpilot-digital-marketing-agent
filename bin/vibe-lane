@@ -34,7 +34,7 @@ case "$CMD" in
   claim)
     ID="${1:?usage: vibe-lane claim <ID> <owner>}"; OWNER="${2:?owner required}"
     grep -q "^### $ID " "$BOARD" || { echo "error: lane $ID not found" >&2; exit 1; }
-    sed -i "/^### $ID /s/\[[^]]*\]/[CLAIMED]/" "$BOARD"
+    sed -i.bak "/^### $ID /s/\[[^]]*\]/[CLAIMED]/" "$BOARD" && rm -f "$BOARD.bak"
     awk -v id="$ID" -v o="$OWNER" '
       $0 ~ "^### "id" " {inlane=1}
       inlane && /^Owner:/ { sub(/Owner:[^O]*Opened:/, "Owner: "o"        Opened:"); inlane=0 }
@@ -42,9 +42,10 @@ case "$CMD" in
     echo "claimed $ID -> $OWNER";;
   state)
     ID="${1:?usage: vibe-lane state <ID> <STATE>}"; STATE="${2:?state required}"
+    STATE_UC="$(printf '%s' "$STATE" | tr '[:lower:]' '[:upper:]')"  # bash 3.2 (macOS) has no ${x^^}
     grep -q "^### $ID " "$BOARD" || { echo "error: lane $ID not found" >&2; exit 1; }
-    sed -i "/^### $ID /s/\[[^]]*\]/[${STATE^^}]/" "$BOARD"
-    echo "$ID -> [${STATE^^}]";;
+    sed -i.bak "/^### $ID /s/\[[^]]*\]/[${STATE_UC}]/" "$BOARD" && rm -f "$BOARD.bak"
+    echo "$ID -> [${STATE_UC}]";;
   close)
     ID="${1:?usage: vibe-lane close <ID> [\"result\"]}"; RESULT="${2:-done}"
     grep -q "^### $ID " "$BOARD" || { echo "error: lane $ID not found" >&2; exit 1; }

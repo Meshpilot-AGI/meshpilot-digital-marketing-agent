@@ -1,0 +1,23 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install deps
+        run: uv sync
+      - name: Import smoke test (deploy entrypoint loads)
+        # Proves FastAPI Cloud can import the app. Config has all-default
+        # settings, so no env is required just to import.
+        run: uv run python -c "import main; assert main.app is not None; print('app import OK')"
+      - name: Run tests
+        run: uv run pytest -q
