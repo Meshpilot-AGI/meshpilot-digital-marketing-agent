@@ -408,6 +408,36 @@ async def internal_agent_mcp_tools(brand: str = "glitch_executor") -> dict:
     return {"ok": True, "brand": brand, "tools": tools, "count": len(tools)}
 
 
+@app.get("/internal/analytics/budget", dependencies=[Depends(_require_jobs_auth)])
+async def internal_analytics_budget(brand: str = "glitch_executor") -> dict:
+    """Per-brand budget status + a simple spend anomaly flag (COST-METER INC-3; auth: x-jobs-token).
+
+    Shows today's metered spend vs the brand's daily cap, plus an anomaly flag when today's run-rate
+    is running well above yesterday's same-time spend (early-warning for a cost spike).
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from glitch_signal.analytics.cost import budget as cost_budget
+    from glitch_signal.analytics.cost import spend_summary
+
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    now = datetime.now(timezone.utc)
+    status = await cost_budget.budget_status(brand, now=now)
+    # anomaly: today-so-far vs yesterday up to the same wall-clock time
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    y_start, y_end = day_start - timedelta(days=1), now - timedelta(days=1)
+    anomaly = None
+    try:
+        today = float((status.get("spent_usd") or 0.0))
+        yest = float((await spend_summary(brand, y_start, y_end)).get("total_usd", 0.0))
+        spike = today > 3 * yest and today > 1.0  # 3x prior day and materially non-trivial
+        anomaly = {"today_usd": round(today, 6), "yesterday_to_now_usd": round(yest, 6), "spike": bool(spike)}
+    except Exception:  # noqa: BLE001
+        anomaly = {"error": "anomaly read failed"}
+    return {"ok": True, "steps_ceiling": cost_budget.steps_ceiling(), "anomaly": anomaly, **status}
+
+
 @app.get("/internal/analytics/spend", dependencies=[Depends(_require_jobs_auth)])
 async def internal_analytics_spend(brand: str = "glitch_executor", days: int = 30) -> dict:
     """Per-brand spend across all vendors over the last `days` (COST-METER; auth: x-jobs-token).
