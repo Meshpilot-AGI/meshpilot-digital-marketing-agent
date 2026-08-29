@@ -46,6 +46,16 @@ Capabilities are modular and added over time without reworking the others.
 4. **Live service — evolve safely.** Lane → PR into `preview`; promote
    `preview → production` (CI-gated) to ship. Replace before you remove.
 
+## Source material — the "bible"
+
+The earlier **Mesh Pilot monorepo** is our reference bible: a large body of
+already-built, proven work. When we add a capability, we look there **first**,
+pull the relevant files, and **adapt** them to this app's workflow (cloud agent,
+per-project keys, runs-on-app). It was built as a multi-tenant SaaS product, so
+expect changes on pull — we take the proven logic, not the shape. We keep it as
+reference only; we never run, ship, or deploy it. (Canonical clone on this Mac:
+`~/dev/meshpilot/meshpilot-digital-marketing-stack`.)
+
 ## Where the current code stands
 
 Extracted from the earlier Mesh Pilot monorepo (package `glitch_signal`), it is
