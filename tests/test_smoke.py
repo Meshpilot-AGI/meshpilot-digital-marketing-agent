@@ -20,52 +20,7 @@ os.environ["ANTHROPIC_API_KEY"] = "test"
 os.environ["GOOGLE_API_KEY"] = "test"
 
 
-# ---------------------------------------------------------------------------
-# 1. Guardrail tests — hard stops must fire, never create OrmResponse
-# ---------------------------------------------------------------------------
-
-class TestGuardrails:
-    """Pure rule engine — no network, no DB."""
-
-    def test_hard_stop_legal(self):
-        from glitch_signal.orm.guardrails import check
-        is_safe, phrase = check("You're breaking SEC regulations!")
-        assert not is_safe
-        assert "SEC" in phrase
-
-    def test_hard_stop_loss(self):
-        from glitch_signal.orm.guardrails import check
-        is_safe, phrase = check("I lost $500 trading with your bot")
-        assert not is_safe
-        assert phrase in ("loss", "lost $")
-
-    def test_hard_stop_guarantee(self):
-        from glitch_signal.orm.guardrails import check
-        is_safe, _ = check("Can you guarantee returns of 20%?")
-        assert not is_safe
-
-    def test_hard_stop_lawsuit(self):
-        from glitch_signal.orm.guardrails import check
-        is_safe, phrase = check("I'm going to take legal action against you")
-        assert not is_safe
-
-    def test_safe_positive(self):
-        from glitch_signal.orm.guardrails import check
-        is_safe, phrase = check("Great bot! The cobra mascot is amazing.")
-        assert is_safe
-        assert phrase is None
-
-    def test_safe_faq(self):
-        from glitch_signal.orm.guardrails import check
-        is_safe, phrase = check("How do I get access to the trading platform?")
-        assert is_safe
-        assert phrase is None
-
-    def test_case_insensitive(self):
-        from glitch_signal.orm.guardrails import check
-        # "SEBI" in uppercase
-        is_safe, _ = check("This violates sebi rules")
-        assert not is_safe
+# ORM/engagement guardrail + classifier tests removed in PRUNE-1 (subsystem deleted).
 
 
 # ---------------------------------------------------------------------------
@@ -315,21 +270,7 @@ class TestPublisherIdempotencyGuard:
 
 
 # ---------------------------------------------------------------------------
-# 5. Classifier dry-run — returns positive tier
-# ---------------------------------------------------------------------------
-
-class TestClassifierDryRun:
-    @pytest.mark.asyncio
-    async def test_dry_run_returns_positive(self):
-        from glitch_signal.orm.classifier import classify
-
-        result = await classify("Great bot! Love the cobra.", "twitter")
-        assert result["tier"] == "positive"
-        assert result["confidence"] == 1.0
-
-
-# ---------------------------------------------------------------------------
-# 6. Server health check — startup without real DB
+# Server health check — startup without real DB
 # ---------------------------------------------------------------------------
 
 class TestServerHealth:

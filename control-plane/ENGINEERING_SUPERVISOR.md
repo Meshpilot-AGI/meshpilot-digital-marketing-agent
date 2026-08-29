@@ -2,6 +2,32 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### PRUNE-1 — remove ORM / comment-engagement subsystem — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** docs/plans/2026-08-28-phase1-source-to-publish.md; the blast radius (only `scheduler/queue.py` imports `comments/`+`orm/`, all lazy inside ticks); the scheduler tick loop.
+
+**Changed:** deleted `src/glitch_signal/comments/` (sweeper, strategic, x_sweeper) and `src/glitch_signal/orm/` (classifier, guardrails, monitor, responder). In `scheduler/queue.py`: removed the 3 engagement ticks from `_tick()` and deleted their functions (`_send_orm_auto_responses`, `_poll_orm_mentions`, `_sweep_comments_tick` + `_comment_sweep_last`), dropped the now-unused `OrmResponse` top-level import, fixed the module docstring. Removed the ORM tests (`test_smoke.py` TestGuardrails + TestClassifierDryRun; `test_multi_brand_config.py` TestBrandScopedGuardrails). `ARCHITECTURE.md` ORM section marked removed.
+
+**Verified (observed):** `import glitch_signal.server` + `scheduler.queue` boot clean; grep confirms **no remaining `glitch_signal.(comments|orm)` refs** in src; full suite **301 passed, 1 skipped** (was 310; −9 ORM tests). 
+
+**Notes / remains:** the `OrmResponse`/`MentionEvent` **DB models** and the brand-config `orm_guardrails` field are intentionally left (DB-OPT removes the tables; `integrations/x.py` — now engagement-orphaned — is removed in VENDOR-1). This unblocks VENDOR-1: the engagement code that imported `integrations/x`, `integrations/linkedin`, and `upload_post` is gone.
+
+---
+
+### STORAGE-1 — persist generated media to per-brand Supabase buckets — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the cloud env Supabase vars (SUPABASE_URL / SUPABASE_SECRET_KEY / PUBLISHABLE / JWKS); the Supabase Storage REST API; the media-generation runner + Asset shape.
+
+**Changed:** new `media/generation/storage.py` — `bucket_for(brand)` (= `<env_prefix>-media`, e.g. `ge-media`; brand-config `media_bucket` override), `ensure_bucket()` (idempotent create, tolerates 409/exists), `persist(asset, brand)` (download the engine URL → upload to `<bucket>/<recipe>/<uuid>.<ext>` → return Asset rewritten to the durable Supabase **public** URL, muapi URL kept in `metadata.source_url`). Uses the Storage REST API with the **service key** over httpx (no supabase-py dep). `/internal/media/generate` now persists by default (opt out `store:false`), returns `{url, source_url, bucket}`; new `POST /internal/media/ensure-bucket`. Updated `docs/vendors/supabase.md` (Storage section).
+
+**Verified (observed):** 6 storage unit tests (fake httpx client — bucket-derivation, ext logic, upload+URL-rewrite, 409-tolerated, env-required); full suite **310 passed, 1 skipped**. Live on api.meshpilot.app: `ensure-bucket` created **`ge-media`**; `generate` (logo-creator) persisted → `https://qkztphfjwgluwwlgeyys.supabase.co/storage/v1/object/public/ge-media/muapi-logo-creator/39562526…png` → **HTTP 200, image/png, 341KB** (durable + publicly fetchable). `source_url` retained the muapi CDN URL.
+
+**Notes / remains:** buckets are **public** (media is for public posts; publishers must fetch it) — switch to private + signed URLs if a brand needs it. Persistence lives in the endpoint; when the scheduler/publisher path is wired it should call `persist` too. Rationale: muapi CDN URLs expire ~30d, so brand-owned storage is required for durability + per-brand data isolation.
+
+---
+
 ### MEDIA-2 — LLM composer (via muapi) + 7 more recipes — CLOSED 2026-08-29
 **Owner:** Claude
 

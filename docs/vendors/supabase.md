@@ -1,6 +1,6 @@
-# Vendor runbook — Supabase (Postgres)
+# Vendor runbook — Supabase (Postgres + Storage)
 
-Our database. Operating guide; validate against
+Our database **and** media store. Operating guide; validate against
 https://supabase.com/docs/guides/database/connecting-to-postgres when unsure.
 
 ## Our setup
@@ -62,6 +62,31 @@ production. Never touches the real Supabase DB.
 > SQL migrations + enable Branching (preview DBs) **as part of DB-OPT**, when the
 > lean schema is rewritten — retiring Alembic + `db-migrate*.yml` in one clean
 > move, rather than doing it now and re-churning it.
+
+## Storage — per-brand media buckets (STORAGE-1)
+
+Generated media is persisted to Supabase **Storage** because muapi's
+`cdn.muapi.ai` URLs expire (~30 days). Each brand has its **own** bucket
+`<env_prefix>-media` (GE → **`ge-media`**), overridable via the brand config's
+`media_bucket`. Public buckets (the media is destined for public social posts,
+and publishers must fetch it) — switch to private + signed URLs later if needed.
+
+- **Code:** `src/glitch_signal/media/generation/storage.py` — `bucket_for()`,
+  `ensure_bucket()` (idempotent create), `persist(asset, brand)` (download the
+  engine URL → upload to `<bucket>/<recipe>/<uuid>.<ext>` → rewrite the Asset URL
+  to the durable Supabase public URL; muapi URL kept in `metadata.source_url`).
+- **Auth:** the Storage REST API with the **service key** `SUPABASE_SECRET_KEY`
+  (`Authorization: Bearer` + `apikey`), over httpx — no supabase-py dep.
+  ```
+  create : POST {SUPABASE_URL}/storage/v1/bucket            {"id","name","public"}
+  upload : POST {SUPABASE_URL}/storage/v1/object/{bucket}/{path}   raw bytes, x-upsert:true
+  public : GET  {SUPABASE_URL}/storage/v1/object/public/{bucket}/{path}
+  ```
+- **Wiring:** `/internal/media/generate` persists by default (opt out `store:false`)
+  and returns `{url (Supabase), source_url (muapi), bucket}`. `POST
+  /internal/media/ensure-bucket {brand}` pre-creates a bucket.
+- Verified 2026-08-29: `ge-media` created; a generated logo lands at
+  `…/object/public/ge-media/muapi-logo-creator/…png` → HTTP 200 image/png.
 
 ## Gotchas we hit
 - Direct `db.<ref>.supabase.co` failed with `nodename nor servname` (IPv6-only).

@@ -5,13 +5,6 @@
 
 ## Active
 
-### PRUNE-1 — remove ORM / comment-engagement subsystem          [OPEN]
-Owner: unassigned        Opened: 2026-08-28
-Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/comments/, src/glitch_signal/orm/, src/glitch_signal/scheduler/queue.py
-Acceptance: comments/ + orm/ + x-engagement (x_sweeper, integrations/x engagement use) removed; scheduler ORM ticks removed from queue.py; app imports + boots; /healthz 200; suite green. Independent of GE-1/BUFFER-1 — safe deletion.
-Write-back: ARCHITECTURE.md, control-plane/ENGINEERING_SUPERVISOR.md
-Notes: Phase 1 is source→publish only; engagement is out of scope (see plan).
-
 ### VENDOR-1 — remove Upload-Post + redundant direct integrations; re-point sources          [OPEN]
 Owner: unassigned        Opened: 2026-08-28
 Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/platforms/, src/glitch_signal/sheet_posting/, src/glitch_signal/agent/nodes/publisher.py
@@ -27,6 +20,10 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **PRUNE-1 — remove ORM / comment-engagement subsystem** (2026-08-29) — deleted `comments/` (sweeper, strategic, x_sweeper) + `orm/` (classifier, guardrails, monitor, responder); stripped the 3 engagement ticks (`_send_orm_auto_responses`, `_poll_orm_mentions`, `_sweep_comments_tick`) from scheduler/queue.py + the unused OrmResponse import; removed the 9 ORM tests. App boots; full suite 301 pass. Phase 1 = source→publish only. Unblocks VENDOR-1 (engagement no longer imports x/linkedin/upload_post). → supervisor
+
+- **STORAGE-1 — persist generated media to per-brand Supabase buckets** (2026-08-29) — every generated asset downloaded from muapi (URLs expire ~30d) and re-uploaded to the brand's own bucket `<env_prefix>-media` (GE → ge-media), created idempotently; endpoint returns the durable Supabase public URL (muapi URL in metadata.source_url). Storage REST API + service key over httpx, no new dep. New POST /internal/media/ensure-bucket. 6 tests; full suite 310 pass; **verified live** (ge-media created; logo persisted → …/public/ge-media/…png HTTP 200). → supervisor
 
 - **MEDIA-2 — LLM composer (via muapi) + 7 more recipes** (2026-08-29) — prompt-authoring routed through muapi's text-to-text models (gemini-3-5-flash) on the SAME MUAPI_API_KEY (no separate LLM key); new video.generate op; 7 recipes bundled (ad-creative, cinema-director, logo-creator, nano-banana, seedance-2, social-media-video, ui-design — models hand-verified against muapi's 655-model list); ai-clipping + youtube-shorts DEFERRED (need video-edit ops). 11 recipes total; full suite 305 pass; **LLM-authored recipe verified live** (nano-banana → cdn.muapi.ai …05dc1f6e…png, 62s). → supervisor
 
