@@ -244,6 +244,11 @@ class Settings(BaseSettings):
     # Global infra key (like MUAPI). submit (POST /v3/videos) → poll GET /v3/videos/{id}.
     heygen_api_key: str = ""
     heygen_api_base: str = "https://api.heygen.com"
+
+    # --- Higgsfield (third media provider: image/video/3D/audio) ---
+    # SDK credential = "<key>:<secret>". Global infra (one Higgsfield account).
+    higgsfield_api_key: str = ""
+    higgsfield_api_secret: str = ""
     # Webhook signing secret (whsec_…) for POST /webhooks/heygen — HMAC-SHA256 of the raw
     # body. Empty → the receiver fails closed (rejects), since we never trust unverified events.
     heygen_webhook_secret: str = ""

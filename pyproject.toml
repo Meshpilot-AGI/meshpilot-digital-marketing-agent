@@ -57,6 +57,9 @@ dependencies = [
   # Native deterministic image editing (resize/crop/text/format) — complements AI media gen
   "pillow>=10.2",
 
+  # Higgsfield — third media provider (image/video/3D/audio gen via its SDK)
+  "higgsfield-client>=0.1",
+
   # Database
   "sqlmodel>=0.0.21",
   "asyncpg>=0.30",
