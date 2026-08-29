@@ -182,7 +182,7 @@ async def _json(request: Request) -> dict:
         return {}
 
 
-async def _require_jobs_auth(x_jobs_token: str = Header(default="")) -> None:
+async def _require_jobs_auth(request: Request, x_jobs_token: str = Header(default="")) -> None:
     """Gate the manual /jobs/* triggers (bug-2, 2026-06-10).
 
     These dispatch unbounded background LLM/video/Drive pipelines and are
@@ -191,11 +191,14 @@ async def _require_jobs_auth(x_jobs_token: str = Header(default="")) -> None:
     unset we log a warning and allow, so enabling auth is config-only and
     cannot break callers before the token is distributed.
     """
-    # Per-brand (no global keys): reads <PREFIX>_JOBS_AUTH_TOKEN for the active
-    # brand, e.g. GE_JOBS_AUTH_TOKEN. Gates /jobs/* and /internal/* — these have
-    # side effects (publish, dispatch), so fail CLOSED: a missing token denies
-    # rather than opening the control surface to the internet.
-    expected = brand_env("JOBS_AUTH_TOKEN")
+    # Brand-scope the token check (#95): validate against the TARGET brand's
+    # <PREFIX>_JOBS_AUTH_TOKEN (from the ?brand= query param) rather than always the default brand —
+    # otherwise the default brand's token authorizes actions on every brand (BFLA). Endpoints without
+    # a brand query fall back to the default brand (unchanged). Fail CLOSED: a missing token denies.
+    brand = request.query_params.get("brand")
+    if brand and brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    expected = brand_env("JOBS_AUTH_TOKEN", brand)
     if not expected:
         log.error("jobs.auth.misconfigured — <PREFIX>_JOBS_AUTH_TOKEN unset; denying")
         raise HTTPException(status_code=503, detail="jobs auth not configured")
@@ -502,25 +505,31 @@ async def internal_cron_list(brand: str = "glitch_executor") -> dict:
 
 
 @app.get("/internal/cron/jobs/{job_id}", dependencies=[Depends(_require_jobs_auth)])
-async def internal_cron_get(job_id: str) -> dict:
+async def internal_cron_get(job_id: str, brand: str = "glitch_executor") -> dict:
     from glitch_signal.agent.cron import store as cron_store
 
-    job = await cron_store.get_job(job_id, with_runs=20)
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    job = await cron_store.get_job(job_id, brand_id=brand, with_runs=20)  # brand-scoped (#95)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
     return {"ok": True, "job": job}
 
 
 @app.patch("/internal/cron/jobs/{job_id}", dependencies=[Depends(_require_jobs_auth)])
-async def internal_cron_update(job_id: str, request: Request) -> dict:
+async def internal_cron_update(job_id: str, request: Request, brand: str = "glitch_executor") -> dict:
     """Patch a job: {enabled?, payload?, pacing?, schedule_kind?+schedule?} (reschedule needs both)."""
     from datetime import datetime, timezone
 
     from glitch_signal.agent.cron import store as cron_store
 
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
     patch = await _json(request)
     try:
-        job = await cron_store.update_job(job_id, patch, now=datetime.now(timezone.utc))
+        job = await cron_store.update_job(job_id, patch, now=datetime.now(timezone.utc), brand_id=brand)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)[:200])
     if job is None:
@@ -529,29 +538,37 @@ async def internal_cron_update(job_id: str, request: Request) -> dict:
 
 
 @app.delete("/internal/cron/jobs/{job_id}", dependencies=[Depends(_require_jobs_auth)])
-async def internal_cron_delete(job_id: str) -> dict:
+async def internal_cron_delete(job_id: str, brand: str = "glitch_executor") -> dict:
     from glitch_signal.agent.cron import store as cron_store
 
-    await cron_store.delete_job(job_id)
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    deleted = await cron_store.delete_job(job_id, brand_id=brand)  # brand-scoped (#95)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="no such job")
     return {"ok": True, "id": job_id, "deleted": True}
 
 
 @app.post("/internal/cron/jobs/{job_id}/run", dependencies=[Depends(_require_jobs_auth)])
-async def internal_cron_run(job_id: str) -> dict:
+async def internal_cron_run(job_id: str, brand: str = "glitch_executor") -> dict:
     """Force one run now, out-of-band (preserves the natural next slot)."""
     from glitch_signal.agent.cron import service as cron_service
 
-    run_id = await cron_service.run_now(job_id)
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    run_id = await cron_service.run_now(job_id, brand_id=brand)  # brand-scoped (#95)
     if run_id is None:
         raise HTTPException(status_code=404, detail="no such job")
     return {"ok": True, "id": job_id, "run_id": run_id, "status": "running"}
 
 
 @app.get("/internal/cron/runs", dependencies=[Depends(_require_jobs_auth)])
-async def internal_cron_runs(job_id: str, limit: int = 20) -> dict:
+async def internal_cron_runs(job_id: str, brand: str = "glitch_executor", limit: int = 20) -> dict:
     from glitch_signal.agent.cron import store as cron_store
 
-    job = await cron_store.get_job(job_id, with_runs=max(1, min(int(limit), 100)))
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    job = await cron_store.get_job(job_id, brand_id=brand, with_runs=max(1, min(int(limit), 100)))
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
     return {"ok": True, "job_id": job_id, "runs": job.get("recent_runs", [])}

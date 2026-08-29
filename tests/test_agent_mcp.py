@@ -103,7 +103,18 @@ def test_policy_allows_benign_mcp_tool():
 
 def test_policy_denies_side_effect_mcp_tool():
     d = Policy(publish_enabled=False).check("mcp__heygen__delete_avatar", {}, "b")
-    assert d.allow is False and "side-effect" in d.reason
+    assert d.allow is False and "not allowlisted" in d.reason
+
+
+def test_policy_default_denies_unknown_write_mcp_tool():
+    # #93: a create/write tool with no matching denylist verb is DENIED by default (leaky-denylist fix)
+    d = Policy(publish_enabled=False).check("mcp__notion__notion-create-pages", {}, "b")
+    assert d.allow is False
+    assert Policy(publish_enabled=False).check("mcp__heygen__get_video", {}, "b").allow is True  # read-only ok
+
+
+def test_policy_publishing_on_permits_mcp_side_effects():
+    assert Policy(publish_enabled=True).check("mcp__heygen__create_video_agent", {}, "b").allow is True
 
 
 def test_policy_mcp_allowlist_overrides_deny():

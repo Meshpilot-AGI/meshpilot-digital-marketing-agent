@@ -98,7 +98,7 @@ async def schedule_tool(args: dict, brand_id: str) -> str:
         if hi and ms > hi:
             ms = hi
         next_at = datetime.now(timezone.utc) + timedelta(milliseconds=ms)
-        await store.set_next_run(job_id, next_at)
+        await store.set_next_run(job_id, next_at, brand_id=brand_id)  # scope to the caller's brand (#95)
         return f"next check set for {next_at.isoformat()}"
 
     return f"ERROR: unknown action {action!r} (create|list|cancel|next_check)"
