@@ -28,6 +28,11 @@ async def _t_remember(args: dict, brand_id: str) -> str:
     return f"remembered {m.kind} id={m.id}"
 
 
+async def _t_schedule(args: dict, brand_id: str) -> str:
+    from glitch_signal.agent.cron.tool import schedule_tool
+    return await schedule_tool(args, brand_id)
+
+
 async def _t_list_recipes(args: dict, brand_id: str) -> str:
     from glitch_signal.media.generation import list_recipes
     return json.dumps([{"slug": r.slug, "kind": r.kind, "description": r.description[:80]}
@@ -88,6 +93,11 @@ TOOLS: dict[str, dict[str, Any]] = {
                                   "text overlay/format) and return a stored URL. args: {image_url, ops:[{op:resize|fit|text|format, ...}]}"},
     "publish": {"fn": _t_publish,
                 "description": "Publish content to a platform. args: {platform, ...}. NOTE: currently DISABLED."},
+    "schedule": {"fn": _t_schedule,
+                 "description": "Schedule your OWN future work (self-cron). args: {action: create|list|cancel|next_check, ...}. "
+                                "create: {name, schedule_kind: at|every|cron, schedule:{at|every_ms|cron_expr,tz?}, "
+                                "payload_kind: agentTurn|capability, payload:{goal,max_steps}|{name,args}, pacing?:{min_ms,max_ms}}. "
+                                "next_check {in:'30m'} re-paces the current scheduled run."},
 }
 
 

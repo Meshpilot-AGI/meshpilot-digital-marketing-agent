@@ -73,8 +73,19 @@ async def _tick() -> None:
         _cleanup_posted_media(),
         _sheet_posting_tick(),
         _sheet_reconcile_tick(),
+        _agent_cron_tick(),
         return_exceptions=True,
     )
+
+
+async def _agent_cron_tick() -> None:
+    """AGENT-CRON: claim + dispatch due self-cron jobs (no-op while agent_cron_enabled is off)."""
+    try:
+        from glitch_signal.agent.cron import sweep
+
+        await sweep()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("scheduler.agent_cron_tick_failed", error=str(exc)[:200])
 
 
 _sheet_reconcile_last: datetime | None = None
