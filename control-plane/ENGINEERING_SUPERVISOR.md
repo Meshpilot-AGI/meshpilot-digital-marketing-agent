@@ -2,6 +2,22 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### CF-HARDEN — Cloudflare edge + origin hardening (mirrors leaselens) — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** leaselens-backend `app/{originauth,security,ratelimit,bodylimit}.py` + config (SEC #30 / ADR-010 — origin shared-secret gate); the CF zone/DNS/SSL state via the `~/.cloudflare` token.
+
+**Changed:**
+- **Part A (app middleware)** — new `src/glitch_signal/middleware/`: `SecurityHeaders` (HSTS/nosniff/X-Frame DENY/Referrer), `BodySizeLimit` (raw-ASGI, 2 MiB), `RateLimit` (sliding-window per-IP + global backstop, CF-aware `CF-Connecting-IP`), `OriginAuth` (fail-open; gates `/internal`+`/jobs`, exempts `/healthz`/`/oauth`/`/media/fetch`). Wired in `server.py` inner→outer + `TrustedHost` + optional CORS. Config knobs in `config.py`. 10 tests; suite 253 pass.
+- **Part B (Cloudflare, live)** — flipped `api.meshpilot.app` to **proxied** (careful flip with auto-revert-if-broken; FastAPI Cloud works behind CF — `cf-ray` present, 200). Added a CF Transform Rule (`http_request_late_transform`) injecting `x-origin-auth: <secret>` on the API host (`operation: set`). Set `ORIGIN_SHARED_SECRET` (matching) as a cloud secret + redeployed → enforcement on. SSL mode already `full`.
+- New `docs/vendors/cloudflare.md` runbook (zone/DNS, origin lockdown, ops, rollback).
+
+**Verified (observed):** Part A live — security headers present, `/internal` works (jobs-auth), fail-open before enforcement. Part B live — **through CF** `/healthz`+`/internal` → 200; **direct to the FastAPI Cloud origin** (`…fastapicloud.dev`, no CF) → `/internal` **403** (origin locked), `/healthz` 200 (probes unaffected). Nothing broke (proxy verified before enforcing; health always open; origin-auth fail-open).
+
+**Notes / remains:** CF config (proxy state, Transform Rule, SSL) lives in Cloudflare, not git — `docs/vendors/cloudflare.md` is the source of truth + rollback. Free plan → WAF managed rules limited; origin-auth + app rate-limit + body cap are the substantive controls (upgrade zone for full WAF). `ORIGIN_SHARED_SECRET` + the Transform Rule value must stay in lockstep.
+
+---
+
 ### AGENT-MEM — per-brand agent memory (AGENT-BRAIN increment 1) — CLOSED 2026-08-29
 **Owner:** Claude
 
