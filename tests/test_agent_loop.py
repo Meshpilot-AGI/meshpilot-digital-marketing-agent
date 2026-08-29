@@ -135,3 +135,67 @@ async def test_llm_complete_raises_on_error(monkeypatch):
     fake = _FakeHTTPX(_FakeResp(404, {"detail": "gone"}))
     with pytest.raises(RuntimeError):
         await agent_llm.complete("hi", client=fake)
+
+
+# ── run store (fake engine, no DB) — cross-worker status persistence ──
+class _FakeConn:
+    def __init__(self, sink, row=None):
+        self._sink = sink
+        self._row = row
+
+    async def execute(self, stmt, params=None):
+        self._sink.append((str(stmt), params))
+        return _FakeResult(self._row)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _FakeResult:
+    def __init__(self, row):
+        self._row = row
+
+    def mappings(self):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _FakeEngine:
+    def __init__(self, row=None):
+        self.calls = []
+        self._row = row
+
+    def begin(self):
+        return _FakeConn(self.calls, self._row)
+
+    def connect(self):
+        return _FakeConn(self.calls, self._row)
+
+
+async def test_run_store_create_and_finish():
+    from glitch_signal.agent.loop import runs
+    eng = _FakeEngine()
+    await runs.create_run("rid1", "glitch_executor", "do a thing", engine=eng)
+    await runs.finish_run("rid1", {"steps": 3, "final": "done", "transcript": [{"a": 1}]}, engine=eng)
+    sql = " ".join(c[0] for c in eng.calls)
+    assert "INSERT INTO agent_runs" in sql and "UPDATE agent_runs" in sql
+    # transcript is JSON-encoded for the jsonb bind
+    assert eng.calls[1][1]["transcript"] == '[{"a": 1}]' and eng.calls[1][1]["status"] == "done"
+
+
+async def test_run_store_get_decodes_transcript():
+    from glitch_signal.agent.loop import runs
+    row = {"run_id": "rid1", "brand_id": "b", "status": "done", "steps": 2,
+           "final": "ok", "transcript": '[{"action":"recall"}]', "error": None}
+    rec = await runs.get_run("rid1", engine=_FakeEngine(row=row))
+    assert rec["status"] == "done" and rec["transcript"] == [{"action": "recall"}]
+
+
+async def test_run_store_get_missing_returns_none():
+    from glitch_signal.agent.loop import runs
+    assert await runs.get_run("nope", engine=_FakeEngine(row=None)) is None
