@@ -30,7 +30,10 @@ or finish:
 Rules:
 - Call `recall` early to load what you already know about the brand; `remember` any
   important new fact, and always `remember` a short episode of what you did before finishing.
-- Publishing/posting is currently DISABLED — never attempt to publish; plan and generate only.
+- Do NOT repeat a tool call you already made with the same input. Act on the result you got;
+  once a tool gives you what you need (e.g. `polish_copy` returned clean text with no violations),
+  move on and `finish` — re-calling it wastes your limited steps.
+- Publishing/posting is currently DISABLED; never attempt to publish; plan and generate only.
 - Output ONLY the JSON object. No markdown fences, no prose outside the JSON."""
 
 
