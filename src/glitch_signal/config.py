@@ -240,6 +240,14 @@ class Settings(BaseSettings):
     muapi_api_key: str = ""
     muapi_api_base: str = "https://api.muapi.ai/api/v1"
 
+    # --- HeyGen (second media provider: avatar / talking-head video, v3) ------
+    # Global infra key (like MUAPI). submit (POST /v3/videos) → poll GET /v3/videos/{id}.
+    heygen_api_key: str = ""
+    heygen_api_base: str = "https://api.heygen.com"
+    # Webhook signing secret (whsec_…) for POST /webhooks/heygen — HMAC-SHA256 of the raw
+    # body. Empty → the receiver fails closed (rejects), since we never trust unverified events.
+    heygen_webhook_secret: str = ""
+
     # --- CF / origin hardening (mirrors leaselens; see docs) -----------------
     # Origin shared-secret gate: Cloudflare injects `origin_auth_header` with this value
     # on api.meshpilot.app once proxied; the app then requires it on /internal + /jobs so a

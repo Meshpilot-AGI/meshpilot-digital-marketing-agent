@@ -196,7 +196,8 @@ src/glitch_signal/
     learn/                  BRAIN — curator (episodes → durable lessons)
     llm.py                  CONTENT text shim → MUapi (retired the old LiteLLM router)
     graph.py nodes/         Legacy LangGraph video pipeline (superseded; QC on Claude vision)
-  media/                    MUapi media factory — recipes, engine, storage (Supabase buckets)
+  media/                    Media factory — recipes + pluggable engines (MUapi · HeyGen), storage
+  webhooks/                 Provider callbacks (e.g. /webhooks/heygen — HMAC-verified)
   middleware/               CF hardening — security headers, body cap, origin-auth, rate limit
   platforms/ integrations/  Publisher clients (Buffer, Meta, YouTube, Drive/Sheets)
   scheduler/                Recurring dispatch tick loop
