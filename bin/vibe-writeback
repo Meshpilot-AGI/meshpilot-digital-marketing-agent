@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# vibe-writeback — automate the write-back step that closes a lane.
+#
+# Usage:
+#   vibe-writeback supervisor <ID> [owner]   # prepend a prefilled evidence entry
+#   vibe-writeback changelog                 # regenerate CHANGELOG.md from git log
+#
+set -euo pipefail
+
+find_up() { # filename -> path or empty
+  local f="$1" d="$PWD"
+  while [[ "$d" != / ]]; do [[ -f "$d/$f" ]] && { echo "$d/$f"; return; }; d="$(dirname "$d")"; done
+}
+
+case "${1:-}" in
+  supervisor)
+    ID="${2:?usage: vibe-writeback supervisor <ID> [owner]}"; OWNER="${3:-$(git config user.name 2>/dev/null || echo unknown)}"
+    SUP="$(find_up control-plane/ENGINEERING_SUPERVISOR.md)"
+    [[ -n "$SUP" ]] || { echo "error: control-plane/ENGINEERING_SUPERVISOR.md not found" >&2; exit 1; }
+    # Changed files = what git sees since the last commit (staged + unstaged + untracked).
+    changed=$(git status --porcelain 2>/dev/null | sed 's/^...//' | grep -v '^control-plane/' | paste -sd', ' - || true)
+    [[ -z "$changed" ]] && changed="<files>"
+    entry=$(printf '## %s — <title>\nClosed: %s · Owner: %s\nRead: <docs consulted>\nChanged: %s\nVerified: <what you observed to pass, and how>\nDocs updated: <contract docs written back>\nRemains / next: <follow-ups>\n' \
+      "$ID" "$(date +%F)" "$OWNER" "$changed")
+    # Insert after the first blockquote line; drop a "no closed lanes" placeholder.
+    awk -v e="$entry" '
+      /_\(no closed lanes yet\)_/ {next}
+      !done && /^>/ {print; print ""; print e; done=1; next}
+      {print}' "$SUP" > "$SUP.tmp" && mv "$SUP.tmp" "$SUP"
+    echo "prepended $ID entry to ${SUP#$PWD/} — fill the <…> blanks, then commit."
+    ;;
+  changelog)
+    CL="$(find_up CHANGELOG.md)"; CL="${CL:-$PWD/CHANGELOG.md}"
+    git rev-parse HEAD >/dev/null 2>&1 || { echo "error: not a git repo with commits" >&2; exit 1; }
+    {
+      echo "# Changelog"; echo; echo "Auto-generated from \`git log\`. UTC dates, newest first."; echo; echo "---"; echo
+      git log --date=format-local:'%Y-%m-%d %H:%M' --pretty=format:'%cd%x09%s%x09%h' \
+        | TZ=UTC awk -F'\t' '{d=substr($1,1,10); t=substr($1,12); if(d!=last){print ""; print "## "d; last=d} print "- **"t" UTC** — "$2" (`"$3"`)"}'
+      echo
+    } > "$CL"
+    echo "regenerated ${CL#$PWD/}"
+    ;;
+  *) echo "usage: vibe-writeback supervisor <ID> [owner] | changelog" >&2; exit 1;;
+esac

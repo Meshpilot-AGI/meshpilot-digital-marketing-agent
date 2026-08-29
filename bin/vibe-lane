@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# vibe-lane — manage lanes on control-plane/ACTIVE_LANE_BOARD.md.
+#
+# Usage:
+#   vibe-lane open  <ID> "<title>" [owner]   # add an OPEN lane
+#   vibe-lane claim <ID> <owner>             # set owner + state CLAIMED
+#   vibe-lane state <ID> <STATE>             # OPEN|CLAIMED|"IN PROGRESS"|"IN VERIFICATION"|CLOSED
+#   vibe-lane close <ID> ["result"]          # move to Recently closed (+ supervisor reminder)
+#   vibe-lane list                           # show lanes + states
+#
+set -euo pipefail
+
+# Locate the board by walking up from CWD.
+find_board() {
+  local d="$PWD"
+  while [[ "$d" != / ]]; do
+    [[ -f "$d/control-plane/ACTIVE_LANE_BOARD.md" ]] && { echo "$d/control-plane/ACTIVE_LANE_BOARD.md"; return; }
+    d="$(dirname "$d")"
+  done
+  echo "error: no control-plane/ACTIVE_LANE_BOARD.md found (run vibe-scaffold first)" >&2; exit 1
+}
+BOARD="$(find_board)"
+CMD="${1:-list}"; shift || true
+
+case "$CMD" in
+  open)
+    ID="${1:?usage: vibe-lane open <ID> \"<title>\" [owner]}"; TITLE="${2:?title required}"; OWNER="${3:-unassigned}"
+    grep -q "^### $ID " "$BOARD" && { echo "error: lane $ID already exists" >&2; exit 1; }
+    block=$(printf '\n### %s — %s          [OPEN]\nOwner: %s        Opened: %s\nReading: \nAcceptance: \nWrite-back: control-plane/ACTIVE_LANE_BOARD.md, control-plane/ENGINEERING_SUPERVISOR.md\nNotes: \n' \
+      "$ID" "$TITLE" "$OWNER" "$(date +%F)")
+    # insert right after the "## Active" heading
+    awk -v blk="$block" '/^## Active/{print; print blk; next} {print}' "$BOARD" > "$BOARD.tmp" && mv "$BOARD.tmp" "$BOARD"
+    echo "opened $ID ($OWNER)";;
+  claim)
+    ID="${1:?usage: vibe-lane claim <ID> <owner>}"; OWNER="${2:?owner required}"
+    grep -q "^### $ID " "$BOARD" || { echo "error: lane $ID not found" >&2; exit 1; }
+    sed -i "/^### $ID /s/\[[^]]*\]/[CLAIMED]/" "$BOARD"
+    awk -v id="$ID" -v o="$OWNER" '
+      $0 ~ "^### "id" " {inlane=1}
+      inlane && /^Owner:/ { sub(/Owner:[^O]*Opened:/, "Owner: "o"        Opened:"); inlane=0 }
+      {print}' "$BOARD" > "$BOARD.tmp" && mv "$BOARD.tmp" "$BOARD"
+    echo "claimed $ID -> $OWNER";;
+  state)
+    ID="${1:?usage: vibe-lane state <ID> <STATE>}"; STATE="${2:?state required}"
+    grep -q "^### $ID " "$BOARD" || { echo "error: lane $ID not found" >&2; exit 1; }
+    sed -i "/^### $ID /s/\[[^]]*\]/[${STATE^^}]/" "$BOARD"
+    echo "$ID -> [${STATE^^}]";;
+  close)
+    ID="${1:?usage: vibe-lane close <ID> [\"result\"]}"; RESULT="${2:-done}"
+    grep -q "^### $ID " "$BOARD" || { echo "error: lane $ID not found" >&2; exit 1; }
+    title=$(grep "^### $ID " "$BOARD" | sed -E "s/^### $ID — (.*[^ ]) *\[[^]]*\]/\1/")
+    # remove the lane block (from its ### header to the line before next ### or ##)
+    # and drop any "_none yet_" placeholder under Recently closed.
+    awk -v id="$ID" '
+      $0 ~ "^### "id" " {skip=1; next}
+      skip && (/^### / || /^## /) {skip=0}
+      /^- _none yet_/ {next}
+      !skip {print}' "$BOARD" > "$BOARD.tmp" && mv "$BOARD.tmp" "$BOARD"
+    # add a bullet under "## Recently closed"
+    bullet="- **$ID — $title** ($(date +%F)) — $RESULT. → supervisor"
+    awk -v b="$bullet" '/^## Recently closed/{print; print ""; print b; next} {print}' "$BOARD" > "$BOARD.tmp" && mv "$BOARD.tmp" "$BOARD"
+    echo "closed $ID"
+    echo "→ now write back: append a $ID entry to control-plane/ENGINEERING_SUPERVISOR.md (or run: vibe-writeback supervisor $ID)";;
+  list)
+    echo "Lanes in ${BOARD#$PWD/}:"
+    grep -E "^### " "$BOARD" | sed -E 's/^### /  /' || echo "  (none)";;
+  *) echo "unknown command: $CMD" >&2; echo "try: open | claim | state | close | list" >&2; exit 1;;
+esac
