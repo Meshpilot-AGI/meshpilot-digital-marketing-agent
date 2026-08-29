@@ -5,6 +5,13 @@
 
 ## Active
 
+### MEDIA-1 — vendor-pluggable media generation (MUapi first) via the recipe library          [OPEN]
+Owner: unassigned        Opened: 2026-08-29
+Reading: docs/plans/2026-08-29-media-generation.md, bible meshpilot_creative/{spec,router,engines/muapi}.py, ~/dev/agent/skills/muapi-* (13 SKILL.md recipes), src/glitch_signal/media/
+Acceptance: media/generation/ built — engine Protocol + MUapi httpx engine; recipes/media/<slug>/SKILL.md (13 bundled verbatim) + deterministic loader/registry; runner executes recipe phases (placeholder fill → model→endpoint → poll → chain) with an injectable engine; captions via existing LLM path; unit tests (all 13 parse, fill, chain — no network) green; live POST /internal/media/generate produces a real MUapi asset URL for GE.
+Write-back: docs/plans/2026-08-29-media-generation.md, ARCHITECTURE.md, control-plane/ENGINEERING_SUPERVISOR.md
+Notes: Deterministic engine (operator 2026-08-29); recipes bundled so the cloud app has them (Mac skills unavailable at runtime). MUAPI_API_KEY stays global infra; brand style via brief. Resolves DB-OPT scope: generation IS in scope → keep signal/scout/video_asset/video_job. fal/HeyGen engines + metering + scheduler wiring are follow-ons.
+
 ### PRUNE-1 — remove ORM / comment-engagement subsystem          [OPEN]
 Owner: unassigned        Opened: 2026-08-28
 Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/comments/, src/glitch_signal/orm/, src/glitch_signal/scheduler/queue.py
