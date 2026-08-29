@@ -101,4 +101,26 @@ class HeyGenEngine:
         body = self._build_body(model, prompt, params or {})
         async with httpx.AsyncClient(timeout=60) as client:
             video_id = await self._submit(client, body)
-            return await self._wait(client, video_id, timeout_s)
+            url = await self._wait(client, video_id, timeout_s)
+        await _meter(model, video_id)
+        return url
+
+
+async def _meter(model: str, video_id: str) -> None:
+    """Attribute this HeyGen video to the active brand (COST-METER). Never raises."""
+    try:
+        from glitch_signal.analytics.cost import get_brand, record_usage  # noqa: PLC0415
+        from glitch_signal.analytics.cost.pricing import heygen_cost  # noqa: PLC0415
+
+        credits, cost = heygen_cost(model)
+        await record_usage(
+            brand_id=get_brand(),
+            vendor="heygen",
+            operation="video.generate",
+            model=model,
+            units={"credits": credits, "video_id": video_id},
+            cost_usd=cost,
+            request_id=video_id,
+        )
+    except Exception:  # noqa: BLE001 — metering never breaks generation
+        pass

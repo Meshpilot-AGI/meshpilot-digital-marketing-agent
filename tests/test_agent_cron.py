@@ -153,9 +153,15 @@ def test_capability_registry():
     assert capabilities.get("nope") is None
 
 
-async def test_reconcile_capability_is_a_hook():
+async def test_reconcile_capability_dispatches_to_reconcile(monkeypatch):
+    # INC-2 filled the hook: reconcile now runs the balance-delta reconciliation.
+    from glitch_signal.analytics.cost import reconcile
+
+    async def _run(vendors=None):
+        return {"vendors": [], "dispatched": True}
+    monkeypatch.setattr(reconcile, "run", _run)
     out = await capabilities.get("reconcile")("glitch_executor", {})
-    assert out["status"] == "not_implemented"
+    assert out["dispatched"] is True
 
 
 # ── service ──

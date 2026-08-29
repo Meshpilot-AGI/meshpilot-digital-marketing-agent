@@ -82,3 +82,49 @@ def higgsfield_cost(model: str, *, base_credits: float | None = None) -> tuple[f
     """Return (credits, cost_usd). Prefer a vendor-reported base_credits, else the price book."""
     credits = base_credits if base_credits is not None else _higgsfield_model_credits().get(model, 0.0)
     return round(float(credits), 4), round(float(credits) * _higgsfield_credit_usd(), 6)
+
+
+# ── MUapi (655 models, credit-based, no per-call cost in the response) ──
+# A per-model price book for 655 slugs is infeasible; per-call cost here is a COARSE estimate and
+# the MUapi balance-delta reconciliation (INC-2) is the source of truth. Overridable per env.
+def _muapi_default_usd() -> float:
+    try:
+        return float(os.environ.get("COST_MUAPI_DEFAULT_USD", "0.02"))
+    except ValueError:
+        return 0.02
+
+
+def muapi_cost(model: str) -> float:
+    """Coarse per-call estimate for a MUapi generation (trued up by balance-delta reconciliation).
+
+    Optional per-model overrides via COST_MUAPI_MODEL_USD (JSON {slug: usd})."""
+    raw = os.environ.get("COST_MUAPI_MODEL_USD")
+    if raw:
+        try:
+            book = json.loads(raw)
+            if model in book:
+                return round(float(book[model]), 6)
+        except Exception:  # noqa: BLE001
+            pass
+    return round(_muapi_default_usd(), 6)
+
+
+# ── HeyGen (credit-based; ~1 credit per API video by default) ──
+def heygen_credit_usd() -> float:
+    try:
+        return float(os.environ.get("COST_HEYGEN_CREDIT_USD", "0.30"))
+    except ValueError:
+        return 0.30
+
+
+def heygen_cost(model: str, *, credits: float | None = None) -> tuple[float, float]:
+    """Return (credits, cost_usd). Defaults to 1 credit/video; trued up by balance-delta reconcile."""
+    c = credits if credits is not None else float(os.environ.get("COST_HEYGEN_DEFAULT_CREDITS", "1") or 1)
+    return round(float(c), 4), round(float(c) * heygen_credit_usd(), 6)
+
+
+def muapi_credit_usd() -> float:
+    try:
+        return float(os.environ.get("COST_MUAPI_CREDIT_USD", "0.01"))
+    except ValueError:
+        return 0.01

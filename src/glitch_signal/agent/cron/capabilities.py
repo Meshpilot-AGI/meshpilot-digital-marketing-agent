@@ -37,8 +37,13 @@ async def _cap_drive_scout(brand_id: str, args: dict) -> dict:
 
 
 async def _cap_reconcile(brand_id: str, args: dict) -> dict:
-    """Balance-delta cost reconciliation — hook; body lands in COST-METER INC-2."""
-    return {"status": "not_implemented", "note": "reconcile body delivered by COST-METER INC-2"}
+    """Balance-delta cost reconciliation across credit vendors (COST-METER INC-2).
+
+    Account-level, not per-brand (vendors have no per-tenant balance), so `brand_id` is ignored.
+    """
+    from glitch_signal.analytics.cost import reconcile
+
+    return await reconcile.run(args.get("vendors"))
 
 
 _REGISTRY: dict[str, CapFn] = {
