@@ -314,3 +314,14 @@
 **Audit sweep now 15/18 closed.** Remaining deferred: #98 (rate-limiter/webhook-dedup shared-store move — CF WAF is the real control), #101 (recall HNSW ORDER BY — premature-opt at current scale), #108 (dep upper bounds — pip-audit clean, preventive).
 
 ---
+
+### #98 — shared (Postgres) webhook dedup + rate limiter — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Changed:** new `middleware/shared_state.py` (fail-open, engine-injectable): `webhook_seen()` (atomic INSERT ON CONFLICT DO NOTHING on `webhook_dedup` — replaces the per-worker `_HEYGEN_SEEN` set, dedups HeyGen redeliveries fleet-wide) + `SharedWindowLimiter` (fixed-window `rate_counters`, opt-in via `RATE_LIMIT_SHARED`, default off — CF WAF is the real control, so in-process stays default to avoid a per-request DB hit). `RateLimitMiddleware` unified async `_check()` for both backends. Hourly scheduler cleanup. Migration `webhook_dedup` + `rate_counters` (RLS), applied to prod.
+
+**Verified:** suite **410 pass**; 7 tests. Live: `/healthz` 200; a **signed** HeyGen webhook sent twice → both 200 and **exactly one** `webhook_dedup` row (cross-worker dedup via Postgres, not per-process). IP-spoof sub-claim was already fixed (PR #113).
+
+**Audit sweep now 16/18 closed.** Remaining deferred: #101 (recall HNSW ORDER BY — premature-opt at current scale), #108 (dep upper bounds — pip-audit clean, preventive).
+
+---
