@@ -249,3 +249,21 @@
 **Verified:** `/docs`, `/redoc`, `/openapi.json` were public 200; after deploy all three return **404** through CF while `/healthz` and `/internal/cron/jobs` stay 200. Flagged by the operator (uneasy that the full API surface was public). Enable locally with `ENABLE_API_DOCS=true`.
 
 ---
+
+### COST-METER INC-2 — MUapi/HeyGen capture + balance-delta reconciliation — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the capture points — `media/generation/engines/muapi.py` (also the content-text path, since `agent/llm.py` `chat()` calls the SAME `MuapiEngine.generate`) and `heygen.py`; INC-1's `analytics/cost/` (meter, pricing, context); probed vendor balance endpoints live (HeyGen `/v2/user/remaining_quota`=63; MUapi/Higgsfield need cloud keys).
+
+**Changed:**
+- `analytics/cost/pricing.py` — `muapi_cost` (coarse configurable default + per-model override), `heygen_cost` (credits×usd), `muapi_credit_usd`/`heygen_credit_usd`.
+- Capture: `MuapiEngine.generate` `_meter` (vendor=muapi; covers text+media) + `HeyGenEngine.generate` `_meter` (vendor=heygen, credits) → `record_usage` with `get_brand()`. Fail-soft.
+- `analytics/cost/reconcile.py` — per-vendor balance fetchers (heygen v2 quota; muapi `/account/balance`; higgsfield `/v1/account`, best-effort), `run()` snapshots into `balance_snapshots`, diffs vs previous snapshot (= true window spend), sums `usage_events` for the window, computes drift, warns >5%. Robust: a fetch failure records `unavailable`, never raises.
+- Filled the AGENT-CRON `reconcile` capability hook; `POST /internal/analytics/reconcile` (jobs-auth); `supabase/migrations/20260829130000_balance_snapshots.sql` (RLS, applied to prod).
+- `docs/COST-METERING.md` INC-2 marked done.
+
+**Verified:** full suite **376 pass, 1 skipped** (updated the INC-1 hook test). Live (`POST /internal/analytics/reconcile`): MUapi balance **6.43** + HeyGen **63.0** resolve in prod; first call `baseline`, second call `reconciled` with `window_from` + delta/event-sum/drift computed (0 spend between calls → drift null); Higgsfield `unavailable` (405 — endpoint TBD, graceful). Seeded a nightly `capability=reconcile` cron job (30 3 * * * America/New_York) alongside nightly-curate. Commit SSH-signed; no secrets committed.
+
+**Remains:** Higgsfield balance endpoint (currently unavailable); migrate HeyGen balance to `/v3/users/me` before the v2 sunset 2026-10-31; capture HeyGen **MCP-tool** calls (only the engine is metered today); reconciliation keeps `estimated=true` (aggregate delta can't set per-event true cost) — that's by design.
+
+---
