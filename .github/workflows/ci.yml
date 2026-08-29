@@ -19,20 +19,20 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            api:
-              - 'src/**'
-              - 'main.py'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - 'alembic/**'
-              - 'alembic.ini'
-              - 'tests/**'
-            web:
-              - 'web/**'
+          fetch-depth: 0   # need the base commit to diff against
+      - id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          files=$(git diff --name-only "$BASE_SHA"...HEAD)
+          echo "changed files:"; echo "$files"
+          api=false; web=false
+          if echo "$files" | grep -qE '^(src/|main\.py$|pyproject\.toml$|uv\.lock$|alembic/|alembic\.ini$|tests/)'; then api=true; fi
+          if echo "$files" | grep -qE '^web/'; then web=true; fi
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "=> api=$api web=$web"
 
   api:
     needs: changes
