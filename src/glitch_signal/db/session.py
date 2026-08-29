@@ -13,8 +13,10 @@ from glitch_signal.config import settings
 
 @lru_cache(maxsize=1)
 def _engine() -> AsyncEngine:
+    cfg = settings()
     return create_async_engine(
-        settings().signal_db_url,
+        cfg.resolved_db_url(),
+        connect_args=cfg.db_connect_args(),
         echo=False,
         pool_pre_ping=True,
         pool_size=5,
