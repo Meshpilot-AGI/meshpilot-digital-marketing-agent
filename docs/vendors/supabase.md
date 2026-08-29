@@ -34,8 +34,26 @@ and feeds the URL straight to the engine (a `%`-encoded password breaks alembic'
 configparser interpolation). Ordering: **additive migrations before deploy,
 removals after**.
 ```bash
-uv run alembic upgrade head      # bootstrap only; prefer an app-side trigger
+uv run alembic upgrade head      # bootstrap / emergencies only
 ```
+
+### CI migrations (GitHub Actions — the normal path, not the Mac)
+`.github/workflows/db-migrate.yml` runs `alembic upgrade head` against the
+production DB when migrations land on `production` (paths `alembic/**`) or on
+manual `workflow_dispatch`. The GitHub runner is IPv4 → reaches the session
+pooler. DSN is the repo secret **`SIGNAL_DB_URL`** (session pooler, us-east-2).
+`upgrade head` is idempotent, so re-runs are safe no-ops.
+
+**Ordering** (the app auto-deploys on the same production push):
+- **Additive** migration (new column/table the new code uses) → backward-compatible,
+  fine to run alongside the deploy.
+- **Removal** → ship the code first, then run this via `workflow_dispatch` **after**,
+  so you never drop something the running code still reads.
+
+> Not Supabase Branching: that expects Supabase-CLI SQL migrations in
+> `supabase/migrations/` + `config.toml`. We use Alembic, so the "Supabase
+> Preview" check skips. Adopting native branching would mean rewriting migrations
+> as SQL — a later call, best paired with DB-OPT.
 
 ## Gotchas we hit
 - Direct `db.<ref>.supabase.co` failed with `nodename nor servname` (IPv6-only).
