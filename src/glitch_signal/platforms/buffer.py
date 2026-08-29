@@ -209,7 +209,12 @@ async def create_post(
         "source": "glitch-social-media-agent",
     }
     if media_url:
-        key = "videos" if media_url.lower().endswith((".mp4", ".mov")) else "photos"
+        from urllib.parse import urlsplit
+        # Match on the PATH, not the whole URL — a signed URL like
+        # /media/fetch?token=… or clip.mp4?sig=… has a query string that would
+        # otherwise defeat an endswith() check and mis-file a video as a photo.
+        ext = urlsplit(media_url).path.lower()
+        key = "videos" if ext.endswith((".mp4", ".mov", ".webm", ".m4v")) else "photos"
         inp["assets"] = {key: [{"url": media_url}]}
     data = await _graphql(token, _CREATE_POST_QUERY, {"input": inp})
     payload = data.get("createPost") or {}

@@ -11,6 +11,7 @@ in-process plugin). The Telegram bot was retired 2026-05-01.
 from __future__ import annotations
 
 import asyncio
+import html as _html_escape
 import pathlib
 
 import structlog
@@ -113,11 +114,13 @@ async def _require_jobs_auth(x_jobs_token: str = Header(default="")) -> None:
     cannot break callers before the token is distributed.
     """
     # Per-brand (no global keys): reads <PREFIX>_JOBS_AUTH_TOKEN for the active
-    # brand, e.g. GE_JOBS_AUTH_TOKEN. Set it to gate /jobs/* and /internal/*.
+    # brand, e.g. GE_JOBS_AUTH_TOKEN. Gates /jobs/* and /internal/* — these have
+    # side effects (publish, dispatch), so fail CLOSED: a missing token denies
+    # rather than opening the control surface to the internet.
     expected = brand_env("JOBS_AUTH_TOKEN")
     if not expected:
-        log.warning("jobs.auth.disabled — <PREFIX>_JOBS_AUTH_TOKEN unset; /jobs/* is open")
-        return
+        log.error("jobs.auth.misconfigured — <PREFIX>_JOBS_AUTH_TOKEN unset; denying")
+        raise HTTPException(status_code=503, detail="jobs auth not configured")
     if not _hmac.compare_digest(x_jobs_token or "", expected):
         raise HTTPException(status_code=401, detail="invalid or missing x-jobs-token")
 
@@ -134,10 +137,13 @@ async def internal_facebook_test_post(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
+    _fb_brand = body.get("brand_id")
+    if _fb_brand is not None and _fb_brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {_fb_brand!r}")
     from glitch_signal.platforms.facebook import publish_facebook
 
     post_id, permalink = await publish_facebook(
-        brand_id=body.get("brand_id"),
+        brand_id=_fb_brand,
         message=body.get("message"),
         link=body.get("link"),
         image_url=body.get("image_url"),
@@ -251,8 +257,8 @@ async def oauth_tiktok_callback(
         return HTMLResponse(
             _html_page(
                 "TikTok authorization cancelled",
-                f"Provider returned error: <code>{error}</code><br>"
-                f"{error_description or ''}",
+                f"Provider returned error: <code>{_html_escape.escape(error or '')}</code><br>"
+                f"{_html_escape.escape(error_description or '')}",
             ),
             status_code=400,
         )
@@ -279,7 +285,7 @@ async def oauth_tiktok_callback(
         return HTMLResponse(
             _html_page(
                 "TikTok connection failed",
-                f"Token exchange failed: <code>{exc}</code>",
+                f"Token exchange failed: <code>{_html_escape.escape(str(exc))}</code>",
             ),
             status_code=502,
         )
@@ -323,7 +329,8 @@ async def oauth_youtube_callback(
     if error:
         log.warning("oauth.youtube.callback_error", error=error, desc=error_description)
         return HTMLResponse(
-            _html_page("YouTube authorization cancelled", f"Error: <code>{error}</code>"),
+            _html_page("YouTube authorization cancelled",
+                       f"Error: <code>{_html_escape.escape(error or '')}</code>"),
             status_code=400,
         )
     if not code or not state:
@@ -344,7 +351,8 @@ async def oauth_youtube_callback(
     except Exception as exc:
         log.exception("oauth.youtube.exchange_failed", brand=brand_id)
         return HTMLResponse(
-            _html_page("YouTube connection failed", f"Token exchange failed: <code>{exc}</code>"),
+            _html_page("YouTube connection failed",
+                       f"Token exchange failed: <code>{_html_escape.escape(str(exc))}</code>"),
             status_code=502,
         )
 
@@ -362,6 +370,8 @@ async def oauth_youtube_callback(
 @app.get("/internal/youtube/whoami", dependencies=[Depends(_require_jobs_auth)])
 async def internal_youtube_whoami(brand: str = "glitch_executor") -> dict:
     """Verify the stored YouTube token reaches the channel (auth: x-jobs-token)."""
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
     from glitch_signal.oauth import youtube as yt_oauth
 
     token = await yt_oauth.get_fresh_access_token(brand)
@@ -382,6 +392,8 @@ async def internal_youtube_whoami(brand: str = "glitch_executor") -> dict:
 @app.get("/internal/buffer/channels", dependencies=[Depends(_require_jobs_auth)])
 async def internal_buffer_channels(brand: str = "glitch_executor") -> dict:
     """List the brand's Buffer org + connected channels (auth: x-jobs-token)."""
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
     from glitch_signal.platforms import buffer
 
     return await buffer.list_channels(brand)
@@ -398,10 +410,13 @@ async def internal_buffer_test_post(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
     from glitch_signal.platforms import buffer
 
     post_id, status = await buffer.create_post(
-        body.get("brand", "glitch_executor"),
+        brand,
         body.get("service", "x"),
         text=body.get("text", ""),
         media_url=body.get("media_url"),
