@@ -34,3 +34,6 @@ CONTRIBUTING.md
 *.mov
 var/
 tmp/
+
+# Frontend (Next.js) — deploys separately (web-production), never in the API bundle
+web/
