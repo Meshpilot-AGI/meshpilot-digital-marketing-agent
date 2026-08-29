@@ -31,6 +31,13 @@ fastapi cloud env delete NAME --yes --path .
 ```
 The CLI never prints secret values. Local `.env` is NOT read by the cloud.
 
+> ⚠️ **`env set` only CREATES — it will NOT UPDATE an existing var.** Re-running
+> `env set NAME …` on a var that already exists silently no-ops (its `updated_at`
+> never moves), leaving the old/blank value. This cost us hours on a blank
+> `GE_BUFFER_API_KEY`. **To change an existing value: `env delete NAME --yes`,
+> then `env set` fresh.** Confirm with `env get NAME --json` that `updated_at`
+> moved. Env changes only reach the running app after a **redeploy**.
+
 ## Hard-won gotchas (all cost us a broken deploy once)
 - **`fastapi[standard]` is required**, not bare `fastapi` — the runtime launches
   via the `fastapi run` CLI, which lives in that extra. Bare `fastapi`

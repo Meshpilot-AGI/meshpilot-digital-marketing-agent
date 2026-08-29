@@ -16,7 +16,7 @@ identifier (snake_case); the tag is the short env prefix.
 
 | Tag | Brand | `brand_id` | Status | Capabilities live |
 |-----|-------|-----------|--------|-------------------|
-| **GE** | **Glitch Executor** | `glitch_executor` | live | Facebook (Meta) ✅, YouTube ✅ |
+| **GE** | **Glitch Executor** | `glitch_executor` | live | Facebook (Meta) ✅, YouTube ✅, Buffer (TikTok/X/LinkedIn) ✅ |
 
 ### GE — Glitch Executor
 The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
