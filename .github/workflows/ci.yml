@@ -36,8 +36,8 @@ jobs:
           files=$(git diff --name-only "$base" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD)
           echo "changed files:"; echo "$files"
           api=false; web=false; db=false
-          if echo "$files" | grep -qE '^(src/|main\.py$|pyproject\.toml$|uv\.lock$|alembic/|alembic\.ini$|tests/)'; then api=true; fi
-          if echo "$files" | grep -qE '^(alembic/|alembic\.ini$|src/glitch_signal/db/)'; then db=true; fi
+          if echo "$files" | grep -qE '^(src/|main\.py$|pyproject\.toml$|uv\.lock$|tests/)'; then api=true; fi
+          if echo "$files" | grep -qE '^(supabase/migrations/|src/glitch_signal/db/)'; then db=true; fi
           if echo "$files" | grep -qE '^web/'; then web=true; fi
           echo "api=$api" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
@@ -79,18 +79,23 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      # Throwaway local Postgres — no SSL/pooler, never the real Supabase DB.
-      SIGNAL_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/signal
+      # Throwaway local Postgres — validates the Supabase migrations, never the real DB.
+      PGURL: postgresql://postgres:postgres@localhost:5432/signal
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - name: Install deps
-        run: uv sync
-      - name: Apply migrations from scratch (hard gate)
-        run: uv run alembic upgrade head
-      - name: Model-drift check (informational)
-        continue-on-error: true
-        run: uv run alembic check
+      - name: Apply Supabase migrations from scratch (hard gate)
+        run: |
+          shopt -s nullglob
+          for f in supabase/migrations/*.sql; do
+            echo "== applying $f"
+            psql "$PGURL" -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: Idempotency check (re-apply must be a clean no-op)
+        run: |
+          shopt -s nullglob
+          for f in supabase/migrations/*.sql; do
+            psql "$PGURL" -v ON_ERROR_STOP=1 -f "$f"
+          done
 
   web:
     needs: changes

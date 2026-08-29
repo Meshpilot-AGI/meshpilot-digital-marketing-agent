@@ -2,6 +2,19 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### SUPA-MIGRATE — adopt Supabase-native migrations, retire Alembic (DB-OPT part 1) — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the supabase skill; the live schema via the Supabase MCP (project qkztphfjwgluwwlgeyys — reachable only after the operator re-authed the MCP to the Meshpilot account; the local CLI is on a different account). Operator decisions: **replace Alembic**, push via the **Supabase GitHub integration**.
+
+**Changed:** new `supabase/config.toml` (project ref + PG major 17) + `supabase/migrations/20260829054500_init_schema.sql` — the schema generated from `glitch_signal.db.models` (13 tables, exact match to the 13 live tables), written **idempotent** (`CREATE TABLE/INDEX IF NOT EXISTS` + `ENABLE ROW LEVEL SECURITY`) so it is a safe no-op on the existing prod DB and builds fresh preview/shadow DBs. **Retired Alembic**: deleted `alembic/` (9 migrations + env.py), `alembic.ini`, `.github/workflows/db-migrate.yml`, and the `alembic>=1.14` dep (uv.lock relocked → 167 pkgs). Repointed the `ci.yml` **db** job (drift on `supabase/migrations/**` or `db/**`) to apply the SQL migrations to a throwaway Postgres via `psql -v ON_ERROR_STOP=1`, then re-apply for idempotency. Updated `docs/vendors/supabase.md` + `.fastapicloudignore` (supabase/ excluded from the runtime bundle).
+
+**Verified (observed):** baseline validated against the LIVE DB via MCP execute_sql — the idempotent DDL ran no-op with no error (proves valid SQL + matches existing schema). App boots; full suite **301 passed, 1 skipped** after Alembic removal + relock. Migration history on the project was empty; the idempotent baseline needs no manual schema_migrations poking.
+
+**Notes / remains:** on the first merge to production, the **Supabase GitHub integration** applies the baseline (no-op) + records it — **watch its first run** in the Supabase dashboard (and confirm the integration watches `production`, since `preview` was retired). The app's runtime DB connection (SIGNAL_DB_URL/asyncpg) is unchanged. The **schema-slim half of DB-OPT** (drop the now-unused ORM tables comment_reply/strategic_reply/mention_event/orm_response + the video/scout tables if generation-only) is still open — do it as new supabase/migrations/*.sql. The stale `alembic_version` table lingers in prod (harmless; drop anytime).
+
+---
+
 ### PRUNE-1 — remove ORM / comment-engagement subsystem — CLOSED 2026-08-29
 **Owner:** Claude
 
