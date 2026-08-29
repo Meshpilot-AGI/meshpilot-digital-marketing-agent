@@ -119,6 +119,31 @@ async def _require_jobs_auth(x_jobs_token: str = Header(default="")) -> None:
     if not _hmac.compare_digest(x_jobs_token or "", expected):
         raise HTTPException(status_code=401, detail="invalid or missing x-jobs-token")
 
+
+@app.post("/internal/facebook/test-post", dependencies=[Depends(_require_jobs_auth)])
+async def internal_facebook_test_post(request: Request) -> dict:
+    """Publish one post to a brand's Facebook Page (verification / manual).
+
+    Body: {message?, brand_id?, link?, image_url?, video_url?}. Auth: x-jobs-token.
+    Credentials resolve per-brand via brand_env — nothing is passed in the body.
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    from glitch_signal.platforms.facebook import publish_facebook
+
+    post_id, permalink = await publish_facebook(
+        brand_id=body.get("brand_id"),
+        message=body.get("message"),
+        link=body.get("link"),
+        image_url=body.get("image_url"),
+        video_url=body.get("video_url"),
+    )
+    return {"ok": True, "post_id": post_id, "permalink": permalink}
+
+
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""

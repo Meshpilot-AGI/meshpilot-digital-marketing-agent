@@ -179,6 +179,11 @@ class Settings(BaseSettings):
     ig_access_token: str = ""
     ig_user_id: str = ""
 
+    # --- Meta (Facebook / Instagram) Graph API ---
+    # Version is a platform constant (not per-brand). Per-brand creds
+    # (page id, IG user id, system-user token) resolve via brand_env().
+    meta_graph_api_version: str = "v21.0"
+
     # --- Storage ---
     video_storage_path: str = "/var/lib/glitch-signal/videos"
 
