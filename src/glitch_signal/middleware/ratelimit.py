@@ -97,7 +97,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._global = SlidingWindowLimiter(global_limit, window_s)
 
     async def dispatch(self, request: Any, call_next: Any) -> Any:
-        if request.url.path == "/healthz":
+        path = request.url.path
+        # /healthz = platform probes; /webhooks/* = provider callbacks (HMAC-verified, retried).
+        if path == "/healthz" or path.startswith("/webhooks"):
             return await call_next(request)
         ip = client_ip(request)
         if not self._ip.allow(ip) or not self._global.allow("all"):

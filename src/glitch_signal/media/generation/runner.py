@@ -129,12 +129,17 @@ async def run_recipe(
 async def generate(
     brief: Brief,
     *,
-    engine: Engine | None = None,
+    engine: Engine | str | None = None,
     compose: Compose | None = None,
     timeout_s: int = 360,
 ) -> Asset:
-    """Convenience: resolve the recipe by slug and run it (MUapi by default)."""
+    """Convenience: resolve the recipe by slug and run it. `engine` may be an Engine instance,
+    a name ('muapi' | 'heygen'), or None (defaults to MUapi)."""
+    from glitch_signal.media.generation.engines import get_engine
+
     recipe = get_recipe(brief.recipe)
+    if isinstance(engine, str):
+        engine = get_engine(engine)
     return await run_recipe(
         recipe,
         brief.inputs,

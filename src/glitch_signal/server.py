@@ -357,6 +357,61 @@ async def internal_agent_curate(request: Request) -> dict:
     return {"ok": True, "brand": brand, **res}
 
 
+_HEYGEN_SEEN: set[str] = set()  # best-effort per-worker event-id dedup
+
+
+@app.post("/webhooks/heygen")
+async def heygen_webhook(request: Request):
+    """Receive HeyGen webhook events (video finished/failed). Public (HeyGen calls it) but
+    HMAC-verified: Heygen-Signature = hex HMAC-SHA256(raw body, HEYGEN_WEBHOOK_SECRET). We reject
+    unverified/stale deliveries and dedup on Heygen-Event-Id, then ack 2xx fast.
+    """
+    import hashlib
+    import hmac
+    import json as _json
+    import time as _time
+
+    from fastapi import Response
+
+    secret = (settings().heygen_webhook_secret or "").strip()
+    raw = await request.body()
+    sig = request.headers.get("Heygen-Signature", "")
+    ts = request.headers.get("Heygen-Timestamp", "")
+    eid = request.headers.get("Heygen-Event-Id", "")
+
+    if not secret:  # fail closed — never trust an unverified event
+        log.warning("heygen.webhook.no_secret")
+        return Response(status_code=503)
+    if not sig or not ts:
+        return Response("missing signature headers", status_code=400)
+    try:
+        if abs(_time.time() - int(ts)) > 300:  # ~5 min replay window
+            return Response("stale timestamp", status_code=400)
+    except ValueError:
+        return Response("bad timestamp", status_code=400)
+
+    expected = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return Response("bad signature", status_code=401)
+
+    if eid and eid in _HEYGEN_SEEN:  # idempotency: HeyGen may redeliver on retry
+        return Response(status_code=200)
+    if eid:
+        _HEYGEN_SEEN.add(eid)
+        if len(_HEYGEN_SEEN) > 5000:
+            _HEYGEN_SEEN.clear()
+
+    try:
+        event = _json.loads(raw or b"{}")
+    except Exception:
+        event = {}
+    log.info("heygen.webhook", event_type=event.get("event_type"), event_id=eid,
+             video_id=((event.get("event_data") or {}).get("video_id")))
+    # Video completion is currently obtained by the HeyGen engine's own poll; this receiver
+    # verifies + logs (and is the hook point for push-based completion handling later).
+    return Response(status_code=200)
+
+
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
@@ -606,8 +661,8 @@ async def internal_media_generate(request: Request) -> dict:
 
     brief = Brief(brand_id=brand, recipe=slug, inputs=body.get("inputs", {}) or {})
     try:
-        # MUapi engine; the LLM composer handles prompt-authored recipes.
-        asset = await media_generate(brief, compose=llm_compose)
+        # engine: 'muapi' (default) or 'heygen'. The LLM composer handles prompt-authored recipes.
+        asset = await media_generate(brief, engine=body.get("engine", "muapi"), compose=llm_compose)
     except EngineError as exc:
         msg = str(exc)
         code = 422 if "composer is required" in msg else 400
