@@ -1,6 +1,6 @@
 # Design Spec — Agent Brain (memory + agent capabilities)
 
-**Date:** 2026-08-29 · **Status:** AGENT-MEM DONE + AGENT-LOOP DONE (verified live) · AGENT-POLICY gate landed with the loop · increments 3–4 pending · **Method:** brainstorming → spec → build
+**Date:** 2026-08-29 · **Status:** AGENT-MEM + AGENT-LOOP + AGENT-POLICY DONE (verified live) · AGENT-LEARN (increment 4) pending · **Method:** brainstorming → spec → build
 
 ## Goal
 
@@ -28,9 +28,11 @@ their *patterns* on our cloud/multi-brand stack rather than wrap either.
    loop isn't bound by the edge ~100s request timeout. Embeddings stay on NVIDIA.
    *Future opt (not now):* if the loop goes high-volume or system+tools grow ≥1024 tokens,
    add prompt caching on the stable system/tools block, then verify with cache-diagnostics.
-3. **AGENT-POLICY** ✅ landed with the loop (`policy.py`): allow/deny each action before
-   execution; PUBLISH_TOOLS denied (posting stays gated until explicitly enabled). Increment 3
-   will extend it (per-brand rules, budgets).
+3. **AGENT-POLICY** ✅ DONE (`policy.py`): deterministic `Policy.check()` gate run before every
+   tool exec (OpenClaw trusted-gateway pattern). Rules: (1) per-brand tool deny, (2) publish
+   kill-switch — all PUBLISH_TOOLS denied unless `agent_publish_enabled` (config, default False),
+   (3) per-run media budget `agent_max_media_per_run` (default 3) for cost control; runner tracks
+   executed-tool counts and feeds them in. `allow()` kept as a back-compat wrapper.
 4. **AGENT-LEARN** — Hermes-style curator: distill episodes → durable facts + new/updated
    skills; consolidate + archive.
 
