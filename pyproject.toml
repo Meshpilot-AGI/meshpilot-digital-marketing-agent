@@ -25,7 +25,10 @@ classifiers = [
 
 dependencies = [
   # Web / server
-  "fastapi>=0.115",
+  # `[standard]` pulls the `fastapi` CLI (+ uvicorn[standard]); FastAPI Cloud
+  # launches the app via `fastapi run`, which requires it. Bare `fastapi`
+  # crash-loops the runtime with "please install fastapi[standard]".
+  "fastapi[standard]>=0.115",
   "uvicorn[standard]>=0.32",
   "httpx>=0.27",
   "pydantic>=2.9",
