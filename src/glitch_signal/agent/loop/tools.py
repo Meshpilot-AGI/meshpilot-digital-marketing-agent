@@ -46,6 +46,30 @@ async def _t_generate_media(args: dict, brand_id: str) -> str:
     return f"generated {asset.kind} via {asset.recipe}: {asset.url}"
 
 
+async def _t_edit_image(args: dict, brand_id: str) -> str:
+    """Deterministic native edit (resize/crop/text/format) of an existing image → stored URL."""
+    import httpx
+
+    from glitch_signal.media.generation.storage import upload_bytes
+    from glitch_signal.media.imaging import apply_ops
+
+    url = str(args.get("image_url", "")).strip()
+    ops = args.get("ops", []) or []
+    if not url:
+        return "ERROR: edit_image requires image_url"
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.get(url)
+        if r.status_code >= 400:
+            return f"ERROR: could not fetch image ({r.status_code})"
+        data = r.content
+    out = apply_ops(data, ops)
+    fmt = next((str(o.get("format", "")).lower() for o in ops if o.get("op") == "format"), "png")
+    ext = {"jpeg": "jpg", "jpg": "jpg", "webp": "webp"}.get(fmt, "png")
+    ctype = {"jpg": "image/jpeg", "webp": "image/webp"}.get(ext, "image/png")
+    new_url = await upload_bytes(out, brand_id, ext=ext, content_type=ctype, prefix="edited")
+    return f"edited image ({len(ops)} op(s)): {new_url}"
+
+
 async def _t_publish(args: dict, brand_id: str) -> str:  # never reached — policy denies
     return "publish executed"
 
@@ -59,6 +83,9 @@ TOOLS: dict[str, dict[str, Any]] = {
                      "description": "List available media-generation recipes. args: {}"},
     "generate_media": {"fn": _t_generate_media,
                        "description": "Generate an image/video from a recipe (returns a stored URL). args: {recipe, inputs}"},
+    "edit_image": {"fn": _t_edit_image,
+                   "description": "Deterministically edit an existing image (exact resize/crop-to-aspect/"
+                                  "text overlay/format) and return a stored URL. args: {image_url, ops:[{op:resize|fit|text|format, ...}]}"},
     "publish": {"fn": _t_publish,
                 "description": "Publish content to a platform. args: {platform, ...}. NOTE: currently DISABLED."},
 }

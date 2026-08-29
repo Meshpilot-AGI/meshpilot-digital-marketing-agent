@@ -54,6 +54,9 @@ dependencies = [
   # MCP client — the agent connects to external tools' MCP servers (AGENT-MCP)
   "mcp>=1.2",
 
+  # Native deterministic image editing (resize/crop/text/format) — complements AI media gen
+  "pillow>=10.2",
+
   # Database
   "sqlmodel>=0.0.21",
   "asyncpg>=0.30",
