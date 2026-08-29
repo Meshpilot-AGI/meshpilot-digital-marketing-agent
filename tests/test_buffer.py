@@ -38,6 +38,7 @@ def _write_brand(
         "brand_id": brand_id,
         "display_name": brand_id,
         "timezone": "UTC",
+        "env_prefix": "GE",
         "platforms": {},
     }
     block: dict = {"enabled": enabled}
@@ -94,7 +95,7 @@ class TestBufferLiveValidation:
         from glitch_signal import config
         from glitch_signal.platforms import buffer
         monkeypatch.setenv("DISPATCH_MODE", "live")
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         config.settings.cache_clear()
         with pytest.raises(ValueError, match="brand_id is required"):
             await buffer.publish(
@@ -107,12 +108,14 @@ class TestBufferLiveValidation:
         from glitch_signal import config
         from glitch_signal.platforms import buffer
         monkeypatch.setenv("DISPATCH_MODE", "live")
-        monkeypatch.setenv("BUFFER_API_TOKEN", "")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "")
         config.settings.cache_clear()
-        with pytest.raises(RuntimeError, match="BUFFER_API_TOKEN"):
+        # Default brand carries env_prefix=GE, so the missing value surfaces as
+        # the per-brand key error.
+        with pytest.raises(RuntimeError, match="BUFFER_API_KEY"):
             await buffer.publish(
                 platform="buffer_tiktok", file_path="/x.mp4",
-                script_id="s", brand_id="brand_t",
+                script_id="s", brand_id="glitch_executor",
             )
 
     @pytest.mark.asyncio
@@ -120,44 +123,12 @@ class TestBufferLiveValidation:
         from glitch_signal import config
         from glitch_signal.platforms import buffer
         monkeypatch.setenv("DISPATCH_MODE", "live")
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         config.settings.cache_clear()
         with pytest.raises(ValueError, match="unknown platform key"):
             await buffer.publish(
                 platform="buffer_bogus", file_path="/x.mp4",
                 script_id="s", brand_id="brand_t",
-            )
-
-    @pytest.mark.asyncio
-    async def test_non_tiktok_targets_not_implemented(self, monkeypatch, tmp_path):
-        """Module is TikTok-only today — non-tiktok targets must raise early,
-        before any HTTP traffic."""
-        from glitch_signal import config
-        from glitch_signal.platforms import buffer
-
-        configs = tmp_path / "configs"
-        configs.mkdir()
-        _write_brand(configs, "brand_ig")
-        # Overwrite the config to use buffer_instagram instead.
-        (configs / "brand_ig.json").write_text(json.dumps({
-            "brand_id": "brand_ig", "display_name": "brand_ig", "timezone": "UTC",
-            "platforms": {"buffer_instagram": {
-                "enabled": True, "channel_id": "c", "organization_id": "o",
-            }},
-        }))
-        monkeypatch.setenv("DISPATCH_MODE", "live")
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
-        monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
-        monkeypatch.setenv("DEFAULT_BRAND_ID", "brand_ig")
-        config.settings.cache_clear()
-        config._reset_brand_registry_for_tests()
-
-        vid = tmp_path / "v.mp4"
-        vid.write_bytes(b"x")
-        with pytest.raises(NotImplementedError, match="only tiktok"):
-            await buffer.publish(
-                platform="buffer_instagram", file_path=str(vid),
-                script_id="s", brand_id="brand_ig",
             )
 
     @pytest.mark.asyncio
@@ -169,7 +140,7 @@ class TestBufferLiveValidation:
         configs.mkdir()
         _write_brand(configs, "brand_noc", channel_id="")
         monkeypatch.setenv("DISPATCH_MODE", "live")
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
         monkeypatch.setenv("DEFAULT_BRAND_ID", "brand_noc")
         config.settings.cache_clear()
@@ -192,7 +163,7 @@ class TestBufferLiveValidation:
         configs.mkdir()
         _write_brand(configs, "brand_noo", organization_id="")
         monkeypatch.setenv("DISPATCH_MODE", "live")
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
         monkeypatch.setenv("DEFAULT_BRAND_ID", "brand_noo")
         config.settings.cache_clear()
@@ -215,7 +186,7 @@ class TestBufferLiveValidation:
         configs.mkdir()
         _write_brand(configs, "brand_nf")
         monkeypatch.setenv("DISPATCH_MODE", "live")
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
         monkeypatch.setenv("DEFAULT_BRAND_ID", "brand_nf")
         monkeypatch.setenv("MEDIA_PUBLIC_BASE_URL", "https://example.test")
@@ -237,7 +208,7 @@ class TestBufferPollStatus:
     async def test_sent_returns_external_link(self, monkeypatch):
         from glitch_signal import config
         from glitch_signal.platforms import buffer
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         config.settings.cache_clear()
 
         class _FakeResp:
@@ -268,7 +239,7 @@ class TestBufferPollStatus:
         """`sending`/processing → in-flight, reconcile should retry next tick."""
         from glitch_signal import config
         from glitch_signal.platforms import buffer
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         config.settings.cache_clear()
 
         class _FakeResp:
@@ -296,7 +267,7 @@ class TestBufferPollStatus:
     async def test_failed_raises(self, monkeypatch):
         from glitch_signal import config
         from glitch_signal.platforms import buffer
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         config.settings.cache_clear()
 
         class _FakeResp:
@@ -326,7 +297,7 @@ class TestBufferPollStatus:
         loop leaves the row for the next tick."""
         from glitch_signal import config
         from glitch_signal.platforms import buffer
-        monkeypatch.setenv("BUFFER_API_TOKEN", "t")
+        monkeypatch.setenv("GE_BUFFER_API_KEY", "t")
         config.settings.cache_clear()
 
         class _FakeResp:

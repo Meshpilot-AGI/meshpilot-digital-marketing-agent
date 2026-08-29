@@ -263,11 +263,12 @@ async def publish(
 
     if not brand_id:
         raise ValueError("buffer.publish: brand_id is required for live publish")
-    token = _buffer_token(brand_id)
 
     target = _PLATFORM_MAP.get(platform)
     if not target:
         raise ValueError(f"buffer.publish: unknown platform key {platform!r}")
+
+    token = _buffer_token(brand_id)
 
     cfg_block = (brand_config(brand_id).get("platforms", {}).get(platform, {}) or {})
     channel_id = cfg_block.get("channel_id")
