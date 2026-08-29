@@ -77,5 +77,26 @@ class HiggsfieldEngine:
         except Exception as exc:  # noqa: BLE001
             raise EngineError(f"higgsfield {model} failed: {str(exc)[:200]}")
         url = _extract_url(result)
+        await _meter(model, params or {})
         log.info("higgsfield.generated", model=model)
         return url
+
+
+async def _meter(model: str, params: dict[str, Any]) -> None:
+    """Attribute this generation's credits + cost to the active brand (COST-METER). Never raises."""
+    try:
+        from glitch_signal.analytics.cost import get_brand, record_usage  # noqa: PLC0415
+        from glitch_signal.analytics.cost.pricing import higgsfield_cost  # noqa: PLC0415
+
+        credits, cost = higgsfield_cost(model)
+        op = "video.generate" if "/dop/" in model or "/video" in model else "image.generate"
+        await record_usage(
+            brand_id=get_brand(),
+            vendor="higgsfield",
+            operation=op,
+            model=model,
+            units={"credits": credits, "quality": params.get("quality")},
+            cost_usd=cost,
+        )
+    except Exception:  # noqa: BLE001 — metering is best-effort, never breaks generation
+        pass

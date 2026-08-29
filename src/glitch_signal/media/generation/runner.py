@@ -135,8 +135,10 @@ async def generate(
 ) -> Asset:
     """Convenience: resolve the recipe by slug and run it. `engine` may be an Engine instance,
     a name ('muapi' | 'heygen'), or None (defaults to MUapi)."""
+    from glitch_signal.analytics.cost import set_brand
     from glitch_signal.media.generation.engines import get_engine
 
+    set_brand(brief.brand_id)  # attribute vendor cost to the brief's brand (COST-METER)
     recipe = get_recipe(brief.recipe)
     if engine is None:
         engine = recipe.engine        # recipe declares its vendor (default "muapi")
