@@ -216,12 +216,12 @@ class TestCaptionWriterNode:
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_bytes(b"mock")
 
-        # Mock the LLM call so caption_writer doesn't try to hit Gemini.
+        # Mock the LLM call so caption_writer doesn't try to hit Claude.
         from unittest.mock import AsyncMock, patch
-        mock_resp = type("R", (), {"choices": [type("C", (), {"message": type("M", (), {"content": '{"title": "Golden hour root", "caption": "A moment with the root.\\n\\n#tag1 #brand", "hashtags": ["tag1", "brand"]}'})()})()]})()
+        mock_raw = '{"title": "Golden hour root", "caption": "A moment with the root.\\n\\n#tag1 #brand", "hashtags": ["tag1", "brand"]}'
 
         from glitch_signal.agent.nodes.caption_writer import caption_writer_node
-        with patch("glitch_signal.agent.nodes.caption_writer.litellm.acompletion", new=AsyncMock(return_value=mock_resp)):
+        with patch("glitch_signal.agent.nodes.caption_writer.agent_llm.chat", new=AsyncMock(return_value=mock_raw)):
             state = await caption_writer_node({
                 "brand_id": "drive_brand",
                 "signal_id": sig_id,

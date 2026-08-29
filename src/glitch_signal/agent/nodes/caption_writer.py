@@ -26,10 +26,9 @@ import pathlib
 import uuid
 from datetime import UTC, datetime
 
-import litellm
 import structlog
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent import llm as agent_llm
 from glitch_signal.agent.state import SignalAgentState
 from glitch_signal.config import brand_config, settings
 from glitch_signal.db.models import ContentScript, Signal, VideoAsset
@@ -291,55 +290,6 @@ async def _generate_caption(
     return title, caption, hashtags
 
 
-async def _acompletion_with_retry(**kwargs) -> object:
-    """Call litellm.acompletion with exponential backoff on transient errors.
-
-    Gemini (our `cheap` tier) routinely returns 503 ServiceUnavailable
-    during high-demand windows — observed during a drive-footage preview run
-    on 2026-04-17 where consecutive caption calls hit 503 over a span
-    of ~2 minutes. A single try would fall straight back to the caption
-    writer's fail-soft template; with backoff the first attempt after
-    the first 5xx usually succeeds.
-
-    Retries on litellm's transient-error family (ServiceUnavailable,
-    RateLimit, InternalServerError, BadGateway, APIConnection,
-    InternalServerError). Hard errors (Auth, BadRequest, NotFound,
-    ContextWindowExceeded) are re-raised immediately — no retry.
-
-    Backoff: 30s → 60s → 120s (5 attempts total). Caller sees the
-    original exception if every attempt fails.
-    """
-    import asyncio as _asyncio
-
-    transient = (
-        litellm.ServiceUnavailableError,
-        litellm.RateLimitError,
-        litellm.InternalServerError,
-        litellm.BadGatewayError,
-        litellm.APIConnectionError,
-    )
-    max_attempts = 5
-    base_delay_s = 30
-
-    for attempt in range(max_attempts):
-        try:
-            return await litellm.acompletion(**kwargs)
-        except transient as exc:
-            if attempt == max_attempts - 1:
-                raise
-            delay = min(base_delay_s * (2 ** attempt), 120)
-            log.info(
-                "caption_writer.retry_transient",
-                attempt=attempt + 1,
-                delay_s=delay,
-                error_type=type(exc).__name__,
-                error=str(exc)[:200],
-            )
-            await _asyncio.sleep(delay)
-    # Unreachable — loop either returns or raises.
-    raise RuntimeError("_acompletion_with_retry: exited loop without outcome")
-
-
 async def _generate_via_rules_based(
     *,
     signal: Signal,
@@ -388,20 +338,16 @@ async def _generate_via_rules_based(
           "use the fallback framing listed in the catalog."
     )
 
-    mc = pick("cheap")
     raw_content = ""
     try:
-        resp = await _acompletion_with_retry(
-            model=mc.model,
-            messages=[
+        raw_content = await agent_llm.chat(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": full_user},
             ],
-            response_format={"type": "json_object"},
+            tier="cheap",
             max_tokens=4096,
-            **mc.kwargs,
-        )
-        raw_content = resp.choices[0].message.content or ""
+        ) or ""
         return _parse_caption_json(raw_content)
     except Exception as exc:
         log.warning(
@@ -420,24 +366,20 @@ async def _generate_via_filename(*, system_prompt: str, user_context: str) -> di
     # and exactly what the operator needs to review during dry-run —
     # skipping it leaves them previewing template fallback captions that
     # don't reflect the real system behaviour.
-    mc = pick("cheap")
     raw_content = ""
     try:
-        resp = await _acompletion_with_retry(
-            model=mc.model,
-            messages=[
+        # Gemini 2.5 Flash counts reasoning ("thinking") tokens against
+        # max_tokens and will silently truncate the visible output when
+        # the ceiling is tight. 4096 comfortably covers a 2000-char
+        # caption plus whatever thinking the model wants to do.
+        raw_content = await agent_llm.chat(
+            [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_context},
             ],
-            response_format={"type": "json_object"},
-            # Gemini 2.5 Flash counts reasoning ("thinking") tokens against
-            # max_tokens and will silently truncate the visible output when
-            # the ceiling is tight. 4096 comfortably covers a 2000-char
-            # caption plus whatever thinking the model wants to do.
+            tier="cheap",
             max_tokens=4096,
-            **mc.kwargs,
-        )
-        raw_content = resp.choices[0].message.content or ""
+        ) or ""
         return _parse_caption_json(raw_content)
     except Exception as exc:
         log.warning(

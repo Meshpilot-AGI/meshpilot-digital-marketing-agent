@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import json
 
-import litellm
 import structlog
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent import llm as agent_llm
 from glitch_signal.agent.state import SignalAgentState
 from glitch_signal.config import settings
 from glitch_signal.db.models import ContentScript
@@ -84,22 +83,14 @@ async def _generate_shots(script_body: str, content_type: str) -> list[dict]:
             for i in range(6)
         ]
 
-    mc = pick("cheap")
-    resp = await litellm.acompletion(
-        model=mc.model,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Content type: {content_type}\n\nScript:\n{script_body}",
-            },
-        ],
-        response_format={"type": "json_object"},
-        max_tokens=600,
-        **mc.kwargs,
-    )
-
-    raw = resp.choices[0].message.content or '{"shots": []}'
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": f"Content type: {content_type}\n\nScript:\n{script_body}",
+        },
+    ]
+    raw = await agent_llm.chat(messages, tier="cheap", max_tokens=600) or '{"shots": []}'
     data = json.loads(raw)
     shots = data.get("shots", [])
 

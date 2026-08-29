@@ -5,10 +5,9 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-import litellm
 import structlog
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent import llm as agent_llm
 from glitch_signal.agent.state import SignalAgentState
 from glitch_signal.config import settings
 from glitch_signal.db.models import ContentScript, Signal
@@ -130,19 +129,11 @@ async def _generate_script(
         "Write the video script for this signal."
     )
 
-    mc = pick("smart")
-    resp = await litellm.acompletion(
-        model=mc.model,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        response_format={"type": "json_object"},
-        max_tokens=800,
-        **mc.kwargs,
-    )
-
-    raw = resp.choices[0].message.content or "{}"
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_msg},
+    ]
+    raw = await agent_llm.chat(messages, tier="smart", max_tokens=800) or "{}"
     data = json.loads(raw)
 
     script_body = str(data.get("script_body", "")).strip()

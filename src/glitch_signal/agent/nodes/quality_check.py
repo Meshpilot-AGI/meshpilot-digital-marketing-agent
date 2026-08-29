@@ -11,10 +11,9 @@ import pathlib
 import tempfile
 
 import ffmpeg
-import litellm
 import structlog
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent.loop import llm as brain_llm  # Claude vision — QC is the one exception
 from glitch_signal.agent.state import SignalAgentState
 from glitch_signal.config import settings
 from glitch_signal.db.models import VideoAsset
@@ -92,16 +91,13 @@ async def _run_qc(asset_path: str) -> tuple[bool, float, str]:
             "image_url": {"url": f"data:image/jpeg;base64,{frame_b64}"},
         })
 
-    mc = pick("heavy")
     try:
-        resp = await litellm.acompletion(
-            model=mc.model,
-            messages=[{"role": "user", "content": content}],
-            response_format={"type": "json_object"},
-            max_tokens=400,
-            **mc.kwargs,
-        )
-        raw = resp.choices[0].message.content or "{}"
+        # Vision QC is the ONE content-pipeline call that stays on Claude: MUapi text-to-text
+        # (the backend for all other content generation) can't analyze video frames. Claude
+        # vision takes the base64 frames directly via the brain transport's messages converter.
+        raw = await brain_llm.complete_messages(
+            [{"role": "user", "content": content}], max_tokens=400
+        ) or "{}"
         data = json.loads(raw)
         passed = bool(data.get("passed", False))
         score = float(data.get("overall_score", 0.0))

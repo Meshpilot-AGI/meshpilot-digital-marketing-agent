@@ -18,10 +18,11 @@ brand), this module:
 Multi-tenant: brand voice/disclaimer/prohibited come from the brand kit
 (`BrandVoice`), neutral defaults for unknown clients. The LLM completion is
 injectable (`complete_fn`) so this unit-tests with no network; the default
-backend uses glitch_signal's existing LiteLLM `pick()` chain.
+backend uses glitch_signal's Claude API shim (`glitch_signal.agent.llm.chat`).
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass, field
@@ -92,19 +93,21 @@ def find_prohibited(text: str, avoid: tuple[str, ...]) -> list[str]:
 
 
 def _default_complete(prompt: str, system: str, tier: str = "smart") -> str:
-    """Real LLM call via glitch_signal's LiteLLM pick() chain."""
-    import litellm  # local import: keeps the module import-light for tests
-    from glitch_signal.agent.llm import pick
+    """Real LLM call via glitch_signal's Claude API shim.
 
-    choice = pick(tier)
-    resp = litellm.completion(
-        model=choice.model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-        temperature=0.4,
-        max_tokens=700,
-        **choice.kwargs,
-    )
-    return resp["choices"][0]["message"]["content"]
+    This module's public API (`author_card_spec`, `route_and_author`) is
+    synchronous, but the underlying transport is async — bridge with
+    `asyncio.run` here rather than making the whole call chain async.
+    """
+    from glitch_signal.agent import llm as agent_llm
+
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": prompt},
+    ]
+    return asyncio.run(
+        agent_llm.chat(messages, tier=tier, max_tokens=700, temperature=0.4)
+    ) or ""
 
 
 def _strip_json(s: str) -> dict[str, Any]:

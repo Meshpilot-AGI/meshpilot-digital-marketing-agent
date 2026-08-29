@@ -11,17 +11,10 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-import litellm
 import structlog
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent import llm as agent_llm
 from glitch_signal.agent.state import SignalAgentState
 from glitch_signal.config import settings
 from glitch_signal.db.models import ScoutCheckpoint, Signal
@@ -278,38 +271,23 @@ Score below 0.6 for: chores, minor fixes, version bumps, docs typos
 Respond with JSON only: {"score": 0.0-1.0, "summary": "one sentence for the post topic"}"""
 
 
-@retry(
-    reraise=True,
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type(
-        (litellm.ServiceUnavailableError, litellm.RateLimitError, litellm.APIConnectionError)
-    ),
-)
-async def _call_novelty_llm(mc, text: str) -> str:
-    resp = await litellm.acompletion(
-        model=mc.model,
-        messages=[
-            {"role": "system", "content": _NOVELTY_SYSTEM},
-            {"role": "user", "content": text},
-        ],
-        response_format={"type": "json_object"},
-        # Gemini 2.5 Flash spends its first ~800-1000 tokens on internal
-        # "thinking" before emitting output. 2048 is the first value that
-        # consistently returns a complete JSON object.
-        max_tokens=2048,
-        **mc.kwargs,
-    )
-    return resp.choices[0].message.content or "{}"
+async def _call_novelty_llm(text: str) -> str:
+    messages = [
+        {"role": "system", "content": _NOVELTY_SYSTEM},
+        {"role": "user", "content": text},
+    ]
+    # Gemini 2.5 Flash spends its first ~800-1000 tokens on internal
+    # "thinking" before emitting output. 2048 is the first value that
+    # consistently returns a complete JSON object.
+    return await agent_llm.chat(messages, tier="cheap", max_tokens=2048) or "{}"
 
 
 async def _score_novelty(text: str, source_type: str) -> tuple[float, str]:
     if settings().is_dry_run:
         return 0.75, f"[dry-run] {text[:80]}"
 
-    mc = pick("cheap")
     try:
-        raw = await _call_novelty_llm(mc, text)
+        raw = await _call_novelty_llm(text)
         data = json.loads(raw)
         score = float(data.get("score", 0.0))
         summary = str(data.get("summary", text[:80]))

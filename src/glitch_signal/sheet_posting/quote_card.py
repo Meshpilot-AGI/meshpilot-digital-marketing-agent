@@ -29,17 +29,10 @@ import json
 import pathlib
 import uuid
 
-import litellm
 import structlog
 from PIL import Image, ImageDraw, ImageFont
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent import llm as agent_llm
 from glitch_signal.config import brand_config, settings
 from glitch_signal.media.image_gen import generate_background
 
@@ -89,14 +82,6 @@ class QuoteCardError(RuntimeError):
     pass
 
 
-@retry(
-    reraise=True,
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type(
-        (litellm.ServiceUnavailableError, litellm.RateLimitError, litellm.APIConnectionError)
-    ),
-)
 async def _distill_body(
     *, body: str, brand_id: str, default_link: str,
 ) -> dict[str, str]:
@@ -117,18 +102,17 @@ async def _distill_body(
 
     s_ = settings()
     tier = "smart" if (s_.openai_api_key or s_.anthropic_api_key) else "cheap"
-    mc = pick(tier)
-    resp = await litellm.acompletion(
-        model=mc.model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        response_format={"type": "json_object"},
-        max_tokens=1024,
-        **mc.kwargs,
-    )
-    raw = (resp.choices[0].message.content or "").strip() or "{}"
+    raw = (
+        await agent_llm.chat(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            tier=tier,
+            max_tokens=1024,
+        )
+        or ""
+    ).strip() or "{}"
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:

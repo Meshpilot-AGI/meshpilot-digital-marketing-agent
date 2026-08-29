@@ -29,17 +29,10 @@ import pathlib
 import uuid
 from typing import Any
 
-import litellm
 import structlog
 from PIL import Image, ImageDraw, ImageFont
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
-from glitch_signal.agent.llm import pick
+from glitch_signal.agent import llm as agent_llm
 from glitch_signal.config import brand_config, settings
 from glitch_signal.db.models import Signal
 from glitch_signal.media.image_gen import (
@@ -233,14 +226,6 @@ async def generate_carousel(
 # LLM: produce structured slide content
 # ---------------------------------------------------------------------------
 
-@retry(
-    reraise=True,
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type(
-        (litellm.ServiceUnavailableError, litellm.RateLimitError, litellm.APIConnectionError)
-    ),
-)
 async def _generate_slide_content(
     *,
     signal: Signal,
@@ -271,18 +256,14 @@ async def _generate_slide_content(
 
     s_ = settings()
     tier = "smart" if (s_.openai_api_key or s_.anthropic_api_key) else "cheap"
-    mc = pick(tier)
-    resp = await litellm.acompletion(
-        model=mc.model,
-        messages=[
+    raw = await agent_llm.chat(
+        [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        response_format={"type": "json_object"},
+        tier=tier,
         max_tokens=4096,
-        **mc.kwargs,
-    )
-    raw = resp.choices[0].message.content or "{}"
+    ) or "{}"
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -330,14 +311,6 @@ Output JSON only, no markdown fences:
 """
 
 
-@retry(
-    reraise=True,
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type(
-        (litellm.ServiceUnavailableError, litellm.RateLimitError, litellm.APIConnectionError)
-    ),
-)
 async def _slides_from_body(
     *, body: str, brand_id: str, cta_link: str, body_slides: int
 ) -> dict[str, Any]:
@@ -355,18 +328,14 @@ async def _slides_from_body(
 
     s_ = settings()
     tier = "smart" if (s_.openai_api_key or s_.anthropic_api_key) else "cheap"
-    mc = pick(tier)
-    resp = await litellm.acompletion(
-        model=mc.model,
-        messages=[
+    raw = await agent_llm.chat(
+        [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        response_format={"type": "json_object"},
+        tier=tier,
         max_tokens=4096,
-        **mc.kwargs,
-    )
-    raw = resp.choices[0].message.content or "{}"
+    ) or "{}"
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
