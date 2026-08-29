@@ -11,6 +11,7 @@ overridable per-env. Injectable via the `run(llm=...)` param and the `client` ar
 """
 from __future__ import annotations
 
+import asyncio
 import os
 
 import httpx
@@ -18,6 +19,8 @@ import httpx
 _DEFAULT_BASE = "https://api.anthropic.com"
 _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 _ANTHROPIC_VERSION = "2023-06-01"
+_RETRYABLE = {429, 500, 502, 503, 529}  # transient — retry with backoff
+_MAX_ATTEMPTS = 3
 
 
 def _key() -> str:
@@ -52,7 +55,12 @@ async def complete(prompt: str, *, system: str | None = None, model: str | None 
     owns = client is None
     client = client or httpx.AsyncClient(timeout=timeout_s)
     try:
-        r = await client.post(f"{base}/v1/messages", headers=headers, json=payload)
+        r = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            r = await client.post(f"{base}/v1/messages", headers=headers, json=payload)
+            if r.status_code not in _RETRYABLE or attempt == _MAX_ATTEMPTS:
+                break
+            await asyncio.sleep(0.5 * attempt)  # brief linear backoff on transient 5xx/429
     finally:
         if owns:
             await client.aclose()

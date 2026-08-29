@@ -1,6 +1,6 @@
 # Design Spec — Agent Brain (memory + agent capabilities)
 
-**Date:** 2026-08-29 · **Status:** AGENT-MEM + AGENT-LOOP + AGENT-POLICY DONE (verified live) · AGENT-LEARN (increment 4) pending · **Method:** brainstorming → spec → build
+**Date:** 2026-08-29 · **Status:** ALL 4 INCREMENTS DONE (AGENT-MEM + LOOP + POLICY + LEARN, verified live) · **Method:** brainstorming → spec → build
 
 ## Goal
 
@@ -33,8 +33,13 @@ their *patterns* on our cloud/multi-brand stack rather than wrap either.
    kill-switch — all PUBLISH_TOOLS denied unless `agent_publish_enabled` (config, default False),
    (3) per-run media budget `agent_max_media_per_run` (default 3) for cost control; runner tracks
    executed-tool counts and feeds them in. `allow()` kept as a back-compat wrapper.
-4. **AGENT-LEARN** — Hermes-style curator: distill episodes → durable facts + new/updated
-   skills; consolidate + archive.
+4. **AGENT-LEARN** ✅ DONE (`agent/learn/curator.py`): Hermes-style curator distills uncurated
+   episodes → a few DURABLE lessons via Claude, stored as `kind='fact'` upserted by a stable
+   `lesson:<slug>` key (dedup on re-run), then marks those episodes `curated` in metadata
+   (idempotent; recall favors the distilled facts). Endpoint `POST /internal/agent/curate`
+   {brand?, limit?}. Closes the learning loop — lessons surface via seed-recall next run. Verified
+   live: 12 episodes → 3 lessons (incl. a self-observed "avoid duplicate remember" heuristic).
+   `llm.py` now retries transient 5xx/429 (surfaced by a real 503 during curator bring-up).
 
 Each increment gets its own plan + PR + verification. Everything below is **AGENT-MEM only.**
 

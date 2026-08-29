@@ -154,6 +154,39 @@ async def test_llm_complete_raises_on_error(monkeypatch):
         await agent_llm.complete("hi", client=fake)
 
 
+class _SeqHTTPX:
+    """Returns a queued sequence of responses; records how many posts happened."""
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.posts = 0
+
+    async def post(self, url, *, headers=None, json=None):
+        self.posts += 1
+        return self._responses.pop(0)
+
+
+async def test_llm_complete_retries_transient_5xx(monkeypatch):
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    fake = _SeqHTTPX([
+        _FakeResp(503, {"error": "credential validation failed"}),
+        _FakeResp(200, {"content": [{"type": "text", "text": "ok"}]}),
+    ])
+    out = await agent_llm.complete("hi", client=fake)
+    assert out == "ok" and fake.posts == 2          # retried once, then succeeded
+
+
+async def test_llm_complete_does_not_retry_4xx(monkeypatch):
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    fake = _SeqHTTPX([_FakeResp(404, {"detail": "gone"})])
+    with pytest.raises(RuntimeError):
+        await agent_llm.complete("hi", client=fake)
+    assert fake.posts == 1                           # client error → no retry
+
+
 # ── run store (fake engine, no DB) — cross-worker status persistence ──
 class _FakeConn:
     def __init__(self, sink, row=None):
