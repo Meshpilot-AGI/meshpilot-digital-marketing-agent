@@ -19,13 +19,8 @@ Acceptance: buffer.publish() supports x + linkedin (not just tiktok); reads the 
 Write-back: ARCHITECTURE.md (Buffer platform matrix + token env name), control-plane/ENGINEERING_SUPERVISOR.md
 Notes: today buffer.py hard-codes tiktok-only (raises NotImplementedError otherwise); X not in its platform map.
 
-### DEPLOY-1 — resolve `upload-post` private dep + first FastAPI Cloud deploy          [IN PROGRESS]
-Owner: Claude        Opened: 2026-08-28
-Reading: pyproject.toml, README.md, .fastapicloudignore
-Acceptance: `uv sync` resolves with no access to a private fork (vendor it, make it an optional extra, or grant build access); `fastapi deploy` to app meshpilot-social-media-agent succeeds and the URL serves; `/healthz` returns 200.
-Write-back: README.md (deploy notes), control-plane/ENGINEERING_SUPERVISOR.md
-Notes: blocker = `upload-post @ git+https://github.com/glitch-exec-labs/upload-post-pip.git@main`. Also needs an external Postgres (Supabase/Neon) + `SIGNAL_DB_URL` before boot succeeds.
-
 ## Recently closed
+
+- **DEPLOY-1 — resolve `upload-post` private dep + first FastAPI Cloud deploy** (2026-08-28) — live + /healthz 200 at meshpilot-social-media-agent.fastapicloud.dev; DB migrated (us-east-2). → supervisor
 
 - **SETUP-1 — Bootstrap: standalone extraction + FastAPI Cloud wiring + GE brand creds** (2026-08-28) — extracted `glitch_signal` into a standalone repo, decoupled from the monorepo, linked to the FastAPI Cloud app, staged GE brand credentials. → supervisor

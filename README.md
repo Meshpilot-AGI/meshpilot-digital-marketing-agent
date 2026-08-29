@@ -59,9 +59,39 @@ uv run fastapi dev main.py
 
 ## Deploy (FastAPI Cloud)
 
+Live: **https://api.meshpilot.app** (custom domain) and
+`https://meshpilot-social-media-agent.fastapicloud.dev`. App id
+`0d017e5b-1834-4952-8a77-b68f83ff2bfc`, team `helpn8nworld` ("Mesh Pilot"),
+region us-east-1.
+
+**Manual deploy** (from this dir; uses `FASTAPI_CLOUD_TOKEN` in `.env`):
 ```bash
-uv run fastapi deploy        # manual, or
-# link this repo in the FastAPI Cloud dashboard → merge to main auto-deploys
+uvx --from "fastapi[standard]" fastapi cloud deploy .
+```
+
+**Auto-deploy:** connect the FastAPI Cloud **GitHub App** in the dashboard
+(app → Settings → Source Repository → Connect). Only pushes to the **default
+branch (`main`)** deploy.
+
+### Runtime gotchas (learned the hard way — keep them)
+- **`fastapi[standard]`** is required, not bare `fastapi` — the cloud launches
+  the app via the `fastapi run` CLI, which lives in that extra.
+- **`greenlet`** must be an explicit dep (SQLAlchemy async needs it; not
+  auto-installed on every arch).
+- **Cloud env vars** (dashboard/CLI, not the local `.env`): `SIGNAL_DB_URL`
+  (Supabase **session pooler**, us-east-2 — the direct `db.<ref>.supabase.co`
+  host is IPv6-only), the `GE_*` brand secrets, `GE_BUFFER_API_KEY`, and the
+  Supabase API keys.
+
+### Database (Supabase)
+`config.py` reads `SIGNAL_DB_URL` (explicit wins) else `DATABASE_URL`,
+normalizes to the asyncpg driver, uses `ssl="require"` (the pooler cert is
+self-signed), and sets `statement_cache_size=0` for the pgbouncer pooler.
+
+Run migrations manually (FastAPI Cloud has no migration hook), with the DSN in
+`.env` — **additive migrations before deploy, removals after**:
+```bash
+uv run alembic upgrade head
 ```
 
 ## Decoupled from the monorepo
