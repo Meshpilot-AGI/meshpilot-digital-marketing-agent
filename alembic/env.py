@@ -25,15 +25,20 @@ if config.config_file_name is not None:
 # Prefer the runtime-resolved URL from .env over the static alembic.ini value.
 # This avoids shipping real credentials in alembic.ini and lets the same
 # migration set target any environment (dev / staging / prod) by swapping .env.
-_runtime_url = settings().signal_db_url
-if _runtime_url:
-    config.set_main_option("sqlalchemy.url", _runtime_url)
-
 target_metadata = SQLModel.metadata
 
 
+def _db_url() -> str:
+    """asyncpg-normalized DSN from settings (falls back to Supabase's
+    DATABASE_URL). Used directly rather than via config.set_main_option: a
+    URL-encoded password contains `%`, which alembic's configparser would
+    mis-read as interpolation syntax.
+    """
+    return settings().resolved_db_url()
+
+
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    url = _db_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -51,8 +56,11 @@ def do_run_migrations(connection):
 
 
 async def run_async_migrations() -> None:
-    url = config.get_main_option("sqlalchemy.url")
-    engine = create_async_engine(url, echo=False)
+    # connect_args carries ssl / statement_cache_size for managed Postgres
+    # (Supabase requires TLS; the pgbouncer pooler needs no prepared stmts).
+    engine = create_async_engine(
+        _db_url(), echo=False, connect_args=settings().db_connect_args()
+    )
     async with engine.begin() as conn:
         await conn.run_sync(do_run_migrations)
     await engine.dispose()

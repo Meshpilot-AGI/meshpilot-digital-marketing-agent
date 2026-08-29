@@ -62,7 +62,10 @@ def _asyncpg_connect_args(url: str) -> tuple[str, dict[str, Any]]:
     if sslmode in {"require", "verify-ca", "verify-full", "prefer", "allow"} or host.endswith(
         ".supabase.com"
     ) or host.endswith(".supabase.co"):
-        connect_args["ssl"] = True
+        # "require" = TLS on, but do NOT verify the cert chain. Supabase's
+        # pooler presents a self-signed root, so full verification (ssl=True)
+        # fails; "require" matches libpq sslmode=require behaviour.
+        connect_args["ssl"] = "require"
 
     if host.endswith("pooler.supabase.com") or parts.port == 6543:
         connect_args["statement_cache_size"] = 0

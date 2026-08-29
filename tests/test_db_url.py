@@ -23,14 +23,14 @@ def test_supabase_direct_strips_sslmode_and_requires_ssl():
     url = "postgresql://postgres:pw@db.abcxyz.supabase.co:5432/postgres?sslmode=require"
     clean, args = _asyncpg_connect_args(_to_asyncpg_url(url))
     assert "sslmode" not in clean  # asyncpg rejects the libpq param
-    assert args["ssl"] is True
+    assert args["ssl"] == "require"
     assert "statement_cache_size" not in args  # 5432 direct = prepared stmts OK
 
 
 def test_supabase_transaction_pooler_disables_stmt_cache():
     url = "postgresql://postgres.abcxyz:pw@aws-0-us-east-1.pooler.supabase.com:6543/postgres"
     clean, args = _asyncpg_connect_args(_to_asyncpg_url(url))
-    assert args["ssl"] is True
+    assert args["ssl"] == "require"
     assert args["statement_cache_size"] == 0  # pgbouncer transaction mode
 
 
@@ -46,7 +46,7 @@ def test_precedence_database_url_used_when_signal_unset():
     )
     assert s.resolved_db_url().startswith("postgresql+asyncpg://")
     assert "db.x.supabase.co" in s.resolved_db_url()
-    assert s.db_connect_args()["ssl"] is True
+    assert s.db_connect_args()["ssl"] == "require"
 
 
 def test_precedence_explicit_signal_url_wins():

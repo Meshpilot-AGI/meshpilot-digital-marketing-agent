@@ -45,6 +45,9 @@ dependencies = [
   "sqlmodel>=0.0.21",
   "alembic>=1.14",
   "asyncpg>=0.30",
+  # SQLAlchemy's async engine requires greenlet; it is not auto-installed on
+  # every arch (e.g. macOS arm64), so pin it explicitly for local + cloud.
+  "greenlet>=3.0",
 
   # Video assembly
   "ffmpeg-python>=0.2.0",
