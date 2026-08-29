@@ -5,8 +5,8 @@
 
 ## Active
 
-### GE-1 — per-brand `GE_` env resolver + Facebook publisher          [OPEN]
-Owner: unassigned        Opened: 2026-08-28
+### GE-1 — per-brand `GE_` env resolver + Facebook publisher          [IN PROGRESS]
+Owner: Claude        Opened: 2026-08-28
 Reading: ARCHITECTURE.md, docs/DOC-SYSTEM.md, src/glitch_signal/config.py, src/glitch_signal/platforms/
 Acceptance: a per-brand env resolver reads `GE_<KEY>` for the active brand (brand_id `glitch_executor`, tag `GE`); a Facebook publisher posts a text update to the GE page using `GE_META_APP_ID` / `GE_META_APP_SECRET` / `GE_SYSTEM_USER_TOKEN`; unit test green; one real post verified.
 Write-back: ARCHITECTURE.md (env convention + FB publisher), control-plane/ENGINEERING_SUPERVISOR.md
