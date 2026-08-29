@@ -492,13 +492,47 @@ async def internal_media_generate(request: Request) -> dict:
         msg = str(exc)
         code = 422 if "composer is required" in msg else 400
         raise HTTPException(status_code=code, detail=f"generation failed: {msg}")
+
+    # Persist to the brand's Supabase bucket (muapi URLs expire). Opt out with store:false.
+    if body.get("store", True):
+        from glitch_signal.media.generation.storage import persist
+
+        try:
+            asset = await persist(asset, brand)
+        except EngineError as exc:
+            raise HTTPException(status_code=502, detail=f"generated but storage failed: {exc}")
+
     return {
         "ok": True,
         "url": asset.url,
         "kind": asset.kind,
         "engine": asset.engine,
         "recipe": asset.recipe,
+        "source_url": asset.metadata.get("source_url"),
+        "bucket": asset.metadata.get("bucket"),
     }
+
+
+@app.post("/internal/media/ensure-bucket", dependencies=[Depends(_require_jobs_auth)])
+async def internal_media_ensure_bucket(request: Request) -> dict:
+    """Create the brand's media bucket if absent (auth: x-jobs-token). Body: {brand?}."""
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    from glitch_signal.media.generation.engines.base import EngineError
+    from glitch_signal.media.generation.storage import bucket_for, ensure_bucket
+
+    bucket = bucket_for(brand)
+    try:
+        await ensure_bucket(bucket)
+    except EngineError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"ok": True, "brand": brand, "bucket": bucket}
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,8 @@ Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS co
 
 ## Recently closed
 
+- **MEDIA-2 — LLM composer (via muapi) + 7 more recipes** (2026-08-29) — prompt-authoring routed through muapi's text-to-text models (gemini-3-5-flash) on the SAME MUAPI_API_KEY (no separate LLM key); new video.generate op; 7 recipes bundled (ad-creative, cinema-director, logo-creator, nano-banana, seedance-2, social-media-video, ui-design — models hand-verified against muapi's 655-model list); ai-clipping + youtube-shorts DEFERRED (need video-edit ops). 11 recipes total; full suite 305 pass; **LLM-authored recipe verified live** (nano-banana → cdn.muapi.ai …05dc1f6e…png, 62s). → supervisor
+
 - **MEDIA-1 — vendor-pluggable media generation (MUapi) via the recipe library** (2026-08-29) — deterministic runner executes bundled muapi-* recipes (SKILL.md + recipe.json) over a pluggable MUapi httpx engine; 4 starter recipes; 14 tests, full suite 300 pass; **real video generated live** (product-video-ad-maker → cdn.muapi.ai …8382032…mp4, 108s). Starter subset (4/13); remaining 9 recipes + LLM composer (MEDIA-2) + fal/HeyGen engines are follow-ons. → supervisor
 
 - **BUFFER-1 — extend Buffer publisher to X + LinkedIn** (2026-08-28) — per-brand token + all-platform create_post; live-verified: GE channels listed + real X post queued (6a9253af). → supervisor
