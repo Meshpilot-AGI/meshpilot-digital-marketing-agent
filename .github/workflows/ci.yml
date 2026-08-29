@@ -1,15 +1,17 @@
 name: CI
-# Drift-aware gate on PRs to `production` (the single trunk — no `preview`).
-# A `changes` job diffs the PR and only runs what actually drifted:
+# Drift-aware checks that run ON PUSH to `production` (the single trunk) — not on
+# feature branches or PRs. A `changes` job diffs the push and runs only what drifted:
 #   - API code changed  -> import smoke + pytest
-#   - web/ changed      -> Next.js build (type-checks the frontend)
-#   - only docs/logs    -> nothing runs, the PR passes fast.
+#   - DB changed         -> apply the full Alembic chain to a throwaway Postgres
+#   - web/ changed       -> Next.js build (type-checks the frontend)
+#   - only docs/logs     -> nothing runs, fast pass.
+# (FastAPI Cloud also deploys on this push; run the full suite locally before merging.)
 on:
-  pull_request:
+  push:
     branches: [production]
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   changes:
@@ -17,22 +19,30 @@ jobs:
     outputs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
+      db: ${{ steps.filter.outputs.db }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # need the base commit to diff against
+          fetch-depth: 0   # need the pre-push commit to diff against
       - id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          files=$(git diff --name-only "$BASE_SHA"...HEAD)
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            base="HEAD~1"
+          else
+            base="$BEFORE"
+          fi
+          files=$(git diff --name-only "$base" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD)
           echo "changed files:"; echo "$files"
-          api=false; web=false
+          api=false; web=false; db=false
           if echo "$files" | grep -qE '^(src/|main\.py$|pyproject\.toml$|uv\.lock$|alembic/|alembic\.ini$|tests/)'; then api=true; fi
+          if echo "$files" | grep -qE '^(alembic/|alembic\.ini$|src/glitch_signal/db/)'; then db=true; fi
           if echo "$files" | grep -qE '^web/'; then web=true; fi
           echo "api=$api" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
-          echo "=> api=$api web=$web"
+          echo "db=$db" >> "$GITHUB_OUTPUT"
+          echo "=> api=$api db=$db web=$web"
 
   api:
     needs: changes
@@ -48,6 +58,39 @@ jobs:
         run: uv run python -c "import main; assert main.app is not None; print('app import OK')"
       - name: Run tests
         run: uv run pytest -q
+
+  db:
+    needs: changes
+    if: needs.changes.outputs.db == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: signal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Throwaway local Postgres — no SSL/pooler, never the real Supabase DB.
+      SIGNAL_DB_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/signal
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install deps
+        run: uv sync
+      - name: Apply migrations from scratch (hard gate)
+        run: uv run alembic upgrade head
+      - name: Model-drift check (informational)
+        continue-on-error: true
+        run: uv run alembic check
 
   web:
     needs: changes
