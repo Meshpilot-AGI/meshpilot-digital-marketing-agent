@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlmodel import select
 
 from glitch_signal import __version__
-from glitch_signal.config import brand_ids, settings
+from glitch_signal.config import brand_env, brand_ids, settings
 from glitch_signal.crypto import verify_state_token
 from glitch_signal.db.models import ScheduledPost, VideoJob
 from glitch_signal.db.session import _session_factory
@@ -112,9 +112,11 @@ async def _require_jobs_auth(x_jobs_token: str = Header(default="")) -> None:
     unset we log a warning and allow, so enabling auth is config-only and
     cannot break callers before the token is distributed.
     """
-    expected = settings().jobs_auth_token
+    # Per-brand (no global keys): reads <PREFIX>_JOBS_AUTH_TOKEN for the active
+    # brand, e.g. GE_JOBS_AUTH_TOKEN. Set it to gate /jobs/* and /internal/*.
+    expected = brand_env("JOBS_AUTH_TOKEN")
     if not expected:
-        log.warning("jobs.auth.disabled — JOBS_AUTH_TOKEN unset; /jobs/* is open")
+        log.warning("jobs.auth.disabled — <PREFIX>_JOBS_AUTH_TOKEN unset; /jobs/* is open")
         return
     if not _hmac.compare_digest(x_jobs_token or "", expected):
         raise HTTPException(status_code=401, detail="invalid or missing x-jobs-token")
