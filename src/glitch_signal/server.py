@@ -426,6 +426,80 @@ async def internal_buffer_test_post(request: Request) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Media generation (MEDIA-1) — deterministic recipe runner over MUapi
+# ---------------------------------------------------------------------------
+@app.get("/internal/media/recipes", dependencies=[Depends(_require_jobs_auth)])
+async def internal_media_recipes() -> dict:
+    """List the bundled generation recipes (auth: x-jobs-token)."""
+    from glitch_signal.media.generation import list_recipes
+
+    def _needs_llm(r) -> bool:
+        return any(p.op == "llm" or p.prompt_mode == "llm" for p in r.phases)
+
+    return {
+        "ok": True,
+        "recipes": [
+            {
+                "slug": r.slug,
+                "kind": r.kind,
+                "needs_composer": _needs_llm(r),
+                "inputs": [
+                    {"name": i.name, "required": i.required, "type": i.type} for i in r.inputs
+                ],
+                "description": r.description,
+            }
+            for r in list_recipes()
+        ],
+    }
+
+
+@app.post("/internal/media/generate", dependencies=[Depends(_require_jobs_auth)])
+async def internal_media_generate(request: Request) -> dict:
+    """Run a media-generation recipe against MUapi (auth: x-jobs-token).
+
+    Body: {recipe, inputs{...}, brand?}. Returns the finished hosted asset URL.
+    Template-only recipes (e.g. muapi-product-video-ad-maker) run with no LLM;
+    recipes whose prompts are LLM-authored return 422 until the composer is
+    wired (MEDIA-2).
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    slug = body.get("recipe")
+    if not slug:
+        raise HTTPException(status_code=400, detail="recipe is required")
+
+    from glitch_signal.media.generation import generate as media_generate, get_recipe
+    from glitch_signal.media.generation.engines.base import EngineError
+    from glitch_signal.media.generation.spec import Brief
+
+    try:
+        get_recipe(slug)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    brief = Brief(brand_id=brand, recipe=slug, inputs=body.get("inputs", {}) or {})
+    try:
+        asset = await media_generate(brief)  # MUapi engine, no composer (template-only)
+    except EngineError as exc:
+        msg = str(exc)
+        code = 422 if "composer is required" in msg else 400
+        raise HTTPException(status_code=code, detail=f"generation failed: {msg}")
+    return {
+        "ok": True,
+        "url": asset.url,
+        "kind": asset.kind,
+        "engine": asset.engine,
+        "recipe": asset.recipe,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Media-serve — HMAC-signed short-lived URL for vendor fetch
 # ---------------------------------------------------------------------------
 # Used by platforms/zernio.py. The token is an HMAC-signed JSON payload

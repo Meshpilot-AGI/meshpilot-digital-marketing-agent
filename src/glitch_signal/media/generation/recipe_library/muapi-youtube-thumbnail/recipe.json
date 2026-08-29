@@ -1,0 +1,19 @@
+{
+  "slug": "muapi-youtube-thumbnail",
+  "description": "Design a high-CTR 16:9 YouTube thumbnail. Overlay text is a post-production suggestion (image models render text unreliably).",
+  "triggers": ["youtube thumbnail", "yt thumbnail", "thumbnail", "video thumbnail", "youtube cover"],
+  "inputs": [
+    {"name": "title", "type": "text", "required": true, "description": "The video title or topic."},
+    {"name": "channel_style", "type": "text", "required": false, "default": "bold, high contrast, bright colors, clean design, YouTube tech aesthetic", "description": "Channel brand style."},
+    {"name": "subject_description", "type": "text", "required": false, "default": "", "description": "Optional person/subject to feature."}
+  ],
+  "phases": [
+    {
+      "id": "thumbnail", "op": "image.generate", "model": "gpt-image-2-text-to-image", "prompt_mode": "llm",
+      "prompt": "Build a YouTube thumbnail image prompt. Subject: use {{subject_description}} if provided, otherwise design an object/scene that dramatizes the topic: {{title}}. Mood derives from {{channel_style}}. Composition: rule-of-thirds, subject on left or right with empty space for text. Do NOT bake in heavy text (image text rendering is unreliable). Style tags: {{channel_style}}, youtube thumbnail composition, ultra detailed, vibrant, high contrast, 16:9.",
+      "params": {"aspect_ratio": "16:9"},
+      "output": "thumbnail"
+    }
+  ],
+  "returns": "thumbnail"
+}

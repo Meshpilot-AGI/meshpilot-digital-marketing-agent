@@ -1,0 +1,19 @@
+{
+  "slug": "muapi-instagram-post",
+  "description": "Create a polished, on-brand Instagram hero image (square/portrait/reel-cover). The matching caption + hashtags are produced by the caption pipeline.",
+  "triggers": ["instagram post", "ig post", "instagram", "feed post", "instagram creative"],
+  "inputs": [
+    {"name": "brief", "type": "text", "required": true, "description": "What the post is about."},
+    {"name": "brand_style", "type": "text", "required": false, "default": "modern, vibrant, clean typography, lifestyle photography aesthetic", "description": "Brand personality and visual style tags."},
+    {"name": "format", "type": "text", "required": false, "default": "1:1", "description": "Post format: 1:1 feed square, 4:5 portrait, 9:16 Reels."}
+  ],
+  "phases": [
+    {
+      "id": "hero_image", "op": "image.generate", "model": "nano-banana-2", "prompt_mode": "llm",
+      "prompt": "Write a detailed, atmosphere-rich Instagram image prompt for: {{brief}}. Include lighting direction, color palette, mood, subject placement, and lens feel. Optimize for Instagram aesthetics: clean, punchy, single focal point. Append style tags: {{brand_style}}, social media photography, highly detailed.",
+      "params": {"aspect_ratio": "{{format}}"},
+      "output": "hero_image"
+    }
+  ],
+  "returns": "hero_image"
+}
