@@ -34,12 +34,29 @@ Rules:
 - Output ONLY the JSON object. No markdown fences, no prose outside the JSON."""
 
 
+def _playbook_index() -> str:
+    """The handbook list, always in-prompt so the agent goes straight to `read_playbook` (no
+    `list_playbooks` round-trip to loop on)."""
+    try:
+        from glitch_signal.agent.playbooks import list_playbooks
+
+        pbs = list_playbooks()
+        if not pbs:
+            return ""
+        lines = "\n".join(f"- {p.slug}: {p.description}" for p in pbs)
+        return ("\n\nYOUR HANDBOOKS — `read_playbook` the relevant one BEFORE specialized work "
+                "(ads audits, per-platform captions/copy, SEO, YouTube, ORM, tracking):\n" + lines)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def system_prompt(extra_tools: dict[str, str] | None = None) -> str:
     tools = tool_descriptions()
     if extra_tools:
         tools += "\n" + "\n".join(f"- {name}: {desc}" for name, desc in extra_tools.items())
-    # Identity first (who you are + mission + scope + guardrails), then the operating protocol.
-    return _soul() + "\n\n---\n\n" + SYSTEM.format(tools=tools)
+    # Identity first (who you are + mission + scope + guardrails), then the operating protocol,
+    # then the handbook index so the agent reads the right playbook without a list round-trip.
+    return _soul() + "\n\n---\n\n" + SYSTEM.format(tools=tools) + _playbook_index()
 
 
 def build_prompt(goal: str, seed_context: str, transcript: list[dict]) -> str:
