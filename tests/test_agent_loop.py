@@ -249,3 +249,14 @@ async def test_run_store_get_decodes_transcript():
 async def test_run_store_get_missing_returns_none():
     from glitch_signal.agent.loop import runs
     assert await runs.get_run("nope", engine=_FakeEngine(row=None)) is None
+
+
+def test_system_prompt_carries_the_soul():
+    # The agent's identity/mission/scope (SOUL.md) is prepended to every system prompt.
+    from glitch_signal.agent.loop.prompt import system_prompt
+
+    p = system_prompt()
+    assert "Digital Marketing AGI" in p            # identity
+    assert "Glitch Executor (GE)" in p and "30 days" in p   # current single-brand scope
+    assert "Publishing is gated OFF" in p          # live guardrail
+    assert "Available tools" in p                  # operating protocol still present
