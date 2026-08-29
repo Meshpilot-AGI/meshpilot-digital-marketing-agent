@@ -1,7 +1,7 @@
 name: CI
 on:
   pull_request:
-    branches: [main]
+    branches: [production, preview]
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
