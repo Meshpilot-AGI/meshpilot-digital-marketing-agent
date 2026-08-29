@@ -288,3 +288,18 @@
 **Remaining (validated, with fix plans):** #99 waitlist persistence (needs destination decision — form is static Cloudflare Pages so it must POST to the API); #102 CI action-pinning + permissions (needs `floating-astronaut` workflow-scope push); #98 shared-store move for rate-limit/webhook-dedup; #101 HNSW ORDER BY (tech debt); #103 RLS policies; #104 nginx/systemd; #105 platform_auth TOCTOU + forget() (dead code); #106 dead-code cleanup; #107 pytest warnings; #108 dep ceilings.
 
 ---
+
+### SECURITY SWEEP — second wave (#99, #102, #103, #104, #105, #106) — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Changed:**
+- #99 waitlist: `POST /waitlist` (public, rate-limited, strict email check) → new `waitlist` table (unique lower(email)); `web/components/waitlist-form.tsx` POSTs to the API with loading/error/success; `CORS_ALLOW_ORIGINS=https://meshpilot.app`. **Verified live**: 200 valid / 422 invalid / CORS preflight 200 / idempotent (1 row on double-post).
+- #102 CI: pinned actions/checkout, actions/setup-node, astral-sh/setup-uv to commit SHAs + top-level `permissions: contents: read` (pushed via floating-astronaut, workflow scope).
+- #103 RLS: closed as by-design (service-role-only access; RLS default-deny is the intended model).
+- #104: nginx edge security headers added; systemd units already sandboxed (box-era files; app sets the same headers via SecurityHeadersMiddleware).
+- #105: platform_auth unique index (brand_id, platform, coalesce(account_identifier,'')) closes the upsert TOCTOU; cron lists already bounded (#113). forget() brand-scope = dead code, closed.
+- #106: removed dead code (discord/ with on-box secret paths, a broken influencer script, 3 unused web components carrying tabnabbing + HTML-injection landmines); kept db/__init__.py (package marker).
+
+**Verified:** suite **402 pass, 1 skipped**; web build clean; migrations applied to prod; waitlist + budget + brand-scoped cron auth all confirmed live. 14/18 audit issues closed; 4 deferred with reasoning (#98 shared-store move, #101 premature-opt, #107 warnings, #108 dep ceilings).
+
+---
