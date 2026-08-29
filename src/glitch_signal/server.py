@@ -393,6 +393,26 @@ async def internal_agent_mcp_tools(brand: str = "glitch_executor") -> dict:
     return {"ok": True, "brand": brand, "tools": tools, "count": len(tools)}
 
 
+@app.get("/internal/analytics/spend", dependencies=[Depends(_require_jobs_auth)])
+async def internal_analytics_spend(brand: str = "glitch_executor", days: int = 30) -> dict:
+    """Per-brand spend across all vendors over the last `days` (COST-METER; auth: x-jobs-token).
+
+    Reads the self-metered `usage_events` — one row per model/media call, costed from the price
+    book. Amounts are estimates until INC-2 reconciles them against each vendor's real balance.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from glitch_signal.analytics.cost import spend_summary
+
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    days = max(1, min(int(days), 365))
+    to_ts = datetime.now(timezone.utc)
+    from_ts = to_ts - timedelta(days=days)
+    summary = await spend_summary(brand, from_ts, to_ts)
+    return {"ok": True, "days": days, "estimated": True, **summary}
+
+
 _HEYGEN_SEEN: set[str] = set()  # best-effort per-worker event-id dedup
 
 

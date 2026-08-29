@@ -105,6 +105,9 @@ async def curate(
     limit: int = 20,
 ) -> dict:
     """Distill up to `limit` uncurated episodes into durable lessons. Returns counts."""
+    from glitch_signal.analytics.cost import set_brand
+    set_brand(brand_id)  # attribute the curator's LLM tokens to the brand (COST-METER)
+
     llm = llm or agent_llm.complete
     remember_fn = remember_fn or store.remember
     fetch_fn = fetch_fn or _fetch_uncurated_episodes

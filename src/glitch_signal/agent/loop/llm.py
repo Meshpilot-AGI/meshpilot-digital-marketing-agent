@@ -102,8 +102,30 @@ async def _post(messages: list[dict], *, system: str | None, model: str | None,
             await client.aclose()
     if r.status_code >= 400:
         raise RuntimeError(f"anthropic messages -> {r.status_code}: {r.text[:200]}")
-    blocks = r.json().get("content", [])
+    body = r.json()
+    await _meter(payload["model"], body)
+    blocks = body.get("content", [])
     return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+
+
+async def _meter(model: str, body: dict) -> None:
+    """Attribute this call's tokens + cost to the active brand (COST-METER). Never raises."""
+    try:
+        from glitch_signal.analytics.cost import get_brand, record_usage  # noqa: PLC0415
+        from glitch_signal.analytics.cost.pricing import anthropic_cost  # noqa: PLC0415
+
+        usage = body.get("usage") or {}
+        await record_usage(
+            brand_id=get_brand(),
+            vendor="anthropic",
+            operation="chat",
+            model=model,
+            units=usage,
+            cost_usd=anthropic_cost(model, usage),
+            request_id=body.get("id"),
+        )
+    except Exception:  # noqa: BLE001 — metering is best-effort, never breaks the LLM call
+        pass
 
 
 async def complete(prompt: str, *, system: str | None = None, model: str | None = None,
