@@ -259,6 +259,13 @@ class Settings(BaseSettings):
     rate_limit_per_ip: int = 120        # per client IP, per window
     rate_limit_global: int = 3000       # constant-keyed global backstop, per window
 
+    # --- Agent policy (AGENT-POLICY) — deterministic gate on tool calls ---
+    # Publishing kill-switch: while False, every publish/post tool is denied regardless of
+    # brand. Flip to True (per env) ONLY when posting is intentionally enabled.
+    agent_publish_enabled: bool = False
+    # Per-run cost budget: max paid media generations the agent may run in a single loop.
+    agent_max_media_per_run: int = 3
+
     # --- ElevenLabs (TTS for YouTube Shorts pipeline) ---
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel (default)

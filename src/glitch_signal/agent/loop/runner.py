@@ -62,6 +62,7 @@ async def run(
 
     seed = await execute("recall", {"query": goal, "k": 5}, brand_id)
     transcript: list[dict] = []
+    counts: dict[str, int] = {}  # executed tool counts this run — feeds per-run budgets
 
     for step in range(max_steps):
         raw = await llm(build_prompt(goal, seed, transcript), system=sys)
@@ -76,8 +77,12 @@ async def run(
 
         tool = str(action.get("action", ""))
         args = action.get("args", {}) or {}
-        allowed, reason = policy.allow(tool, args, brand_id)
-        obs = f"DENIED: {reason}" if not allowed else await execute(tool, args, brand_id)
+        allowed, reason = policy.allow(tool, args, brand_id, counts=counts)
+        if allowed:
+            obs = await execute(tool, args, brand_id)
+            counts[tool] = counts.get(tool, 0) + 1  # only count what actually ran
+        else:
+            obs = f"DENIED: {reason}"
         transcript.append({
             "thought": action.get("thought"), "action": tool, "args": args, "observation": obs,
         })

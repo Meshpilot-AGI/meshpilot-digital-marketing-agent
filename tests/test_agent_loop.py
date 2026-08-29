@@ -69,6 +69,23 @@ async def test_loop_denies_publish():
     assert not any(c[0] == "publish" for c in ex.calls)  # never executed
 
 
+async def test_loop_enforces_media_budget(monkeypatch):
+    # 3 media-gen attempts, then finish; policy caps at 2 → 3rd is DENIED, never executed.
+    from glitch_signal.agent.loop import policy
+    monkeypatch.setattr(policy, "from_config", lambda: policy.Policy(max_media_per_run=2))
+    llm = ScriptedLLM([
+        '{"action":"generate_media","args":{"recipe":"muapi-logo-creator","inputs":{}}}',
+        '{"action":"generate_media","args":{"recipe":"muapi-logo-creator","inputs":{}}}',
+        '{"action":"generate_media","args":{"recipe":"muapi-logo-creator","inputs":{}}}',
+        '{"final":"done"}',
+    ])
+    ex = FakeExec()
+    res = await run("b", "make logos", llm=llm, execute=ex, max_steps=6)
+    gen_calls = [c for c in ex.calls if c[0] == "generate_media"]
+    assert len(gen_calls) == 2                                  # only 2 actually executed
+    assert res["transcript"][2]["observation"].startswith("DENIED")  # 3rd blocked by budget
+
+
 async def test_loop_tolerates_unparseable():
     llm = ScriptedLLM(["not json at all", '{"final":"ok"}'])
     ex = FakeExec()
