@@ -97,3 +97,59 @@ async def test_delete_job_internal_unscoped_still_works():
     eng = _Engine(row={"id": "job-1"})
     ok = await store.delete_job("job-1", engine=eng)  # brand_id None → internal path
     assert ok is True
+
+
+# ── #98: client IP not spoofable when origin gate is off ──
+class _Req:
+    def __init__(self, headers, host):
+        self.headers = headers
+        self.client = type("C", (), {"host": host})()
+
+
+def test_client_ip_ignores_cf_header_without_origin_secret(monkeypatch):
+    from glitch_signal.middleware import ratelimit
+    monkeypatch.setattr("glitch_signal.config.settings",
+                        lambda: type("S", (), {"origin_shared_secret": None})())
+    req = _Req({"cf-connecting-ip": "1.2.3.4"}, "10.9.8.7")
+    assert ratelimit.client_ip(req) == "10.9.8.7"   # spoofed CF header ignored → socket peer
+
+
+def test_client_ip_trusts_cf_header_with_origin_secret(monkeypatch):
+    from glitch_signal.middleware import ratelimit
+    monkeypatch.setattr("glitch_signal.config.settings",
+                        lambda: type("S", (), {"origin_shared_secret": "s3cr3t"})())
+    req = _Req({"cf-connecting-ip": "1.2.3.4"}, "10.9.8.7")
+    assert ratelimit.client_ip(req) == "1.2.3.4"    # gate on → trust CF (it's the front)
+
+
+# ── #100: durable memory content is length-capped ──
+async def test_memory_content_is_truncated(monkeypatch):
+    from glitch_signal.agent.memory import store
+
+    captured = {}
+
+    class _R:
+        def first(self):
+            return ("id-1", None)
+
+    class _C:
+        async def execute(self, stmt, params=None):
+            captured["content"] = params["content"]
+            return _R()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _E:
+        def begin(self):
+            return _C()
+
+    async def _embed(*a, **k):
+        return None
+    monkeypatch.setattr(store, "_embed_or_none", _embed)
+    await store.remember("b", "fact", "x" * 9000, key="k", engine=_E())
+    assert len(captured["content"]) <= store._MAX_CONTENT_LEN + 20
+    assert captured["content"].endswith("…[truncated]")

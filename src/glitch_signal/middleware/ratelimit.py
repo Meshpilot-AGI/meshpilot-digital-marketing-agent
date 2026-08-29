@@ -76,14 +76,20 @@ def client_ip(request: Any) -> str:
     so it isn't client-forgeable once proxied). Fall back to the rightmost XFF hop (nearest
     proxy appends the real client; leftmost is spoofable), then the socket peer.
     """
-    cf = request.headers.get("cf-connecting-ip")
-    if cf:
-        return cf.strip()
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
+    # Only trust proxy-supplied client headers when we KNOW Cloudflare is the front (the origin gate
+    # is configured). Hitting the origin directly, a client can forge CF-Connecting-IP / XFF to evade
+    # per-IP throttling (#98), so without the gate we key on the unspoofable socket peer.
+    from glitch_signal.config import settings
+
+    if settings().origin_shared_secret:
+        cf = request.headers.get("cf-connecting-ip")
+        if cf:
+            return cf.strip()
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            parts = [p.strip() for p in xff.split(",") if p.strip()]
+            if parts:
+                return parts[-1]
     client = getattr(request, "client", None)
     return client.host if client else "unknown"
 
