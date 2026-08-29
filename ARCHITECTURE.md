@@ -68,10 +68,12 @@ The agent runs **three independent content-production paths** feeding into a **t
 
 All three are gated behind `DISPATCH_MODE=dry_run|live` and short-circuited to synthetic ids in dry-run.
 
-### ORM + review
+### ORM + review — REMOVED (PRUNE-1, 2026-08-29)
 
-- Twitter mentions → hard-stop guardrail check → Gemini classifier (7 tiers) → brand-voice responder with per-tier auto-send vs Telegram review vs escalate.
-- Telegram bot with inline approve/veto, multi-brand aware (`[Brand]` prefix when >1 brand is configured).
+The comment-engagement / online-reputation-management subsystem (`comments/`,
+`orm/`, the X mention sweeper, and the scheduler's engagement ticks) was removed:
+Phase 1 is **source → publish only** (see docs/plans/2026-08-28-phase1-source-to-publish.md).
+The scheduled-post veto window (`promote_veto_windows`) is retained.
 
 ### Media generation (MEDIA-1)
 

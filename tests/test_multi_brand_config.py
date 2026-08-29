@@ -149,51 +149,7 @@ class TestMultiBrandLoader:
         assert "hard_stop_phrases" in bc["orm_guardrails"]
 
 
-class TestBrandScopedGuardrails:
-    """Each brand's hard_stop_phrases must apply independently."""
-
-    def test_guardrail_lookup_is_brand_scoped(self, tmp_path, monkeypatch):
-        configs = tmp_path / "configs"
-        configs.mkdir()
-        _write_config(
-            configs,
-            "glitch_executor",
-            orm_guardrails={
-                "hard_stop_phrases": ["SEC"],
-                "competitor_names": [],
-                "min_confidence_threshold": 0.7,
-            },
-        )
-        _write_config(
-            configs,
-            "drive_brand",
-            orm_guardrails={
-                "hard_stop_phrases": ["allergic reaction"],
-                "competitor_names": [],
-                "min_confidence_threshold": 0.7,
-            },
-        )
-
-        monkeypatch.setenv("BRAND_CONFIGS_DIR", str(configs))
-        monkeypatch.setenv("DEFAULT_BRAND_ID", "glitch_executor")
-
-        from glitch_signal import config as cfg
-        from glitch_signal.orm import guardrails
-
-        cfg.settings.cache_clear()
-        cfg._reset_brand_registry_for_tests()
-
-        # "SEC" trips glitch_executor but NOT drive_brand
-        safe_ge, _ = guardrails.check("breaking SEC rules", brand_id="glitch_executor")
-        safe_nm, _ = guardrails.check("breaking SEC rules", brand_id="drive_brand")
-        assert not safe_ge
-        assert safe_nm
-
-        # "allergic reaction" trips drive_brand but NOT glitch_executor
-        safe_ge2, _ = guardrails.check("had an allergic reaction", brand_id="glitch_executor")
-        safe_nm2, _ = guardrails.check("had an allergic reaction", brand_id="drive_brand")
-        assert safe_ge2
-        assert not safe_nm2
+# TestBrandScopedGuardrails removed in PRUNE-1 (ORM guardrails subsystem deleted).
 
 
 class TestModelsCarryBrandId:
