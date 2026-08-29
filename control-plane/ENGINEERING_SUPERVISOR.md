@@ -205,3 +205,22 @@
 
 ---
 
+
+### COST-METER INC-1 — per-brand vendor spend metering — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** industry approaches to multi-tenant AI cost attribution (self-meter at your own layer, mandatory tenant contextvar, usage event per call, price book, reconcile vs vendor aggregate); existing DB-backed patterns (`agent/loop/runs.py`, `agent/mcp/oauth.py`) for the `_engine` injectable-engine idiom; the loop LLM transport (`agent/loop/llm.py`) and Higgsfield engine as the two capture points readable at our layer today.
+
+**Changed:**
+- `supabase/migrations/20260829110000_usage_events.sql` — `usage_events` (brand_id, vendor, operation, model, units jsonb, cost_usd, estimated, request_id, created_at), two indexes, RLS on. Applied to prod Supabase (qkztphfjwgluwwlgeyys).
+- `src/glitch_signal/analytics/cost/` — `context.py` (brand `contextvar`: set/get/`brand_scope`), `pricing.py` (Anthropic USD/MTok incl. cache-read/write; Higgsfield credits→USD; env-overridable via `COST_ANTHROPIC_PRICES` / `COST_HIGGSFIELD_*`), `meter.py` (`record_usage` fail-soft insert + Logfire gen_ai span gated on `LOGFIRE_TOKEN`; `spend_summary` per-vendor rollup).
+- Capture: `agent/loop/llm.py` `_post` (response `usage` → `anthropic_cost` → record); `media/generation/engines/higgsfield.py` `generate` (base_credits → `higgsfield_cost` → record).
+- Brand contextvar set at the boundaries: `agent/loop/runner.run`, `media/generation/runner.generate`, `agent/learn/curator.curate`.
+- `GET /internal/analytics/spend?brand=&days=` (jobs-auth) → `spend_summary`.
+- `docs/COST-METERING.md`; `tests/test_cost_meter.py` (10).
+
+**Verified:** full suite **352 pass, 1 skipped** locally. Prod: `usage_events` present with all 10 columns; `/internal/analytics/spend` 200 (empty rollup pre-traffic). End-to-end — POST `/internal/agent/run` (glitch_executor) → run `done` → `/spend?days=1` returns **1 anthropic event, $0.010676**; DB row confirms model `claude-haiku-4-5-20251001`, 9956 input / 144 output tok, request_id captured, and cost math (9956×$1/M + 144×$5/M = $0.010676) checks. Commit SSH-signed; no secrets committed.
+
+**Remains:** INC-2 — MUapi + HeyGen capture + a balance-delta reconciliation job (poll each vendor's queryable balance, diff vs summed events, alert on >5% drift, flip `estimated=false`) — this is how the credit vendors with no per-tenant tagging get trued up. INC-3 — per-brand budget enforcement in the policy gate + ops/anomaly view.
+
+---
