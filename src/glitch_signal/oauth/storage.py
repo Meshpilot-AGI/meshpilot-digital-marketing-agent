@@ -49,14 +49,14 @@ async def upsert(
     now = datetime.now(UTC).replace(tzinfo=None)
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(PlatformAuth).where(
                 PlatformAuth.brand_id == brand_id,
                 PlatformAuth.platform == platform,
                 PlatformAuth.account_identifier == account_identifier,
             )
         )
-        row = result.scalar_one_or_none()
+        row = result.one_or_none()
 
         if row is None:
             row = PlatformAuth(
@@ -97,7 +97,7 @@ async def get(brand_id: str, platform: str) -> PlainAuth | None:
     """
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(PlatformAuth)
             .where(
                 PlatformAuth.brand_id == brand_id,
@@ -107,7 +107,7 @@ async def get(brand_id: str, platform: str) -> PlainAuth | None:
             .order_by(PlatformAuth.updated_at.desc())
             .limit(1)
         )
-        row = result.scalar_one_or_none()
+        row = result.one_or_none()
         if not row:
             return None
 
@@ -127,13 +127,13 @@ async def get(brand_id: str, platform: str) -> PlainAuth | None:
 async def mark_needs_reauth(brand_id: str, platform: str) -> None:
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(PlatformAuth).where(
                 PlatformAuth.brand_id == brand_id,
                 PlatformAuth.platform == platform,
             )
         )
-        for row in result.scalars().all():
+        for row in result.all():
             row.status = "needs_reauth"
             row.updated_at = datetime.now(UTC).replace(tzinfo=None)
             session.add(row)

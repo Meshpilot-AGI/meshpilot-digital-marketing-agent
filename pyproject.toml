@@ -129,4 +129,9 @@ ignore = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Keep the suite honest (#107): a NEW deprecation raised from our own code fails the run, so it can't
+# hide a real regression. Scoped to first-party — third-party library deprecations stay warnings.
+filterwarnings = [
+    "error::DeprecationWarning:glitch_signal",
+]
 testpaths = ["tests"]

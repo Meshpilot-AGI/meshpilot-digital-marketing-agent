@@ -177,13 +177,13 @@ async def _cleanup_posted_media() -> None:
 
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(PublishedPost)
             .where(PublishedPost.published_at <= cutoff)
             .order_by(PublishedPost.published_at.desc())
             .limit(s.media_cleanup_batch)
         )
-        posts = result.scalars().all()
+        posts = result.all()
 
     freed_bytes = 0
     deleted = 0
@@ -261,10 +261,10 @@ async def _dispatch_video_jobs() -> None:
 
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(VideoJob).where(VideoJob.status == "dispatched")
         )
-        jobs = result.scalars().all()
+        jobs = result.all()
 
     for job in jobs:
         if not job.api_job_id:
@@ -310,18 +310,18 @@ async def _dispatch_video_jobs() -> None:
 async def _check_shots_complete() -> None:
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(ContentScript).where(ContentScript.status == "generating")
         )
-        scripts = result.scalars().all()
+        scripts = result.all()
 
     for cs in scripts:
         factory = _session_factory()
         async with factory() as session:
-            result = await session.execute(
+            result = await session.exec(
                 select(VideoJob).where(VideoJob.script_id == cs.id)
             )
-            jobs = result.scalars().all()
+            jobs = result.all()
 
         if not jobs:
             continue
@@ -362,13 +362,13 @@ async def _promote_veto_windows() -> None:
     now = datetime.now(UTC).replace(tzinfo=None)
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(ScheduledPost).where(
                 ScheduledPost.status == "pending_veto",
                 ScheduledPost.veto_deadline <= now,
             )
         )
-        posts = result.scalars().all()
+        posts = result.all()
 
         for sp in posts:
             sp.status = "queued"
@@ -395,13 +395,13 @@ async def _dispatch_scheduled_posts() -> None:
 
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(ScheduledPost).where(
                 ScheduledPost.status == "queued",
                 ScheduledPost.scheduled_for <= now,
             )
         )
-        all_candidates = result.scalars().all()
+        all_candidates = result.all()
 
     if not all_candidates:
         return
@@ -439,10 +439,10 @@ async def _dispatch_scheduled_posts() -> None:
     factory = _session_factory()
     async with factory() as session:
         ids = [sp.id for sp in claimed]
-        result = await session.execute(
+        result = await session.exec(
             select(ScheduledPost).where(ScheduledPost.id.in_(ids))
         )
-        rows = result.scalars().all()
+        rows = result.all()
         for sp in rows:
             sp.status = "dispatching"
             sp.last_attempt_at = now
@@ -645,14 +645,14 @@ async def _count_posts_today(brand_id: str, now: datetime) -> int:
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(ScheduledPost).where(
                 ScheduledPost.brand_id == brand_id,
                 ScheduledPost.status.in_(("dispatching", "awaiting_webhook", "done")),
                 ScheduledPost.last_attempt_at >= day_start,
             )
         )
-        return len(result.scalars().all())
+        return len(result.all())
 
 
 async def _minutes_since_last_post(brand_id: str, now: datetime) -> float | None:
@@ -666,7 +666,7 @@ async def _minutes_since_last_post(brand_id: str, now: datetime) -> float | None
     from glitch_signal.db.models import ScheduledPost
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(ScheduledPost)
             .where(
                 ScheduledPost.brand_id == brand_id,
@@ -676,7 +676,7 @@ async def _minutes_since_last_post(brand_id: str, now: datetime) -> float | None
             .order_by(ScheduledPost.last_attempt_at.desc())
             .limit(1)
         )
-        latest = result.scalar_one_or_none()
+        latest = result.one_or_none()
     if latest is None or latest.last_attempt_at is None:
         return None
     return (now - latest.last_attempt_at).total_seconds() / 60.0
@@ -693,13 +693,13 @@ async def _recent_brand_post_keys(
     from glitch_signal.db.models import PublishedPost
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(PublishedPost)
             .where(PublishedPost.brand_id == brand_id)
             .order_by(PublishedPost.published_at.desc())
             .limit(limit)
         )
-        pubs = result.scalars().all()
+        pubs = result.all()
         variant_groups: list[str] = []
         products: list[str] = []
         for pub in pubs:
@@ -723,13 +723,13 @@ async def _sweep_stuck() -> None:
 
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(ScheduledPost).where(
                 ScheduledPost.status == "dispatching",
                 ScheduledPost.last_attempt_at <= cutoff,
             )
         )
-        stuck = result.scalars().all()
+        stuck = result.all()
 
         for sp in stuck:
             log.warning("scheduler.stuck_job", scheduled_post_id=sp.id, attempts=sp.attempts)
@@ -770,13 +770,13 @@ async def _reconcile_awaiting_webhook() -> None:
 
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             select(ScheduledPost).where(
                 ScheduledPost.status == "awaiting_webhook",
                 ScheduledPost.last_attempt_at <= cutoff,
             ).limit(10)
         )
-        candidates = result.scalars().all()
+        candidates = result.all()
 
     for sp in candidates:
         if not sp.vendor_request_id:
@@ -838,9 +838,9 @@ async def _reconcile_awaiting_webhook() -> None:
             s_row = await session.get(ScheduledPost, sp.id)
             if not s_row:
                 continue
-            existing = (await session.execute(
+            existing = (await session.exec(
                 select(PublishedPost).where(PublishedPost.scheduled_post_id == sp.id)
-            )).scalar_one_or_none()
+            )).one_or_none()
             if existing:
                 s_row.status = "done"
                 session.add(s_row)

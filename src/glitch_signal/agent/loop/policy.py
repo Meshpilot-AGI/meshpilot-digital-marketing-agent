@@ -4,9 +4,11 @@ OpenClaw-style: the loop is untrusted (an LLM picks tools); this gate is trusted
 BEFORE any tool executes. Rules, in order:
 
 1. **Per-brand deny** — a brand may forbid specific tools outright.
-2. **Publish kill-switch** — every publish/post tool is denied unless publishing is explicitly
+2. **External MCP default-deny** — an `mcp__*` tool is allowed only if per-brand allowlisted, has a
+   read-only verb prefix, or publishing is on; everything else is denied (leaky-denylist fix, #93).
+3. **Publish kill-switch** — every publish/post tool is denied unless publishing is explicitly
    enabled (config `agent_publish_enabled`, default False). Posting stays off until flipped.
-3. **Per-run cost budget** — expensive paid media generation is capped per loop run so a
+4. **Per-run cost budget** — expensive paid media generation is capped per loop run so a
    runaway agent can't rack up spend.
 
 The `Policy` is a pure value object (no I/O) so it unit-tests trivially; `from_config()` builds
@@ -69,7 +71,7 @@ class Policy:
         if tool_name in PUBLISH_TOOLS and not self.publish_enabled:
             return Decision(False, "posting is disabled (agent_publish_enabled is off)")
 
-        # 3. per-run media budget (cost control)
+        # 4. per-run media budget (cost control)
         if tool_name == "generate_media" and counts.get("generate_media", 0) >= self.max_media_per_run:
             return Decision(False, f"media budget exhausted ({self.max_media_per_run} per run)")
 

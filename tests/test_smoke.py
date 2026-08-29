@@ -163,10 +163,10 @@ class TestSchedulerVetoPromotion:
 
         async with factory() as session:
             from sqlmodel import select
-            result = await session.execute(
+            result = await session.exec(
                 select(ScheduledPost).where(ScheduledPost.id == sp_id)
             )
-            updated = result.scalar_one_or_none()
+            updated = result.one_or_none()
 
         assert updated is not None
         assert updated.status == "queued"
@@ -255,14 +255,14 @@ class TestPublisherIdempotencyGuard:
                 mod._session_factory = orig
 
         async with factory() as session:
-            result = await session.execute(
+            result = await session.exec(
                 select(ScheduledPost).where(ScheduledPost.id == sp_id)
             )
-            updated = result.scalar_one_or_none()
+            updated = result.one_or_none()
             # Count PublishedPost rows — must stay at 1, no duplicate row.
-            pp_count = (await session.execute(
+            pp_count = (await session.exec(
                 select(PublishedPost).where(PublishedPost.scheduled_post_id == sp_id)
-            )).scalars().all()
+            )).all()
 
         assert updated is not None
         assert updated.status == "done"

@@ -151,8 +151,8 @@ async def _read_auth(
         if account_identifier is not None:
             stmt = stmt.where(PlatformAuth.account_identifier == account_identifier)
         stmt = stmt.order_by(PlatformAuth.updated_at.desc()).limit(1)
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
+        result = await session.exec(stmt)
+        row = result.one_or_none()
         if not row:
             return None
         return PlainAuth(
@@ -184,12 +184,12 @@ async def _persist_refreshed(
     async with factory() as session:
         # SELECT FOR UPDATE so a concurrent process refreshing the same row
         # blocks here instead of also calling the provider in parallel.
-        result = await session.execute(
+        result = await session.exec(
             select(PlatformAuth)
             .where(PlatformAuth.id == auth.id)
             .with_for_update()
         )
-        row = result.scalar_one_or_none()
+        row = result.one_or_none()
         if row is None:
             raise RuntimeError(f"PlatformAuth {auth.id} disappeared during refresh")
 

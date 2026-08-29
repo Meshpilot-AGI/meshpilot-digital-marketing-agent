@@ -355,10 +355,10 @@ class Settings(BaseSettings):
     #     `awaiting_webhook` before the scheduler falls back to polling
     #     get_status (e.g. if the webhook was dropped / our server was down).
     upload_post_webhook_secret: str = ""
-    # Shared secret gating the manual /jobs/* triggers (bug-2,
-    # 2026-06-10). When unset the routes stay open (logs a warning);
-    # set JOBS_AUTH_TOKEN to require x-jobs-token on every trigger.
-    jobs_auth_token: str = ""
+    # NB: the /jobs + /internal auth token is NOT a global setting — it is per-brand,
+    # read via brand_env("JOBS_AUTH_TOKEN") (i.e. <PREFIX>_JOBS_AUTH_TOKEN), and it fails CLOSED
+    # (503 when unset). See server._require_jobs_auth. (The old global `jobs_auth_token` field was
+    # dead — never read — and removed 2026-08-29.)
     upload_post_webhook_reconcile_after_s: int = 600   # 10 min
 
     # --- Post-publish analytics pull cadence ---

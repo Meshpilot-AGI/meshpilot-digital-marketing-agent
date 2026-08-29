@@ -47,7 +47,7 @@ async def scout_node(state: SignalAgentState) -> SignalAgentState:
 
         # Pick the next unprocessed signal for this brand. We look at the DB
         # rather than `signals` alone so we drain past leftovers too.
-        result = await session.execute(
+        result = await session.exec(
             select(SignalTable)
             .where(SignalTable.brand_id == brand_id)
             .where(SignalTable.status == "queued")
@@ -55,7 +55,7 @@ async def scout_node(state: SignalAgentState) -> SignalAgentState:
             .order_by(SignalTable.novelty_score.desc(), SignalTable.created_at.asc())
             .limit(1)
         )
-        next_signal = result.scalars().first()
+        next_signal = result.first()
         next_id = next_signal.id if next_signal else ""
         if next_signal:
             # Claim it — subsequent runs skip this one

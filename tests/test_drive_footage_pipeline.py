@@ -241,8 +241,8 @@ class TestCaptionWriterNode:
 
         from glitch_signal.db.models import ContentScript, VideoAsset
         async with factory() as session:
-            cs_rows = (await session.execute(select(ContentScript))).scalars().all()
-            va_rows = (await session.execute(select(VideoAsset))).scalars().all()
+            cs_rows = (await session.exec(select(ContentScript))).all()
+            va_rows = (await session.exec(select(VideoAsset))).all()
         assert len(cs_rows) == 1 and cs_rows[0].brand_id == "drive_brand"
         assert len(va_rows) == 1 and va_rows[0].brand_id == "drive_brand"
         assert va_rows[0].assembler_version.startswith("drive_passthrough")
