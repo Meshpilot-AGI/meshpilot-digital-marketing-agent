@@ -5,13 +5,6 @@
 
 ## Active
 
-### GE-1 — per-brand `GE_` env resolver + Facebook publisher          [IN PROGRESS]
-Owner: Claude        Opened: 2026-08-28
-Reading: ARCHITECTURE.md, docs/DOC-SYSTEM.md, src/glitch_signal/config.py, src/glitch_signal/platforms/
-Acceptance: a per-brand env resolver reads `GE_<KEY>` for the active brand (brand_id `glitch_executor`, tag `GE`); a Facebook publisher posts a text update to the GE page using `GE_META_APP_ID` / `GE_META_APP_SECRET` / `GE_SYSTEM_USER_TOKEN`; unit test green; one real post verified.
-Write-back: ARCHITECTURE.md (env convention + FB publisher), control-plane/ENGINEERING_SUPERVISOR.md
-Notes: creds already staged in local .env and the FastAPI Cloud app env (all `GE_`-prefixed). No code reads them yet — this lane wires them.
-
 ### BUFFER-1 — extend Buffer publisher to X + LinkedIn          [OPEN]
 Owner: unassigned        Opened: 2026-08-28
 Reading: ARCHITECTURE.md, src/glitch_signal/platforms/buffer.py
@@ -33,7 +26,16 @@ Acceptance: platforms/upload_post.py + webhooks/analytics/onboarding upload_post
 Write-back: ARCHITECTURE.md, control-plane/ENGINEERING_SUPERVISOR.md
 Notes: BLOCKED until GE-1 + BUFFER-1 land (can't re-point onto Buffer/Meta until they can do the job). Keep platforms/youtube.py.
 
+### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [OPEN]
+Owner: unassigned        Opened: 2026-08-28
+Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/db/models.py, alembic/versions/
+Acceptance: schema holds only what source→publish needs; orphaned old-SaaS tables (ORM: comment_reply/strategic_reply/mention_event/orm_response; + whatever else the pruned code no longer uses — video/scout/metrics pending the AI-generation scope call) dropped via one consolidation migration; migration app-driven; app boots; /healthz 200.
+Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.md
+Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay.
+
 ## Recently closed
+
+- **GE-1 — per-brand `GE_` env resolver + Facebook publisher** (2026-08-28) — per-brand resolver + Meta FB publisher live; real FB post verified; GE_JOBS_AUTH_TOKEN gate enforced. → supervisor
 
 - **DEPLOY-1 — resolve `upload-post` private dep + first FastAPI Cloud deploy** (2026-08-28) — live + /healthz 200 at meshpilot-social-media-agent.fastapicloud.dev; DB migrated (us-east-2). → supervisor
 
