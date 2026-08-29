@@ -20,6 +20,7 @@ Reading: docs/plans/2026-08-29-agent-brain.md
 - **AGENT-LOOP** — muapi-LLM loop: recall context → plan → call capability-tools → verify → write episode. [OPEN, next]
 - **AGENT-POLICY** — action gate (allow/deny before execution; posting stays off). [OPEN]
 - **AGENT-LEARN** — curator: distill episodes → durable facts + new/updated skills. [OPEN]
+- **AGENT-CRON** — self-cron: the agent schedules its own future work (agentTurn + capability payloads), cross-worker exactly-once via SKIP-LOCKED claim, self-scoped `schedule` tool + `next_check` self-pacing. NOT the social-post scheduler. **[SPEC ready — docs/plans/2026-08-29-agent-cron.md; not built]** Reading: docs/plans/2026-08-29-agent-cron.md. Acceptance: `scheduled_jobs`/`scheduled_runs` tables; `_scheduled_jobs_tick` claim+dispatch; agentTurn→agent_runs + capability registry (curate/drive_scout; reconcile=hook for COST-METER INC-2); `schedule` loop tool (self-scoped, creator-cap, kill-switch); /internal/cron/* endpoints; live: 2m curate job accrues runs, one-shot agentTurn auto-deletes, single fire across workers. Dep: croniter.
 
 ## Recently closed
 
