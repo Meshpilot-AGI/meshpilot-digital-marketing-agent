@@ -267,3 +267,24 @@
 **Remains:** Higgsfield balance endpoint (currently unavailable); migrate HeyGen balance to `/v3/users/me` before the v2 sunset 2026-10-31; capture HeyGen **MCP-tool** calls (only the engine is metered today); reconciliation keeps `estimated=true` (aggregate delta can't set per-event true cost) — that's by design.
 
 ---
+
+### COST-METER INC-3 + SECURITY SWEEP (floating-astronaut audit) — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the 18 open bug-bounty issues (#91–#108); validated each against the real code via 6 parallel read-only agents (verdicts in scratchpad/sdd-inc3-issues/val-*.md). All REAL, with nuances (#98 rate-limit weakness not auth bypass; #101 premature-opt; #103 inert under service-role).
+
+**Changed (INC-3, PR #110):** `analytics/cost/budget.py` (clamp_steps hard ceiling + per-brand daily budget check, fail-open), enforced in `runner.run` + `_t_generate_media`; `GET /internal/analytics/budget`; config `agent_max_steps_ceiling`/`agent_brand_daily_budget_usd`. Closes #94.
+
+**Changed (security, PRs #111/#112/#113):**
+- #91 OAuth vendor tokens Fernet-encrypted at rest (`agent/mcp/oauth.py` + `*_enc` migration, dual-read); #96 get_bearer split into two short txns around the HTTP refresh (no lock across the call), timeout 30→10s.
+- #97 usage_events partial unique index `(vendor,request_id)` + ON CONFLICT DO NOTHING.
+- #92 `media/net.assert_safe_media_url` (https + public-IP only) + follow_redirects=False on edit_image.
+- #93 MCP policy default-deny (allowlist wired via `<PREFIX>_MCP_ALLOW`, read-only verb prefixes, publish escape).
+- #95 cron single-job store + endpoints brand-scoped (WHERE brand_id, `?brand=` required); `_require_jobs_auth` validates the target brand's token.
+- #98 client_ip trusts CF/XFF only when ORIGIN_SHARED_SECRET set + startup warning; #100 durable-memory content capped 4000 chars; #105 cron lists LIMIT 500.
+
+**Verified:** full suite **400 pass, 1 skipped**. Migrations applied to prod Supabase. Live: `/internal/analytics/budget` returns real spend + ceiling 12; brand-scoped cron auth still 200 for GE; MUapi/HeyGen reconcile balances resolve. Commits SSH-signed; no secrets committed. Issues #91,#92,#93,#94,#95,#96,#97,#100 closed on GitHub; #98/#101/#105 commented (partial/deferred).
+
+**Remaining (validated, with fix plans):** #99 waitlist persistence (needs destination decision — form is static Cloudflare Pages so it must POST to the API); #102 CI action-pinning + permissions (needs `floating-astronaut` workflow-scope push); #98 shared-store move for rate-limit/webhook-dedup; #101 HNSW ORDER BY (tech debt); #103 RLS policies; #104 nginx/systemd; #105 platform_auth TOCTOU + forget() (dead code); #106 dead-code cleanup; #107 pytest warnings; #108 dep ceilings.
+
+---
