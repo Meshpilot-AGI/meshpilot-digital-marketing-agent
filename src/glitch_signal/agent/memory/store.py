@@ -29,6 +29,8 @@ W_LEX = 0.3
 
 EmbedFn = Callable[..., Awaitable[list[list[float]]]]
 
+_MAX_CONTENT_LEN = 4000  # cap on a stored fact/episode (poisoning + bloat guard, #100)
+
 
 async def _embed_or_none(text_value: str, input_type: str, embed_fn: EmbedFn | None) -> str | None:
     fn = embed_fn or emb.embed
@@ -94,6 +96,11 @@ async def remember(
     """Store a fact (upsert by key) or episode. Returns the stored Memory."""
     if kind not in ("fact", "episode"):
         raise ValueError(f"kind must be 'fact' or 'episode', got {kind!r}")
+    # Bound durable-memory content at the single write choke point (#100): a curated fact is recalled
+    # into every future prompt, so an over-long (poisoning/bloat) payload is truncated. Provenance is
+    # already recorded via `source`.
+    if len(content) > _MAX_CONTENT_LEN:
+        content = content[:_MAX_CONTENT_LEN] + " …[truncated]"
     emb_literal = await _embed_or_none(content, "passage", embed_fn)
     params = {
         "brand": brand_id, "kind": kind, "key": key, "content": content,

@@ -105,6 +105,12 @@ async def _oauth_keepalive() -> None:
 async def startup() -> None:
     global _graph
 
+    # #98: the origin gate + IP-trust both fail open without ORIGIN_SHARED_SECRET — warn loudly so a
+    # prod deploy without it (Cloudflare not enforced) is visible rather than silent.
+    from glitch_signal.config import settings as _settings
+    if not _settings().origin_shared_secret:
+        log.warning("origin.gate.disabled — ORIGIN_SHARED_SECRET unset; origin-auth + IP trust fail open")
+
     # Build LangGraph
     from glitch_signal.agent.graph import get_graph
     _graph = get_graph()

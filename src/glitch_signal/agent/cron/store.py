@@ -64,9 +64,10 @@ _BRAND_PRED = "(cast(:brand as text) IS NULL OR brand_id = cast(:brand as text))
 _DELETE_JOB = text(f"DELETE FROM scheduled_jobs WHERE id=:id AND {_BRAND_PRED} RETURNING id")
 _DELETE_JOB_SCOPED = text("DELETE FROM scheduled_jobs WHERE id=:id AND owner=:owner RETURNING id")
 _GET_JOB = text(f"SELECT * FROM scheduled_jobs WHERE id=:id AND {_BRAND_PRED}")
-_LIST_ALL = text("SELECT * FROM scheduled_jobs WHERE brand_id=:brand ORDER BY created_at DESC")
+_LIST_LIMIT = 500  # bound cron inventory queries (#105 — unbounded lists)
+_LIST_ALL = text(f"SELECT * FROM scheduled_jobs WHERE brand_id=:brand ORDER BY created_at DESC LIMIT {_LIST_LIMIT}")
 _LIST_OWNED = text(
-    "SELECT * FROM scheduled_jobs WHERE brand_id=:brand AND owner=:owner ORDER BY created_at DESC"
+    f"SELECT * FROM scheduled_jobs WHERE brand_id=:brand AND owner=:owner ORDER BY created_at DESC LIMIT {_LIST_LIMIT}"
 )
 _COUNT_OWNED = text(
     "SELECT count(*) AS n FROM scheduled_jobs WHERE brand_id=:brand AND owner=:owner AND enabled"
