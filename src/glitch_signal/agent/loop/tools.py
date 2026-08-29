@@ -33,6 +33,13 @@ async def _t_schedule(args: dict, brand_id: str) -> str:
     return await schedule_tool(args, brand_id)
 
 
+async def _t_polish_copy(args: dict, brand_id: str) -> str:
+    """Run drafted content through the content policy: strip AI footprints + report any that remain."""
+    from glitch_signal import content_policy
+    clean, violations = content_policy.enforce(str(args.get("text", "")))
+    return json.dumps({"clean": clean, "violations": violations})
+
+
 async def _t_list_playbooks(args: dict, brand_id: str) -> str:
     from glitch_signal.agent.playbooks import list_playbooks
     return json.dumps([{"slug": p.slug, "description": p.description} for p in list_playbooks()]) or "[]"
@@ -116,6 +123,10 @@ TOOLS: dict[str, dict[str, Any]] = {
                                   "text overlay/format) and return a stored URL. args: {image_url, ops:[{op:resize|fit|text|format, ...}]}"},
     "publish": {"fn": _t_publish,
                 "description": "Publish content to a platform. args: {platform, ...}. NOTE: currently DISABLED."},
+    "polish_copy": {"fn": _t_polish_copy,
+                    "description": "MANDATORY before finalizing ANY content (caption, post, blog, etc.): "
+                                   "run your draft through the content policy. Returns {clean, violations} — "
+                                   "use `clean`, and if `violations` is non-empty rewrite to fix them. args: {text}"},
     "list_playbooks": {"fn": _t_list_playbooks,
                        "description": "List your domain-knowledge handbooks (name + what each teaches). "
                                       "Consult the relevant one BEFORE specialized work — ads audits, "

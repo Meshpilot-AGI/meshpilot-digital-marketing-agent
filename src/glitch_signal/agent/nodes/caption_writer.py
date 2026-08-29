@@ -118,6 +118,15 @@ async def caption_writer_node(state: SignalAgentState) -> SignalAgentState:
                 signal, brand_id, platform, local_path=local_path
             )
 
+        # Content policy: no AI footprints in published content (em/en-dashes, smart quotes, …).
+        from glitch_signal import content_policy
+        caption = content_policy.strip_footprints(caption)
+        title = content_policy.strip_footprints(title)
+        remaining = content_policy.scan_footprints(caption)
+        if remaining:
+            log.warning("caption_writer.ai_footprints", brand_id=brand_id, signal_id=signal_id,
+                        violations=remaining)
+
         script_id = str(uuid.uuid4())
         asset_id = str(uuid.uuid4())
         now = datetime.now(UTC).replace(tzinfo=None)
