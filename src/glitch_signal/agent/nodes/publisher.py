@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import select
+from sqlmodel import select
 
 from glitch_signal.config import settings
 from glitch_signal.db.models import PublishedPost, ScheduledPost, VideoAsset
@@ -32,12 +32,12 @@ async def publish(scheduled_post_id: str) -> None:
         # but crashed before flipping scheduled_post.status to "done" (process
         # kill, DB commit blip, etc.). If we see a PublishedPost row, the
         # vendor already posted; do not ask it to post again.
-        result = await session.execute(
+        result = await session.exec(
             select(PublishedPost).where(
                 PublishedPost.scheduled_post_id == scheduled_post_id
             )
         )
-        existing = result.scalar_one_or_none()
+        existing = result.one_or_none()
         if existing:
             log.info(
                 "publisher.already_published",

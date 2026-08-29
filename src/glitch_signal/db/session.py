@@ -4,9 +4,10 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel
+from sqlmodel.ext.asyncio.session import AsyncSession  # SQLModel's session → use session.exec()
 
 from glitch_signal.config import settings
 

@@ -162,13 +162,13 @@ async def _on_shutdown() -> None:
 async def healthz() -> dict:
     factory = _session_factory()
     async with factory() as session:
-        pending_veto_r = await session.execute(
+        pending_veto_r = await session.exec(
             select(ScheduledPost).where(ScheduledPost.status == "pending_veto")
         )
-        queued_r = await session.execute(
+        queued_r = await session.exec(
             select(ScheduledPost).where(ScheduledPost.status == "queued")
         )
-        dispatching_r = await session.execute(
+        dispatching_r = await session.exec(
             select(VideoJob).where(VideoJob.status == "dispatched")
         )
 
@@ -178,9 +178,9 @@ async def healthz() -> dict:
         "version": __version__,
         "dispatch_mode": settings().dispatch_mode,
         "queue": {
-            "pending_veto": len(pending_veto_r.scalars().all()),
-            "queued_to_publish": len(queued_r.scalars().all()),
-            "shots_in_flight": len(dispatching_r.scalars().all()),
+            "pending_veto": len(pending_veto_r.all()),
+            "queued_to_publish": len(queued_r.all()),
+            "shots_in_flight": len(dispatching_r.all()),
         },
     }
 
@@ -237,13 +237,12 @@ async def _json(request: Request) -> dict:
 
 
 async def _require_jobs_auth(request: Request, x_jobs_token: str = Header(default="")) -> None:
-    """Gate the manual /jobs/* triggers (bug-2, 2026-06-10).
+    """Gate the manual /jobs/* and /internal/* triggers (bug-2, 2026-06-10).
 
-    These dispatch unbounded background LLM/video/Drive pipelines and are
-    served on the public signal.meshpilot.app vhost. When JOBS_AUTH_TOKEN
-    is set we require a matching x-jobs-token header (constant-time); when
-    unset we log a warning and allow, so enabling auth is config-only and
-    cannot break callers before the token is distributed.
+    These dispatch unbounded background LLM/video/Drive pipelines and are served on the public
+    signal.meshpilot.app vhost, so this fails CLOSED: we require a matching x-jobs-token header
+    (constant-time) against the target brand's `<PREFIX>_JOBS_AUTH_TOKEN`, and if that token is unset
+    we DENY with 503 (misconfiguration) rather than open the control surface to the internet.
     """
     # Brand-scope the token check (#95): validate against the TARGET brand's
     # <PREFIX>_JOBS_AUTH_TOKEN (from the ?brand= query param) rather than always the default brand —

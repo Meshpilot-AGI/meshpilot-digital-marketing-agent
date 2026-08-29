@@ -31,12 +31,12 @@ async def video_assembler_node(state: SignalAgentState) -> SignalAgentState:
 
     factory = _session_factory()
     async with factory() as session:
-        result = await session.execute(
+        result = await session.exec(
             __import__("sqlmodel", fromlist=["select"]).select(VideoJob)
             .where(VideoJob.script_id == script_id)
             .order_by(VideoJob.shot_index)
         )
-        jobs = result.scalars().all()
+        jobs = result.all()
 
     if not jobs:
         return {**state, "error": f"video_assembler: no VideoJob rows for {script_id}"}

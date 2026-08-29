@@ -162,14 +162,14 @@ async def drive_scout_node(state: SignalAgentState) -> SignalAgentState:
 
 
 async def _already_seen(session, brand_id: str, drive_file_id: str) -> bool:
-    result = await session.execute(
+    result = await session.exec(
         select(Signal).where(
             Signal.brand_id == brand_id,
             Signal.source == "drive",
             Signal.source_ref == drive_file_id,
         ).limit(1)
     )
-    return result.scalar_one_or_none() is not None
+    return result.one_or_none() is not None
 
 
 # ---------------------------------------------------------------------------
