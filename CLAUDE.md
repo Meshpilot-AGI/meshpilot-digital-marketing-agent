@@ -51,24 +51,27 @@ key decision only in chat.
 
 ## Branches & promotion (THIS repo — read before any git work)
 
-This repo has no `main`. Two long-lived branches:
+This repo has no `main` and **no `preview`** (retired 2026-08-29). Two deploy
+branches, one trunk:
 
-- **`production`** — the real deploy branch. It is the GitHub **default** branch,
-  and FastAPI Cloud auto-deploys it on every push. Protected: never commit
-  directly, never target lanes here. Only deliberate promotions land.
-- **`preview`** — the everyday **integration** branch (it plays the role `main`
-  normally plays). Docs and non-critical edits live here and may simply stay.
+- **`production`** — the trunk **and** the API deploy branch. GitHub **default**
+  branch; FastAPI Cloud auto-deploys it on every push. Protected: never commit
+  directly, never author a commit on it — lanes PR **into** it.
+- **`web-production`** — the **web** deploy branch (the Next.js `web/` app).
+  Cloudflare Pages deploys it (root dir `web`, already configured). Fast-forwarded
+  from `production`, never developed on. See docs/vendors + web/README.
 
 Flow:
 
-1. **Lane branches** (`lane/*`, `agent/*`) branch off **`preview`** and PR **into
-   `preview`**. These merges are **not** CI-gated — fast iteration.
+1. **Lane branches** (`lane/*`, `agent/*`) branch off **`production`** and PR
+   **into `production`**. The **drift-aware CI** (`.github/workflows/ci.yml`) gates
+   the PR: it diffs the change and runs **pytest only if API code drifted**, the
+   **web build only if `web/` drifted**, and **nothing** (fast pass) for docs/logs.
    ⚠️ Never name a lane `*-production` — the `~/dev` commit-guard treats any
    `*production` branch as a protected deploy branch and blocks commits on it.
-2. **Release = promote `preview` → `production`** via PR. This is the **only**
-   place the Python CI (`uv sync` + `pytest`) runs — it gates the promotion.
-   Merging it auto-deploys production.
-3. If a change does **not** need to go live, it just stays on `preview`.
+2. Merging the PR **auto-deploys production** (the API). To ship the web, then
+   fast-forward `web-production` from `production` (`git merge --ff-only production`).
+3. Docs-only changes still go through a lane PR — the CI just skips the tests.
 
 Pushing anything under `.github/workflows/**` needs a `gh` account with the
 `workflow` scope (`floating-astronaut`); repo-admin ops (e.g. branch rename)
