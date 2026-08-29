@@ -1,20 +1,30 @@
-"""Post one queued row from the sheet → Upload-Post → write result back.
+"""Post one queued row from the sheet → Buffer / Meta → write result back.
 
 Called by the scheduler tick in scheduler/queue.py. Idempotency comes from
 the sheet's id column: every call flips the row to posted|failed so the
 next tick won't re-fire it.
+
+Routing (VENDOR-1, 2026-08-29): Upload-Post and native LinkedIn are gone.
+Every row's legacy `platform` value (upload_post_x, upload_post_linkedin, …)
+is normalized to a bare target (x, linkedin, tiktok, facebook, instagram,
+youtube) and resolved via `config.resolve_publish_platform` to the surviving
+publisher — Buffer (x / linkedin / tiktok) or Meta (facebook / instagram).
+YouTube is video-file only and isn't reachable from this text/image sheet
+path, so it's marked unsupported.
 """
 from __future__ import annotations
 
-import asyncio
+import pathlib
 from datetime import UTC, datetime
 
 import structlog
 
-from glitch_signal.config import brand_config, settings
+from glitch_signal.config import brand_config, resolve_publish_platform, settings
 from glitch_signal.db.models import PublishedPost, ScheduledPost
 from glitch_signal.db.session import _session_factory
 from glitch_signal.integrations.google_sheets import update_row_by_key
+from glitch_signal.platforms import buffer, facebook, instagram
+from glitch_signal.sheet_posting.quote_card import generate_quote_card
 from glitch_signal.sheet_posting.reader import SHEET_COLUMNS, QueuedPost
 
 log = structlog.get_logger(__name__)
@@ -28,14 +38,7 @@ async def post_one(row: QueuedPost) -> tuple[bool, str]:
     in notes.
     """
     cfg = brand_config(row.brand_id)
-    block = (cfg.get("platforms", {}) or {}).get(row.platform) or {}
-    user = block.get("user")
-    if not block.get("enabled") or not user:
-        return await _mark_failed(row, f"{row.brand_id}.{row.platform} not enabled / missing user")
-
-    api_key = settings().upload_post_api_key
-    if not api_key:
-        return await _mark_failed(row, "UPLOAD_POST_API_KEY unset")
+    target = row.platform.replace("upload_post_", "").strip().lower()
 
     if settings().is_dry_run:
         log.info(
@@ -52,80 +55,70 @@ async def post_one(row: QueuedPost) -> tuple[bool, str]:
         )
         return True, "[dry-run] marked posted"
 
-    target = row.platform.replace("upload_post_", "")
-    text = _augment_body(row, cfg)
-    target_linkedin_page_id = block.get("target_linkedin_page_id") if target == "linkedin" else None
+    try:
+        key = resolve_publish_platform(row.brand_id, target)
+    except RuntimeError as exc:
+        return await _mark_failed(row, str(exc))
+
+    if key == "youtube_shorts":
+        return await _mark_failed(
+            row,
+            "youtube_shorts is video-file only; the sheet posting path only "
+            "supports text/image content",
+        )
+
+    text = _augment_body(row, cfg, key)
     content_type = row.content_type or ("carousel" if target == "linkedin" else "text")
 
-    # Routing policy (April 2026):
-    #   Primary publish path = Upload-Post (we have an active monthly
-    #   subscription, no per-post marginal cost there).
-    #   Fallback for LinkedIn = native Marketing-API path, used only when
-    #   Upload-Post itself errors (vendor outage, account lockout, etc.).
-    #   Native LinkedIn is otherwise reserved for capabilities Upload-Post
-    #   simply doesn't expose — comment read/reply on company-page posts.
-    try:
-        if content_type == "quote_card":
-            # Single designed image (gpt-image-2) + original body as caption
-            resp = await _post_as_quote_card(
-                api_key=api_key,
-                user=user,
-                target=target,
-                brand_id=row.brand_id,
-                body=text,
-                target_linkedin_page_id=target_linkedin_page_id,
-            )
-        elif content_type == "carousel" and target == "linkedin":
-            # LinkedIn PDF carousel (multi-slide document post)
-            resp = await _post_linkedin_as_carousel(
-                api_key=api_key,
-                user=user,
-                brand_id=row.brand_id,
-                body=text,
-                target_linkedin_page_id=target_linkedin_page_id,
+    media_url: str | None = None
+    if content_type in ("quote_card", "carousel"):
+        if content_type == "carousel":
+            # Buffer/Meta have no multi-slide document post like the old
+            # LinkedIn PDF carousel. Degrade to a single designed image
+            # rather than trying to build a PDF for a publisher that can't
+            # take one.
+            log.info(
+                "sheet_posting.carousel_degraded_to_single_image",
                 row_id=row.id,
+                brand_id=row.brand_id,
+            )
+        image_path = await generate_quote_card(body=text, brand_id=row.brand_id)
+        media_url = buffer._build_signed_media_url(pathlib.Path(image_path))
+
+    if key == "meta_instagram" and not media_url:
+        return await _mark_failed(
+            row, "instagram requires an image; row has no quote_card/carousel content"
+        )
+
+    try:
+        if key.startswith("buffer_"):
+            platform_post_id, _status = await buffer.create_post(
+                row.brand_id,
+                service=target,
+                text=text,
+                media_url=media_url,
+                mode="shareNow",
+            )
+            post_url = None
+        elif key == "meta_facebook":
+            platform_post_id, post_url = await facebook.publish_facebook(
+                brand_id=row.brand_id, message=text, image_url=media_url,
+            )
+        elif key == "meta_instagram":
+            platform_post_id, post_url = await instagram.publish_instagram(
+                brand_id=row.brand_id, caption=text, image_url=media_url,
             )
         else:
-            # Plain text post (default for X, also LinkedIn when content_type=text)
-            resp = await asyncio.to_thread(
-                _post_to_upload_post,
-                api_key=api_key,
-                user=user,
-                target=target,
-                text=text,
-                target_linkedin_page_id=target_linkedin_page_id,
-            )
+            return await _mark_failed(row, f"no sheet-posting route for publisher {key!r}")
     except Exception as exc:
-        log.warning("sheet_posting.upload_failed", row_id=row.id, error=str(exc)[:200])
-        # Fallback to native LinkedIn API when (a) the row is for LinkedIn
-        # and (b) we have a configured token. Lets a vendor outage on
-        # Upload-Post not stall LinkedIn publishing.
-        if target == "linkedin" and settings().linkedin_access_token:
-            try:
-                log.info("sheet_posting.linkedin_native_fallback_attempt", row_id=row.id)
-                return await _post_via_linkedin_native(
-                    row=row, body=text, content_type=content_type,
-                )
-            except Exception as native_exc:
-                log.warning(
-                    "sheet_posting.linkedin_native_fallback_failed",
-                    row_id=row.id, error=str(native_exc)[:300],
-                )
-        return await _mark_failed(row, f"upload failed: {exc}")
-
-    # Normalize the response — same handling as the foundation/launch scripts
-    platform_post_id, post_url = _extract_post_identifiers(resp, target)
-    pending = platform_post_id is None and post_url is None
-    status = "posted" if not pending else "posted"  # background-accepted counts as posted
+        log.warning("sheet_posting.publish_failed", row_id=row.id, error=str(exc)[:200])
+        return await _mark_failed(row, f"publish failed: {exc}")
 
     await _write_result(
         row,
-        status=status,
+        status="posted",
         post_url=post_url or "",
         platform_post_id=platform_post_id or "",
-        extra_note=(
-            "background upload — status confirmed via webhook / reconcile" if pending else ""
-        ),
     )
 
     # Also write a PublishedPost row so downstream features (comment sweeper,
@@ -143,6 +136,7 @@ async def post_one(row: QueuedPost) -> tuple[bool, str]:
         row_id=row.id,
         brand_id=row.brand_id,
         platform=row.platform,
+        publisher=key,
         platform_post_id=platform_post_id,
     )
     return True, "posted"
@@ -151,131 +145,6 @@ async def post_one(row: QueuedPost) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _post_to_upload_post(
-    *,
-    api_key: str,
-    user: str,
-    target: str,
-    text: str,
-    target_linkedin_page_id: str | None,
-) -> dict:
-    import upload_post
-
-    client = upload_post.UploadPostClient(api_key=api_key)
-    kwargs: dict = {"title": text, "user": user, "platforms": [target]}
-    if target == "linkedin" and target_linkedin_page_id:
-        kwargs["target_linkedin_page_id"] = target_linkedin_page_id
-    return client.upload_text(**kwargs)
-
-
-async def _post_as_quote_card(
-    *,
-    api_key: str,
-    user: str,
-    target: str,
-    brand_id: str,
-    body: str,
-    target_linkedin_page_id: str | None,
-) -> dict:
-    """Generate a designed image from the sheet body and upload it as an
-    image post. Body stays as the caption/description."""
-    from glitch_signal.sheet_posting.quote_card import generate_quote_card
-
-    image_path = await generate_quote_card(body=body, brand_id=brand_id)
-
-    def _upload() -> dict:
-        import upload_post
-
-        client = upload_post.UploadPostClient(api_key=api_key)
-        kwargs: dict = {
-            "photos": [str(image_path)],
-            "title": body,
-            "user": user,
-            "platforms": [target],
-        }
-        if target == "linkedin" and target_linkedin_page_id:
-            kwargs["target_linkedin_page_id"] = target_linkedin_page_id
-        return client.upload_photos(**kwargs)
-
-    return await asyncio.to_thread(_upload)
-
-
-async def _post_linkedin_as_carousel(
-    *,
-    api_key: str,
-    user: str,
-    brand_id: str,
-    body: str,
-    target_linkedin_page_id: str | None,
-    row_id: str,
-) -> dict:
-    """Generate a PDF carousel from the sheet body and post via upload_document.
-
-    The body becomes the LinkedIn post description; the PDF is the attached
-    document (LinkedIn's highest-engagement native format).
-    """
-    from glitch_signal.media.carousel_gen import generate_carousel_from_body
-
-    # Pick a sensible CTA link if the body contains one; fall back to org link
-    cta_link = "github.com/glitch-exec-labs"
-    for token in body.split():
-        t = token.strip(".,!?")
-        if "github.com/glitch-exec-labs" in t or "glitchexecutor.com" in t:
-            cta_link = t
-            break
-
-    pdf_path = await generate_carousel_from_body(
-        body=body,
-        brand_id=brand_id,
-        cta_link=cta_link,
-    )
-
-    def _upload_doc() -> dict:
-        import upload_post
-
-        client = upload_post.UploadPostClient(api_key=api_key)
-        kwargs: dict = {
-            "document_path": str(pdf_path),
-            "title": f"Glitch — {row_id[:8]}",
-            "user": user,
-            "description": body,
-        }
-        if target_linkedin_page_id:
-            kwargs["target_linkedin_page_id"] = target_linkedin_page_id
-        return client.upload_document(**kwargs)
-
-    return await asyncio.to_thread(_upload_doc)
-
-
-def _extract_post_identifiers(resp: dict, target: str) -> tuple[str | None, str | None]:
-    """Pull (platform_post_id, post_url) out of Upload-Post's response shape.
-
-    Handles three shapes:
-      - upload_text/photos: {"results": {"<platform>": {...post_id, url...}}}
-      - upload_text list:   {"results": [{"platform": "...", ...}]}
-      - upload_document:    flat {"request_id", "message"} when queued async,
-                            or {"results": {...}} when sync.
-    """
-    if not isinstance(resp, dict):
-        return None, None
-    results = resp.get("results") or {}
-    block: dict = {}
-    if isinstance(results, dict):
-        block = results.get(target) or {}
-    elif isinstance(results, list) and results:
-        block = results[0] if isinstance(results[0], dict) else {}
-    pid = (
-        block.get("platform_post_id")
-        or block.get("post_id")
-        or (block.get("url", "").rsplit("/", 1)[-1] if block.get("url") else None)
-    )
-    url = block.get("post_url") or block.get("url")
-    # Fallback for background-accepted document uploads
-    if not pid and resp.get("request_id"):
-        pid = f"request:{resp['request_id']}"
-    return pid, url
-
 
 async def _write_result(
     row: QueuedPost,
@@ -352,124 +221,27 @@ async def _write_audit_rows(
 
 
 # ---------------------------------------------------------------------------
-# Native LinkedIn path (Marketing Developer Platform)
-# ---------------------------------------------------------------------------
-
-async def _post_via_linkedin_native(
-    *, row: QueuedPost, body: str, content_type: str,
-) -> tuple[bool, str]:
-    """Publish a sheet row through LinkedIn's direct API instead of Upload-Post.
-
-    Routes by content_type and brand:
-      - text       -> /rest/posts (commentary only)
-      - quote_card -> not yet implemented natively; raises so caller falls back
-      - carousel   -> /rest/documents (initialize → upload PDF) + /rest/posts
-
-    Author URN switches by brand:
-      - glitch_founder   -> Tejas's person URN (w_member_social)
-      - glitch_executor  -> Glitch Executor company URN (w_organization_social)
-
-    Returns (ok, msg). Same shape as post_one() so the caller can use it
-    transparently. Writes status/posted_at/post_url/platform_post_id back
-    to the sheet on success and creates the same audit rows as the
-    Upload-Post path.
-    """
-    from glitch_signal.integrations.linkedin import (
-        LinkedInError,
-        author_urn_for,
-        client_from_settings,
-    )
-
-    client = client_from_settings()
-    if client is None:
-        raise LinkedInError("LinkedInClient not configured")
-
-    author_urn = author_urn_for(row.brand_id)
-    if not author_urn:
-        raise LinkedInError(
-            f"no LinkedIn author URN configured for brand_id={row.brand_id}"
-        )
-
-    if content_type == "carousel":
-        # Reuse the existing carousel render — gpt-image-2 + img2pdf.
-        from glitch_signal.media.carousel_gen import generate_carousel_from_body
-
-        cta_link = "github.com/glitch-exec-labs"
-        for token in body.split():
-            t = token.strip(".,!?")
-            if "github.com/glitch-exec-labs" in t or "glitchexecutor.com" in t:
-                cta_link = t
-                break
-
-        pdf_path = await generate_carousel_from_body(
-            body=body, brand_id=row.brand_id, cta_link=cta_link,
-        )
-        upload_url, document_urn = await client.register_document_upload(author_urn)
-        await client.upload_pdf(upload_url, str(pdf_path))
-        # LinkedIn needs a moment to process the PDF before /rest/posts
-        # accepts the document URN. AVAILABLE typically lands in 5-15s.
-        await client.wait_for_document(document_urn, timeout_s=120)
-        result = await client.post_document(
-            author_urn=author_urn,
-            commentary=body,
-            document_urn=document_urn,
-            title=f"Glitch — {row.id[:8]}",
-        )
-    elif content_type == "text":
-        result = await client.post_text(author_urn=author_urn, commentary=body)
-    else:
-        # quote_card: image post via /rest/posts not yet implemented; let
-        # the caller fall back to Upload-Post for now.
-        raise LinkedInError(
-            f"native LinkedIn path doesn't yet support content_type={content_type!r}"
-        )
-
-    log.info(
-        "sheet_posting.linkedin_native_posted",
-        row_id=row.id,
-        brand_id=row.brand_id,
-        author_urn=author_urn,
-        post_urn=result.post_urn,
-    )
-
-    await _write_result(
-        row,
-        status="posted",
-        post_url=result.post_url,
-        platform_post_id=result.post_urn,
-    )
-    try:
-        await _write_audit_rows(row, result.post_urn, result.post_url)
-    except Exception as exc:
-        log.warning(
-            "sheet_posting.linkedin_native_audit_write_failed",
-            row_id=row.id, error=str(exc)[:200],
-        )
-    return True, "posted (linkedin native)"
-
-
-# ---------------------------------------------------------------------------
 # Body augmentation — auto-append hashtags + github link when missing
 # ---------------------------------------------------------------------------
 
-def _augment_body(row: QueuedPost, cfg: dict) -> str:
+def _augment_body(row: QueuedPost, cfg: dict, platform_key: str) -> str:
     """Append per-brand hashtags + repo link if the operator's body didn't
     include them. Idempotent: a body that already has the tags / link is
     returned unchanged.
 
     Hashtag source (in priority order):
-      - cfg["platforms"][row.platform]["hashtags"]    — platform-specific
+      - cfg["platforms"][platform_key]["hashtags"]    — resolved-publisher-specific
       - cfg["default_hashtags"]                       — brand-wide
 
     Repo link source:
-      - cfg["platforms"][row.platform]["default_repo_link"]
+      - cfg["platforms"][platform_key]["default_repo_link"]
       - cfg["default_repo_link"]
     """
     body = (row.body or "").strip()
     if not body:
         return body
 
-    block = (cfg.get("platforms", {}) or {}).get(row.platform) or {}
+    block = (cfg.get("platforms", {}) or {}).get(platform_key) or {}
     hashtags = list(block.get("hashtags") or cfg.get("default_hashtags") or [])
     repo_link = block.get("default_repo_link") or cfg.get("default_repo_link") or ""
 

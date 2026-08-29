@@ -9,7 +9,12 @@ Sheet schema (row 1 = header):
     id                  UUID. Filled in by setup script; used as the key
                         for update_row_by_key on completion.
     brand_id            glitch_executor | glitch_founder
-    platform            upload_post_x | upload_post_linkedin
+    platform            x | linkedin | tiktok | facebook | instagram |
+                        youtube. A legacy "upload_post_" prefix on this
+                        value (from rows written before VENDOR-1) is still
+                        accepted and stripped on read; poster.py resolves
+                        the bare target to the surviving publisher — Buffer
+                        or Meta — via config.resolve_publish_platform.
     body                post text (X ≤ 280 chars; LinkedIn ≤ 2800).
                         For quote_card + carousel rows, this is also the
                         social-media caption shown alongside the image/PDF.
@@ -77,9 +82,12 @@ class QueuedPost:
     @classmethod
     def from_row(cls, row: dict[str, str], *, worksheet: str = "queue") -> QueuedPost:
         # content_type defaults: "carousel" for LinkedIn (legacy behaviour
-        # before the column existed), "text" for everything else.
+        # before the column existed), "text" for everything else. Sheet rows
+        # may still carry the legacy "upload_post_*" platform values, so key
+        # this off the normalized target rather than the raw column value.
         platform = row.get("platform", "").strip()
-        default_ct = "carousel" if platform == "upload_post_linkedin" else "text"
+        target = platform.replace("upload_post_", "").strip().lower()
+        default_ct = "carousel" if target == "linkedin" else "text"
         content_type = (row.get("content_type") or "").strip().lower() or default_ct
         return cls(
             id=row.get("id", "").strip(),

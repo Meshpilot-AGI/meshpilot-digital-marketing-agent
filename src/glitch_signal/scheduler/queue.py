@@ -70,7 +70,6 @@ async def _tick() -> None:
         _dispatch_scheduled_posts(),
         _sweep_stuck(),
         _reconcile_awaiting_webhook(),
-        _pull_post_analytics(),
         _cleanup_posted_media(),
         _sheet_posting_tick(),
         _sheet_reconcile_tick(),
@@ -240,17 +239,6 @@ async def _cleanup_posted_media() -> None:
             files_deleted=deleted,
             freed_mb=round(freed_bytes / 1024 / 1024, 1),
         )
-
-
-async def _pull_post_analytics() -> None:
-    """Fetch per-post analytics from Upload-Post for due PublishedPost rows."""
-    try:
-        from glitch_signal.analytics.upload_post import sweep_due_posts
-        updated = await sweep_due_posts(limit=settings().analytics_sweep_batch)
-        if updated:
-            log.info("scheduler.analytics_swept", count=len(updated))
-    except Exception as exc:
-        log.warning("scheduler.analytics_sweep_error", error=str(exc)[:200])
 
 
 # ---------------------------------------------------------------------------
@@ -761,13 +749,9 @@ async def _reconcile_awaiting_webhook() -> None:
     import uuid as _uuid
 
     from glitch_signal.db.models import PublishedPost
-    from glitch_signal.platforms.upload_post import (
-        _PLATFORM_MAP,
-        poll_status_for_request,
-    )
 
     s = settings()
-    window_s = s.upload_post_webhook_reconcile_after_s
+    window_s = s.upload_post_webhook_reconcile_after_s  # reconcile window (setting kept for compat)
     if window_s <= 0:
         return
 
@@ -812,10 +796,8 @@ async def _reconcile_awaiting_webhook() -> None:
                     sp.vendor_request_id, organization_id
                 )
             else:
-                target = _PLATFORM_MAP.get(sp.platform)
-                if not target:
-                    continue
-                ppid, url = await poll_status_for_request(sp.vendor_request_id, target)
+                # Only Buffer uses the awaiting_webhook reconcile now (VENDOR-1).
+                continue
         except Exception as exc:
             log.warning(
                 "scheduler.reconcile_awaiting_webhook_error",

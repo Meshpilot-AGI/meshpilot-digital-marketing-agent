@@ -152,6 +152,33 @@ async def internal_facebook_test_post(request: Request) -> dict:
     return {"ok": True, "post_id": post_id, "permalink": permalink}
 
 
+@app.post("/internal/instagram/test-post", dependencies=[Depends(_require_jobs_auth)])
+async def internal_instagram_test_post(request: Request) -> dict:
+    """Publish one post to a brand's Instagram account (verification / manual).
+
+    Body: {caption?, brand_id?, image_url?, video_url?}. Auth: x-jobs-token.
+    Meta requires a PUBLIC media URL (e.g. a STORAGE-1 Supabase URL); IG needs
+    image_url or video_url. Credentials resolve per-brand via brand_env.
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    _ig_brand = body.get("brand_id")
+    if _ig_brand is not None and _ig_brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {_ig_brand!r}")
+    from glitch_signal.platforms.instagram import publish_instagram
+
+    media_id, permalink = await publish_instagram(
+        brand_id=_ig_brand,
+        caption=body.get("caption"),
+        image_url=body.get("image_url"),
+        video_url=body.get("video_url"),
+    )
+    return {"ok": True, "media_id": media_id, "permalink": permalink}
+
+
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
@@ -220,91 +247,6 @@ async def job_drive_scout(request: Request, brand: str) -> dict:
         "brand": brand,
         "message": "drive_scout dispatched in background",
     }
-
-
-# ---------------------------------------------------------------------------
-# OAuth — TikTok Content Posting API
-# ---------------------------------------------------------------------------
-# These routes are exposed at meshpilot.app/oauth/tiktok/* via the
-# nginx proxy config on that host (see README). The redirect_uri registered
-# on the TikTok developer app must point at /oauth/tiktok/callback on this
-# same host.
-
-@app.get("/oauth/tiktok/start")
-async def oauth_tiktok_start(brand: str) -> RedirectResponse:
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
-
-    from glitch_signal.oauth.tiktok import build_authorize_url
-    try:
-        url = build_authorize_url(brand)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    log.info("oauth.tiktok.start", brand=brand)
-    return RedirectResponse(url=url, status_code=302)
-
-
-@app.get("/oauth/tiktok/callback")
-async def oauth_tiktok_callback(
-    code: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
-    error_description: str | None = None,
-) -> HTMLResponse:
-    if error:
-        log.warning("oauth.tiktok.callback_error", error=error, desc=error_description)
-        return HTMLResponse(
-            _html_page(
-                "TikTok authorization cancelled",
-                f"Provider returned error: <code>{_html_escape.escape(error or '')}</code><br>"
-                f"{_html_escape.escape(error_description or '')}",
-            ),
-            status_code=400,
-        )
-
-    if not code or not state:
-        raise HTTPException(status_code=400, detail="Missing code or state")
-
-    from glitch_signal.oauth import tiktok as tiktok_oauth
-
-    try:
-        brand_id = tiktok_oauth.parse_state(state)
-    except ValueError as exc:
-        log.warning("oauth.tiktok.bad_state", error=str(exc))
-        raise HTTPException(status_code=400, detail=f"Invalid state: {exc}") from exc
-
-    if brand_id not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand_id!r}")
-
-    try:
-        tokens = await tiktok_oauth.exchange_code_for_tokens(code)
-        row_id = await tiktok_oauth.persist_tokens(brand_id, tokens)
-    except Exception as exc:
-        log.exception("oauth.tiktok.exchange_failed", brand=brand_id)
-        return HTMLResponse(
-            _html_page(
-                "TikTok connection failed",
-                f"Token exchange failed: <code>{_html_escape.escape(str(exc))}</code>",
-            ),
-            status_code=502,
-        )
-
-    log.info(
-        "oauth.tiktok.connected",
-        brand=brand_id,
-        open_id=tokens.get("open_id"),
-        scopes=tokens.get("scope"),
-        platform_auth_id=row_id,
-    )
-    return HTMLResponse(
-        _html_page(
-            "TikTok connected",
-            f"Brand <code>{brand_id}</code> is now connected to TikTok "
-            f"(open_id <code>{tokens.get('open_id')}</code>, scopes "
-            f"<code>{tokens.get('scope')}</code>). You can close this tab.",
-        )
-    )
 
 
 # --- YouTube OAuth (per-brand; a service account can't act on a channel) ---
@@ -546,47 +488,6 @@ async def internal_media_ensure_bucket(request: Request) -> dict:
 
 _MEDIA_KIND = "media"
 
-
-@app.post("/webhooks/upload_post/{secret}")
-async def upload_post_webhook(secret: str, request: Request) -> dict:
-    """Inbound Upload-Post webhook.
-
-    Upload-Post does not sign webhook bodies, so the URL path `secret` is
-    the only access control. Set UPLOAD_POST_WEBHOOK_SECRET to a long
-    random string and register `https://.../webhooks/upload_post/<secret>`
-    with Upload-Post (see scripts/register_upload_post_webhook.py).
-
-    The endpoint always returns 200 on success even when the event was
-    unhandled / unknown — returning an error status would cause
-    Upload-Post to retry, which produces log noise and no useful state
-    change on our side.
-    """
-    expected = settings().upload_post_webhook_secret
-    if not expected:
-        raise HTTPException(
-            status_code=503,
-            detail="upload_post webhook is not configured on this instance",
-        )
-    # Constant-time string comparison — the secret lives in the URL path
-    # and could end up in logs, but using `==` directly would leak length
-    # via timing. Use hmac.compare_digest for safety.
-    import hmac as _hmac
-    if not _hmac.compare_digest(secret, expected):
-        log.warning("upload_post.webhook.bad_secret", len=len(secret))
-        raise HTTPException(status_code=403, detail="invalid secret")
-
-    try:
-        payload = await request.json()
-    except Exception as exc:
-        log.warning("upload_post.webhook.bad_json", error=str(exc))
-        raise HTTPException(status_code=400, detail="invalid json") from exc
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="expected json object")
-
-    from glitch_signal.webhooks.upload_post import dispatch
-    result = await dispatch(payload)
-    return result
 
 
 def _resolve_media_path(token: str) -> pathlib.Path:

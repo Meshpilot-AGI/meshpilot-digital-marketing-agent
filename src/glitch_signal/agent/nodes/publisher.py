@@ -111,12 +111,9 @@ async def publish(scheduled_post_id: str) -> None:
     # sweep can correlate the callback back to this ScheduledPost, and
     # flip status to `awaiting_webhook` so the scheduler stops trying to
     # republish it.
-    from glitch_signal.platforms.upload_post import (
-        extract_request_id,
-        is_webhook_pending,
-    )
+    from glitch_signal.platforms.buffer import extract_post_id, is_webhook_pending
     if is_webhook_pending(platform_post_id):
-        request_id = extract_request_id(platform_post_id)
+        request_id = extract_post_id(platform_post_id)
         factory = _session_factory()
         async with factory() as session:
             sp = await session.get(ScheduledPost, scheduled_post_id)
@@ -263,29 +260,28 @@ async def _publish_to_platform(
         from glitch_signal.platforms.youtube import upload_short
         return await upload_short(file_path, script_id, brand_id=brand_id)
 
-    if platform == "tiktok":
-        from glitch_signal.platforms.tiktok import publish as tiktok_publish
-        return await tiktok_publish(file_path, script_id, brand_id=brand_id)
-
-    if platform.startswith("upload_post_"):
-        from glitch_signal.platforms.upload_post import publish as upload_post_publish
-        return await upload_post_publish(
-            platform, file_path, script_id, brand_id=brand_id, attempts=attempts
-        )
-
     if platform.startswith("buffer_"):
         from glitch_signal.platforms.buffer import publish as buffer_publish
         return await buffer_publish(
             platform, file_path, script_id, brand_id=brand_id, attempts=attempts
         )
 
-    if platform == "twitter":
-        from glitch_signal.platforms.twitter import post_video
-        return await post_video(file_path, script_id)
+    if platform in ("meta_facebook", "meta_instagram"):
+        import pathlib
 
-    if platform == "instagram_reels":
-        from glitch_signal.platforms.instagram import post_reel
-        return await post_reel(file_path, script_id)
+        from glitch_signal.platforms.buffer import _build_signed_media_url, _read_caption
+
+        caption = await _read_caption(script_id)
+        media_url = _build_signed_media_url(pathlib.Path(file_path))
+        if platform == "meta_instagram":
+            from glitch_signal.platforms.instagram import publish_instagram
+            return await publish_instagram(
+                brand_id=brand_id, caption=caption, video_url=media_url
+            )
+        from glitch_signal.platforms.facebook import publish_facebook
+        return await publish_facebook(
+            brand_id=brand_id, message=caption, video_url=media_url
+        )
 
     raise ValueError(f"Unknown platform: {platform!r}")
 
