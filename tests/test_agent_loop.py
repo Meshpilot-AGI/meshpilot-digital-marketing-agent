@@ -1,6 +1,8 @@
 """AGENT-LOOP — ReAct loop mechanics with a scripted LLM + fake tools (no network)."""
 from __future__ import annotations
 
+import pytest
+
 from glitch_signal.agent.loop import parse_action, run
 
 
@@ -81,3 +83,55 @@ async def test_loop_stops_at_max_steps():
     res = await run("b", "g", llm=llm, execute=ex, max_steps=3)
     assert res["final"] is None and res["steps"] == 3
     assert ex.calls[-1][0] == "remember"  # episode still written on timeout
+
+
+# ── NVIDIA chat llm.complete (injected fake httpx client, no network) ──
+class _FakeResp:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = str(payload)
+
+    def json(self):
+        return self._payload
+
+
+class _FakeHTTPX:
+    def __init__(self, resp):
+        self._resp = resp
+        self.posted = None
+
+    async def post(self, url, *, headers=None, json=None):
+        self.posted = {"url": url, "headers": headers, "json": json}
+        return self._resp
+
+
+async def test_llm_complete_parses_text_blocks(monkeypatch):
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    fake = _FakeHTTPX(_FakeResp(200, {"content": [{"type": "text", "text": '{"final":"ok"}'}]}))
+    out = await agent_llm.complete("hi", system="sys", client=fake)
+    assert out == '{"final":"ok"}'
+    assert fake.posted["url"].endswith("/v1/messages")
+    assert fake.posted["json"]["system"] == "sys"            # system is top-level, not a message
+    assert fake.posted["json"]["messages"][0] == {"role": "user", "content": "hi"}
+    assert fake.posted["headers"]["x-api-key"] == "sk-ant-api-test"
+    assert fake.posted["headers"]["anthropic-version"]
+
+
+async def test_llm_complete_rejects_admin_key(monkeypatch):
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-admin-xyz")  # admin key cannot do inference
+    with pytest.raises(RuntimeError, match="Admin key"):
+        await agent_llm.complete("hi", client=_FakeHTTPX(_FakeResp(200, {"content": []})))
+
+
+async def test_llm_complete_raises_on_error(monkeypatch):
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    fake = _FakeHTTPX(_FakeResp(404, {"detail": "gone"}))
+    with pytest.raises(RuntimeError):
+        await agent_llm.complete("hi", client=fake)

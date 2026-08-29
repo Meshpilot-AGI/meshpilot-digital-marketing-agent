@@ -1,6 +1,6 @@
 # Design Spec — Agent Brain (memory + agent capabilities)
 
-**Date:** 2026-08-29 · **Status:** AGENT-MEM DONE (verified live) · increments 2–4 pending · **Method:** brainstorming → spec → build
+**Date:** 2026-08-29 · **Status:** AGENT-MEM DONE + AGENT-LOOP DONE (verified live) · AGENT-POLICY gate landed with the loop · increments 3–4 pending · **Method:** brainstorming → spec → build
 
 ## Goal
 
@@ -18,10 +18,19 @@ their *patterns* on our cloud/multi-brand stack rather than wrap either.
 ## Decomposition (build order — one increment at a time)
 
 1. **AGENT-MEM** ← this spec. Per-brand memory in Supabase (facts + episodes + hybrid recall).
-2. **AGENT-LOOP** — muapi-LLM loop: assemble context (memory + skills) → plan → call
-   capability-tools → verify → write episode.
-3. **AGENT-POLICY** — OpenClaw-style gate: allow/deny each action before execution
-   (posting stays gated until explicitly enabled).
+2. **AGENT-LOOP** ✅ DONE — ReAct loop (`src/glitch_signal/agent/loop/`): seed-recall →
+   plan → call capability-tools → verify → write episode. **LLM = Claude Messages API**
+   (`llm.py`, default `claude-haiku-4-5-20251001`, env `ANTHROPIC_API_KEY` — must be an
+   inference key, not `sk-ant-admin`). muapi's text endpoint (submit→poll) was too slow for
+   a loop and caused CF 524s; NVIDIA chat was tried, Claude chosen (synchronous, reliable).
+   The `POST /internal/agent/run` endpoint is **backgrounded** (returns `{run_id, status}`,
+   runs under `asyncio.create_task`; poll `GET /internal/agent/run/{run_id}`) so a multi-step
+   loop isn't bound by the edge ~100s request timeout. Embeddings stay on NVIDIA.
+   *Future opt (not now):* if the loop goes high-volume or system+tools grow ≥1024 tokens,
+   add prompt caching on the stable system/tools block, then verify with cache-diagnostics.
+3. **AGENT-POLICY** ✅ landed with the loop (`policy.py`): allow/deny each action before
+   execution; PUBLISH_TOOLS denied (posting stays gated until explicitly enabled). Increment 3
+   will extend it (per-brand rules, budgets).
 4. **AGENT-LEARN** — Hermes-style curator: distill episodes → durable facts + new/updated
    skills; consolidate + archive.
 

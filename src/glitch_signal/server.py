@@ -283,14 +283,33 @@ async def internal_agent_recall(request: Request) -> dict:
     }
 
 
+_AGENT_RUNS: dict[str, dict] = {}  # in-process run registry (per worker)
+
+
+async def _run_agent_bg(run_id: str, brand: str, goal: str, max_steps: int) -> None:
+    from glitch_signal.agent.loop import run as agent_run
+    try:
+        res = await agent_run(brand, goal, max_steps=max_steps)
+        _AGENT_RUNS[run_id] = {"status": "done", **res}
+    except Exception as exc:  # noqa: BLE001
+        _AGENT_RUNS[run_id] = {"status": "error", "error": str(exc)[:400]}
+    # keep the registry bounded
+    if len(_AGENT_RUNS) > 200:
+        for k in list(_AGENT_RUNS)[:50]:
+            _AGENT_RUNS.pop(k, None)
+
+
 @app.post("/internal/agent/run", dependencies=[Depends(_require_jobs_auth)])
 async def internal_agent_run(request: Request) -> dict:
-    """Run the agent loop for a goal (auth: x-jobs-token).
+    """Start an agent-loop run for a goal (auth: x-jobs-token).
 
-    Body: {goal, brand?, max_steps?}. The agent recalls memory, plans, and calls its
-    capability-tools (media generation, memory) — but publishing is DISABLED (AGENT-POLICY).
-    Returns the final answer + the step transcript.
+    Body: {goal, brand?, max_steps?}. The loop runs in the BACKGROUND (LLM round-trips exceed
+    the edge request timeout), recalling memory, planning, and calling capability-tools — but
+    publishing is DISABLED (AGENT-POLICY). Returns a `run_id`; poll GET /internal/agent/run/{id}.
+    Every run also writes an episode to the brand's memory.
     """
+    import uuid as _uuid
+
     body: dict = {}
     try:
         body = await request.json()
@@ -302,10 +321,17 @@ async def internal_agent_run(request: Request) -> dict:
     goal = body.get("goal")
     if not goal:
         raise HTTPException(status_code=400, detail="goal is required")
-    from glitch_signal.agent.loop import run as agent_run
 
-    result = await agent_run(brand, goal, max_steps=int(body.get("max_steps", 8)))
-    return {"ok": True, **result}
+    run_id = _uuid.uuid4().hex
+    _AGENT_RUNS[run_id] = {"status": "running"}
+    asyncio.create_task(_run_agent_bg(run_id, brand, goal, int(body.get("max_steps", 5))))
+    return {"ok": True, "run_id": run_id, "status": "running"}
+
+
+@app.get("/internal/agent/run/{run_id}", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_run_status(run_id: str) -> dict:
+    """Poll an agent run started via POST /internal/agent/run."""
+    return {"ok": True, "run_id": run_id, **_AGENT_RUNS.get(run_id, {"status": "unknown"})}
 
 
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
