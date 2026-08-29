@@ -11,6 +11,7 @@ See docs/plans/2026-08-29-media-generation.md.
 """
 from __future__ import annotations
 
+from glitch_signal.media.generation.compose import llm_compose
 from glitch_signal.media.generation.registry import (
     get_recipe,
     list_recipes,
@@ -27,4 +28,5 @@ __all__ = [
     "get_recipe",
     "list_recipes",
     "recipe_for_trigger",
+    "llm_compose",
 ]

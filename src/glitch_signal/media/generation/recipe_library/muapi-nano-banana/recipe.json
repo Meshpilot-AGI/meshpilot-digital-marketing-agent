@@ -1,0 +1,19 @@
+{
+  "slug": "muapi-nano-banana",
+  "description": "Reasoning-driven image generation using structured creative briefs - high-fidelity images via muapi.ai (Nano Banana Pro).",
+  "triggers": ["nano banana", "gemini image", "reasoning driven image", "structured creative brief", "nano banana pro"],
+  "inputs": [
+    {"name": "subject", "type": "text", "required": true, "description": "Detailed entity description, e.g. \"a stoic robot barista with exposed copper wiring\"."},
+    {"name": "action", "type": "text", "required": false, "default": "", "description": "Dynamic interaction the subject performs."},
+    {"name": "context", "type": "text", "required": false, "default": "", "description": "Environment & atmosphere."},
+    {"name": "style", "type": "text", "required": false, "default": "cinematic, photorealistic, 4K production value"}
+  ],
+  "phases": [
+    {
+      "id": "render", "op": "image.generate", "output": "final_image", "model": "nano-banana-pro", "prompt_mode": "llm",
+      "prompt": "Rewrite subject '{{subject}}', action '{{action}}', context '{{context}}', style '{{style}}' into a logic-driven Reasoning Brief following: Subject + Action + Context + Composition + Lighting + Style. Use full descriptive sentences - no keyword soup ('8k, masterpiece, trending' are forbidden). Describe physically consistent light/reflection interactions. If text is requested, specify it precisely in double quotes (e.g. a sign that says \"STORE NAME\" in a weathered serif font). Specify optical directives (shallow depth of field f/1.8, macro lens, anamorphic flare) where relevant.",
+      "params": {"aspect_ratio": "1:1"}
+    }
+  ],
+  "returns": "final_image"
+}

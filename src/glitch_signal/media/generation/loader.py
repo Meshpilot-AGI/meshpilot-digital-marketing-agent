@@ -25,7 +25,7 @@ from typing import Any
 RECIPE_DIR = Path(__file__).resolve().parent / "recipe_library"
 
 _IMAGE_OPS = {"image.generate", "image.edit"}
-_VIDEO_OPS = {"video.from_image"}
+_VIDEO_OPS = {"video.generate", "video.from_image"}
 _ENGINE_OPS = _IMAGE_OPS | _VIDEO_OPS
 _NEEDS_IMAGE = {"image.edit", "video.from_image"}
 VALID_OPS = _ENGINE_OPS | {"llm"}

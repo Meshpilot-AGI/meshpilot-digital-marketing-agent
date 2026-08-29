@@ -1,0 +1,23 @@
+{
+  "slug": "muapi-ui-design",
+  "description": "Generate high-fidelity UI/UX mockups for mobile and web apps using Atomic Design principles, via muapi.ai (Flux).",
+  "triggers": ["ui mockup", "ux design", "app mockup", "wireframe", "design system", "ui ux design"],
+  "inputs": [
+    {"name": "description", "type": "text", "required": true, "description": "Feature/screen description, e.g. \"crypto wallet home with price charts\"."},
+    {"name": "platform", "type": "text", "required": false, "default": "mobile", "description": "mobile | web"},
+    {"name": "theme", "type": "text", "required": false, "default": "dark"},
+    {"name": "style", "type": "text", "required": false, "default": "glassmorphism"}
+  ],
+  "phases": [
+    {
+      "id": "brief", "op": "llm", "output": "ux_brief", "prompt_mode": "llm",
+      "prompt": "Expand description '{{description}}' for platform '{{platform}}', theme '{{theme}}', style '{{style}}' into a UX brief. Name specific atomic components (glassmorphic buttons, input fields with 4px radius, iconic sidebars). Choose a layout pattern (F-Pattern for content-heavy, Z-Pattern for landing pages, grid dashboard for data-dense apps). Inject design tokens: Inter/Roboto geometric sans-serif, 8pt spacing grid, WCAG 2.1 accessible contrast. Enforce flat design or glassmorphism only - never photorealistic/skeuomorphic 'photograph of a screen'. Do not show hands, physical phones, or desks - pure UI mockup only."
+    },
+    {
+      "id": "render", "op": "image.generate", "output": "mockup_image", "model": "flux-2-pro", "prompt_mode": "template",
+      "prompt": "{{ux_brief}}",
+      "params": {"aspect_ratio": "9:16"}
+    }
+  ],
+  "returns": "mockup_image"
+}
