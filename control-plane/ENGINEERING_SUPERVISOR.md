@@ -303,3 +303,14 @@
 **Verified:** suite **402 pass, 1 skipped**; web build clean; migrations applied to prod; waitlist + budget + brand-scoped cron auth all confirmed live. 14/18 audit issues closed; 4 deferred with reasoning (#98 shared-store move, #101 premature-opt, #107 warnings, #108 dep ceilings).
 
 ---
+
+### #107 — SQLModel session.exec() migration + stale docstrings — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Changed:** `db/session.py` binds SQLModel's `AsyncSession` (has `.exec()`); converted all 25 `session.execute(select(...))` sites → `session.exec(...)` with `.scalars().all()→.all()`, `.scalars().first()→.first()`, `.scalar_one_or_none()→.one_or_none()` (publisher `select` import → sqlmodel so exec auto-scalars; the 41 raw `conn.execute` sites untouched). `pyproject`: scoped `error::DeprecationWarning:glitch_signal`. Stale docstrings fixed: `_require_jobs_auth` (said "unset→allow"; fails CLOSED 503), removed dead `config.jobs_auth_token` + wrong comment, documented the MCP default-deny rule in `policy.py` + fixed duplicate `# 3.` numbering.
+
+**Verified:** suite **403 pass**; exec warnings **14→0**, total **31→1** (only third-party aiosqlite ResourceWarnings from test fixtures remain). Live: `/healthz` returns valid queue counts (session.exec().all() works) and the scheduler fires a probe naturally (its 14 session.exec queries work in prod) after the app-wide session-class swap. Prior earlier lifespan part (PR #120) already removed the on_event warnings.
+
+**Audit sweep now 15/18 closed.** Remaining deferred: #98 (rate-limiter/webhook-dedup shared-store move — CF WAF is the real control), #101 (recall HNSW ORDER BY — premature-opt at current scale), #108 (dep upper bounds — pip-audit clean, preventive).
+
+---
