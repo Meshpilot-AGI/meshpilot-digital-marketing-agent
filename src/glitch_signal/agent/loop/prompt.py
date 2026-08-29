@@ -1,12 +1,25 @@
 """ReAct prompt construction for the agent loop."""
 from __future__ import annotations
 
+import functools
 import json
+import pathlib
 
 from glitch_signal.agent.loop.tools import tool_descriptions
 
-SYSTEM = """You are an autonomous social-media marketing agent working for ONE brand.
-Accomplish the GOAL by thinking step by step and using TOOLS. Available tools:
+_SOUL_PATH = pathlib.Path(__file__).resolve().parents[1] / "SOUL.md"
+
+
+@functools.lru_cache(maxsize=1)
+def _soul() -> str:
+    """The agent's durable identity/mission/scope (agent/SOUL.md), prepended to every system prompt."""
+    try:
+        return _SOUL_PATH.read_text(encoding="utf-8").strip()
+    except Exception:  # noqa: BLE001 — never let a missing soul break the loop
+        return "You are an autonomous digital-marketing agent working for ONE brand."
+
+
+SYSTEM = """Accomplish the GOAL by thinking step by step and using TOOLS. Available tools:
 {tools}
 
 Respond with a SINGLE JSON object and NOTHING else — either use a tool:
@@ -25,7 +38,8 @@ def system_prompt(extra_tools: dict[str, str] | None = None) -> str:
     tools = tool_descriptions()
     if extra_tools:
         tools += "\n" + "\n".join(f"- {name}: {desc}" for name, desc in extra_tools.items())
-    return SYSTEM.format(tools=tools)
+    # Identity first (who you are + mission + scope + guardrails), then the operating protocol.
+    return _soul() + "\n\n---\n\n" + SYSTEM.format(tools=tools)
 
 
 def build_prompt(goal: str, seed_context: str, transcript: list[dict]) -> str:
