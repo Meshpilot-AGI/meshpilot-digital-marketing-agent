@@ -1,0 +1,36 @@
+{
+  "slug": "muapi-social-media-video",
+  "description": "Brand-aware social media video: author a reference-frame prompt + a Seedance 2.0 director prompt, generate a reference frame (Imagen 4 Ultra), then animate to a platform-ready vertical video.",
+  "triggers": ["social media video", "instagram reel", "tiktok video", "brand video", "reels video", "social video ad"],
+  "inputs": [
+    {"name": "brief", "type": "text", "required": true, "description": "What the video is about / product or campaign description."},
+    {"name": "brand_style", "type": "text", "required": false, "default": "modern, clean, professional", "description": "Visual style, palette, tone (stand-in for brand-identity)."},
+    {"name": "target_audience", "type": "text", "required": false, "default": "general audience", "description": "Who it's for (stand-in for ICP)."},
+    {"name": "messaging", "type": "text", "required": false, "default": "", "description": "Value props, hooks, CTA."},
+    {"name": "platform", "type": "text", "required": false, "default": "instagram", "description": "instagram | tiktok | youtube_shorts | linkedin | twitter | pinterest"},
+    {"name": "camera", "type": "text", "required": false, "default": "reveal", "description": "Camera intent: reveal | epic | product | narrative | tense | comedy | fpv | drone | flythrough"},
+    {"name": "duration", "type": "text", "required": false, "default": "11"}
+  ],
+  "phases": [
+    {
+      "id": "ref_prompt", "op": "llm", "output": "ref_image_prompt", "prompt_mode": "llm",
+      "prompt": "Write a clean, technical still-image prompt (no motion language) for a reference frame representing: {{brief}}. Brand style: {{brand_style}}. Audience: {{target_audience}}. Include subject description with key product/brand visual elements, lighting, shot framing, and mood/color palette matching the brand style."
+    },
+    {
+      "id": "reference_image", "op": "image.generate", "output": "reference_image", "model": "google-imagen4-ultra", "prompt_mode": "template",
+      "prompt": "{{ref_image_prompt}}",
+      "params": {"aspect_ratio": "9:16"}
+    },
+    {
+      "id": "director_prompt", "op": "llm", "output": "director_prompt", "prompt_mode": "llm",
+      "prompt": "Transform brief '{{brief}}' into a Seedance 2.0 Director Brief: [SCENE] [SUBJECT] [ACTION] [CAMERA] [STYLE] [SOUND], using camera intent '{{camera}}' for platform '{{platform}}', duration {{duration}}s. Weave in messaging/CTA: {{messaging}}. Use technical cinematography language (no 'beautiful'/'amazing'/'8k'). For 10s+ videos use timecode segments. Always include an explicit sound-direction line - Seedance generates audio natively and silent direction produces random ambient sound."
+    },
+    {
+      "id": "render", "op": "video.from_image", "output": "final_video", "model": "seedance-2-image-to-video", "prompt_mode": "template",
+      "prompt": "{{director_prompt}}",
+      "images": ["{{reference_image}}"],
+      "params": {"aspect_ratio": "9:16", "duration": "{{duration}}"}
+    }
+  ],
+  "returns": "final_video"
+}

@@ -1,0 +1,23 @@
+{
+  "slug": "muapi-seedance-2",
+  "description": "Cinema Director for Seedance 2.0 (ByteDance) - high-fidelity text-to-video from a structured director brief, via muapi.ai.",
+  "triggers": ["seedance", "seedance 2", "bytedance video", "ai video director", "cinema expert", "director brief video"],
+  "inputs": [
+    {"name": "subject", "type": "text", "required": true, "description": "Subject/action for the video, e.g. \"hidden Andes temple, mist through the canopy\"."},
+    {"name": "intent", "type": "text", "required": false, "default": "epic", "description": "Camera/mood intent, e.g. epic, tense, product."},
+    {"name": "aspect_ratio", "type": "text", "required": false, "default": "16:9"},
+    {"name": "duration", "type": "text", "required": false, "default": "10"}
+  ],
+  "phases": [
+    {
+      "id": "director_brief", "op": "llm", "output": "director_brief", "prompt_mode": "llm",
+      "prompt": "Write a Seedance 2.0 Director Brief for subject '{{subject}}' with intent '{{intent}}', duration {{duration}}s. Use the six-component hierarchy in order: Scene (environment+lighting), Subject (identity+detail), Action (fluid, physically plausible interaction), Camera (movement+lens+speed), Audio (music+SFX+ambience - mandatory, never omit), Pacing/Style (timing+mood+color grade). For videos of 10s or more, break into timecode segments (0-3s, 3-6s, etc.) with exactly one action beat per segment. Use technical cinematography language only - no vague adjectives like 'beautiful' or '8k'. End with a negative-prompt line: 'Avoid: camera shake, jump cuts, lens distortion, overexposure, watermarks, text overlays.'"
+    },
+    {
+      "id": "render", "op": "video.generate", "output": "final_video", "model": "seedance-2-text-to-video", "prompt_mode": "template",
+      "prompt": "{{director_brief}}",
+      "params": {"aspect_ratio": "{{aspect_ratio}}", "duration": "{{duration}}"}
+    }
+  ],
+  "returns": "final_video"
+}

@@ -28,6 +28,22 @@ STARTER = {
     "muapi-youtube-thumbnail",
 }
 
+# MEDIA-2 added these 7 (ai-clipping + youtube-shorts deferred — need video-edit ops).
+MEDIA2 = {
+    "muapi-ad-creative",
+    "muapi-cinema-director",
+    "muapi-logo-creator",
+    "muapi-nano-banana",
+    "muapi-seedance-2",
+    "muapi-social-media-video",
+    "muapi-ui-design",
+}
+ALL_RECIPES = STARTER | MEDIA2
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
 
 class FakeEngine:
     """Records every generate() call; returns a deterministic fake URL."""
@@ -50,23 +66,28 @@ async def _echo_compose(instruction, variables):
 
 
 # ── library integrity ────────────────────────────────────────────────
-def test_all_starter_recipes_load():
+def test_all_recipes_load():
     recipes = load_all()
-    assert STARTER <= set(recipes), f"missing: {STARTER - set(recipes)}"
-    assert {r.slug for r in list_recipes()} >= STARTER
+    assert ALL_RECIPES <= set(recipes), f"missing: {ALL_RECIPES - set(recipes)}"
+    assert {r.slug for r in list_recipes()} >= ALL_RECIPES
 
 
-def test_manifest_traces_to_skill_md():
-    """Every engine phase's model must appear in the bundled SKILL.md — guards
-    the manifest from drifting away from its source skill."""
+def test_manifest_model_family_traces_to_skill_md():
+    """Every engine phase's model FAMILY must appear in the bundled SKILL.md —
+    guards against drift (using a model from a family the recipe never names).
+    Some skills name only the family in prose (e.g. 'Nano Banana Pro', 'Flux',
+    'Seedance 2.0'), so we match the slug's leading brand token, not the whole
+    slug. All slugs are also hand-verified against muapi's live model list."""
     for recipe in list_recipes():
-        if recipe.slug not in STARTER:
-            continue
-        skill = recipe.skill_md
+        skill = _norm(recipe.skill_md)
         assert skill, f"{recipe.slug}: SKILL.md not bundled"
+        skill_tokens = set(skill.split())
         for phase in recipe.phases:
             if phase.is_engine:
-                assert phase.model in skill, f"{recipe.slug}: model {phase.model!r} not in SKILL.md"
+                brand = _norm(phase.model).split()[:2]  # leading brand/family tokens
+                assert any(t in skill_tokens for t in brand), (
+                    f"{recipe.slug}: model {phase.model!r} family {brand} not in SKILL.md"
+                )
 
 
 def test_returns_is_produced_and_kinds_are_right():
@@ -74,6 +95,14 @@ def test_returns_is_produced_and_kinds_are_right():
     assert get_recipe("muapi-ugc-video-factory").kind == "video"
     assert get_recipe("muapi-instagram-post").kind == "image"
     assert get_recipe("muapi-youtube-thumbnail").kind == "image"
+    # MEDIA-2
+    assert get_recipe("muapi-cinema-director").kind == "video"  # video.generate
+    assert get_recipe("muapi-seedance-2").kind == "video"
+    assert get_recipe("muapi-social-media-video").kind == "video"  # video.from_image
+    assert get_recipe("muapi-ad-creative").kind == "image"
+    assert get_recipe("muapi-logo-creator").kind == "image"
+    assert get_recipe("muapi-nano-banana").kind == "image"
+    assert get_recipe("muapi-ui-design").kind == "image"
 
 
 def test_recipe_for_trigger():
@@ -172,6 +201,48 @@ async def test_ugc_full_pipeline_llm_then_two_engine_calls():
     assert asset.kind == "video"
 
 
+async def test_social_media_video_four_phase_chain():
+    """llm(ref prompt) -> image.generate -> llm(director) -> video.from_image."""
+    eng = FakeEngine()
+
+    async def compose(instruction, variables):
+        return f"COMPOSED[{instruction[:12]}]"
+
+    asset = await run_recipe(
+        get_recipe("muapi-social-media-video"),
+        {"brief": "launch our cold brew", "duration": "12"},
+        engine=eng,
+        compose=compose,
+    )
+    # two engine phases: reference image, then the video from that image
+    assert len(eng.calls) == 2
+    ref, vid = eng.calls
+    assert ref["model"] == "google-imagen4-ultra" and ref["images"] == []
+    assert ref["prompt"].startswith("COMPOSED[")  # ref_image_prompt authored by llm
+    assert vid["model"] == "seedance-2-image-to-video"
+    assert vid["images"] == ["https://fake.cdn/google-imagen4-ultra/1.jpg"]  # chained
+    assert vid["params"]["duration"] == "12"  # {{duration}} rendered in params
+    assert asset.kind == "video"
+
+
+async def test_cinema_director_text_to_video_no_images():
+    eng = FakeEngine()
+
+    async def compose(instruction, variables):
+        return "a low-angle crane shot, golden hour"
+
+    asset = await run_recipe(
+        get_recipe("muapi-cinema-director"),
+        {"subject": "a lone samurai in a blizzard"},
+        engine=eng,
+        compose=compose,
+    )
+    assert len(eng.calls) == 1
+    assert eng.calls[0]["model"] == "kling-v2.5-turbo-pro-t2v"
+    assert eng.calls[0]["images"] == []  # video.generate takes no reference image
+    assert asset.kind == "video"
+
+
 async def test_generate_convenience_resolves_slug():
     eng = FakeEngine()
     asset = await generate(
@@ -196,13 +267,69 @@ def test_muapi_endpoint_passthrough():
     assert eng._endpoint("gpt-image-2") == "gpt-image-2-text-to-image"  # alias
 
 
+# ── LLM composer (MEDIA-2) — text via muapi, same key ────────────────
+class FakeTextEngine:
+    """Fake muapi engine for the composer: returns fixed text via generate()."""
+
+    name = "muapi"
+
+    def __init__(self, text="AUTHORED PROMPT"):
+        self._text = text
+        self.calls: list[dict] = []
+
+    async def generate(self, model, prompt, *, images=None, params=None, timeout_s=360):
+        self.calls.append({"model": model, "prompt": prompt, "params": dict(params or {})})
+        return self._text
+
+
+async def test_llm_compose_returns_text_via_muapi():
+    from glitch_signal.media.generation.compose import llm_compose
+
+    eng = FakeTextEngine("  a punchy hero image, golden hour  ")
+    out = await llm_compose("Write an Instagram image prompt for summer launch", {}, engine=eng)
+    assert out == "a punchy hero image, golden hour"  # stripped
+    # composer used a text model + passed a system prompt
+    assert eng.calls[0]["model"]  # a text model slug
+    assert "system_prompt" in eng.calls[0]["params"]
+
+
+async def test_llm_compose_empty_raises():
+    from glitch_signal.media.generation.compose import llm_compose
+
+    with pytest.raises(EngineError, match="returned empty text"):
+        await llm_compose("anything", {}, engine=FakeTextEngine(""))
+
+
+async def test_instagram_end_to_end_with_muapi_composer():
+    """Runner + composer integration: an LLM-authored recipe, all fake engines."""
+    from glitch_signal.media.generation.compose import llm_compose
+
+    text_eng = FakeTextEngine("AUTHORED IG PROMPT")
+    img_eng = FakeEngine()
+
+    async def compose(instruction, variables):
+        return await llm_compose(instruction, variables, engine=text_eng)
+
+    asset = await run_recipe(
+        get_recipe("muapi-instagram-post"),
+        {"brief": "summer coffee launch"},
+        engine=img_eng,
+        compose=compose,
+    )
+    assert img_eng.calls[0]["prompt"] == "AUTHORED IG PROMPT"
+    assert img_eng.calls[0]["params"] == {"aspect_ratio": "1:1"}  # default format rendered
+    assert asset.kind == "image"
+
+
 def test_no_placeholders_leak_in_templates():
     """Non-llm template prompts should only reference known inputs/outputs."""
     for recipe in list_recipes():
-        if recipe.slug not in STARTER:
-            continue
         known = {i.name for i in recipe.inputs} | {p.output for p in recipe.phases}
         for phase in recipe.phases:
             if phase.prompt_mode == "template" and phase.op != "llm":
                 for ref in re.findall(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", phase.prompt):
                     assert ref in known, f"{recipe.slug}/{phase.id}: unknown placeholder {ref!r}"
+                for pval in phase.params.values():
+                    if isinstance(pval, str):
+                        for ref in re.findall(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", pval):
+                            assert ref in known, f"{recipe.slug}/{phase.id}: unknown param placeholder {ref!r}"

@@ -475,6 +475,7 @@ async def internal_media_generate(request: Request) -> dict:
         raise HTTPException(status_code=400, detail="recipe is required")
 
     from glitch_signal.media.generation import generate as media_generate, get_recipe
+    from glitch_signal.media.generation.compose import llm_compose
     from glitch_signal.media.generation.engines.base import EngineError
     from glitch_signal.media.generation.spec import Brief
 
@@ -485,7 +486,8 @@ async def internal_media_generate(request: Request) -> dict:
 
     brief = Brief(brand_id=brand, recipe=slug, inputs=body.get("inputs", {}) or {})
     try:
-        asset = await media_generate(brief)  # MUapi engine, no composer (template-only)
+        # MUapi engine; the LLM composer handles prompt-authored recipes.
+        asset = await media_generate(brief, compose=llm_compose)
     except EngineError as exc:
         msg = str(exc)
         code = 422 if "composer is required" in msg else 400

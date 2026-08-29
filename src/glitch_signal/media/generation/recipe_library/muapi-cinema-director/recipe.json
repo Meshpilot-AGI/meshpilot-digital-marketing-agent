@@ -1,0 +1,22 @@
+{
+  "slug": "muapi-cinema-director",
+  "description": "Direct high-fidelity cinematic video with AI - translates creative intent into technical cinematographic directives, rendered via muapi.ai (Kling).",
+  "triggers": ["cinema director", "cinematic video", "director brief", "camera movement", "shot composition", "film direction", "ai cinematographer"],
+  "inputs": [
+    {"name": "subject", "type": "text", "required": true, "description": "The subject/action of the shot, e.g. \"A lone samurai in a blizzard\"."},
+    {"name": "intent", "type": "text", "required": false, "default": "epic reveal", "description": "Creative intent - maps to framing/movement/lighting (heroic reveal, tense, introspective, majestic/epic, melancholic)."},
+    {"name": "aspect_ratio", "type": "text", "required": false, "default": "16:9"}
+  ],
+  "phases": [
+    {
+      "id": "director_brief", "op": "llm", "output": "director_brief", "prompt_mode": "llm",
+      "prompt": "Expand subject '{{subject}}' and creative intent '{{intent}}' into a technical shot using the formula: [Shot Type] + [Subject/Action] + [Environment] + [Lighting] + [Camera Movement] + [Lens Effect]. Map intent via: Heroic Reveal -> Low Angle/Wide, Crane Up/Orbit, Rim Lighting/High Contrast; Tense/Uneasy -> Dutch Angle, Handheld Shake, Low Key/Harsh Shadows; Introspective -> Close-Up, Slow Push In, Soft Rembrandt/Window Light; Majestic/Epic -> Extreme Wide, Drone Flyover, Golden Hour/Volumetric; Melancholic -> Profile/Medium, Slow Pull Out, Blue Hour/Desaturated. Use cinematic verbs (Dolly In, Crane Up, Orbit, Truck) and lighting recipes (Volumetric God Rays, Teal-and-Orange Grade, Rembrandt Portrait Lighting). Avoid contradictory movements and complex mid-shot transformations."
+    },
+    {
+      "id": "render", "op": "video.generate", "output": "final_video", "model": "kling-v2.5-turbo-pro-t2v", "prompt_mode": "template",
+      "prompt": "{{director_brief}}",
+      "params": {"aspect_ratio": "{{aspect_ratio}}"}
+    }
+  ],
+  "returns": "final_video"
+}
