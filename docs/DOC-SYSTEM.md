@@ -30,6 +30,7 @@ precedence, so an agent never guesses where the truth lives.
 | `control-plane/ACTIVE_LANE_BOARD.md` | the live work queue | every lane state change |
 | `control-plane/SESSION_COORDINATION.md` | who's active now | sessions start/stop |
 | `control-plane/ENGINEERING_SUPERVISOR.md` | evidence log | every lane close |
+| `docs/VISION.md` | the north star — cloud agent, Projects × Capabilities, runs-on-app, per-project keys | the product vision or a core principle shifts |
 | `ARCHITECTURE.md` | the agent's internal design — pipeline, publishers, scheduler, DB, brand/env conventions | a component, integration, or the `GE_`-prefixed per-brand env contract changes |
 | `docs/plans/2026-08-28-phase1-source-to-publish.md` | the Phase-1 scope: source→publish, no ORM; what's kept vs removed; lane order | the phase scope changes (retire when the phase closes) |
 
