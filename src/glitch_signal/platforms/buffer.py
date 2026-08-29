@@ -59,7 +59,7 @@ import uuid
 import httpx
 import structlog
 
-from glitch_signal.config import brand_config, settings
+from glitch_signal.config import brand_config, brand_env, settings
 from glitch_signal.crypto import make_state_token
 from glitch_signal.db.models import ContentScript
 from glitch_signal.db.session import _session_factory
@@ -118,6 +118,112 @@ def extract_post_id(token: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Per-brand token + GraphQL helpers + generic create_post (text and/or media)
+# ---------------------------------------------------------------------------
+
+# Buffer reports X as either "x" or "twitter" depending on when the channel
+# was connected — treat them as the same service.
+_SERVICE_ALIASES = {"x": {"x", "twitter"}, "twitter": {"x", "twitter"}}
+
+_CREATE_POST_QUERY = (
+    "mutation($input: CreatePostInput!) { createPost(input: $input) {"
+    " __typename"
+    " ... on PostActionSuccess { post { id status } }"
+    " ... on InvalidInputError { message }"
+    " ... on UnauthorizedError { message }"
+    " ... on LimitReachedError { message }"
+    " ... on NotFoundError { message }"
+    " ... on UnexpectedError { message }"
+    " ... on RestProxyError { message } } }"
+)
+
+
+def _buffer_token(brand_id: str | None) -> str:
+    token = brand_env("BUFFER_API_KEY", brand_id)
+    if not token:
+        raise RuntimeError(f"buffer: <PREFIX>_BUFFER_API_KEY not set for brand={brand_id!r}")
+    return token
+
+
+async def _graphql(token: str, query: str, variables: dict | None = None,
+                   *, timeout: float = _SUBMIT_TIMEOUT_S) -> dict:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(
+            _GRAPHQL_URL,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"query": query, "variables": variables or {}},
+        )
+    resp.raise_for_status()
+    body = resp.json()
+    if body.get("errors"):
+        raise RuntimeError(f"Buffer GraphQL error: {body['errors']}")
+    return body.get("data") or {}
+
+
+async def list_channels(brand_id: str) -> dict:
+    """{organization_id, organizations, channels:[{id,name,service}]} for the brand."""
+    token = _buffer_token(brand_id)
+    acct = await _graphql(token, "query { account { id email organizations { id name } } }")
+    orgs = (acct.get("account") or {}).get("organizations") or []
+    if not orgs:
+        raise RuntimeError("buffer: account has no organizations")
+    org_id = orgs[0]["id"]
+    data = await _graphql(
+        token,
+        "query($input: ChannelsInput!) { channels(input: $input) { id name service } }",
+        {"input": {"organizationId": org_id}},
+    )
+    return {"organization_id": org_id, "organizations": orgs, "channels": data.get("channels") or []}
+
+
+async def _channel_id_for_service(brand_id: str, service: str) -> str:
+    want = _SERVICE_ALIASES.get(service.lower(), {service.lower()})
+    channels = (await list_channels(brand_id))["channels"]
+    for ch in channels:
+        if (ch.get("service") or "").lower() in want:
+            return ch["id"]
+    raise RuntimeError(
+        f"buffer: no {service!r} channel for brand={brand_id!r} "
+        f"(connected: {[c.get('service') for c in channels]})"
+    )
+
+
+async def create_post(
+    brand_id: str,
+    service: str,
+    *,
+    text: str,
+    media_url: str | None = None,
+    mode: str = "shareNow",
+) -> tuple[str, str | None]:
+    """Create a Buffer post to `service` (x / linkedin / tiktok / …), text and/or
+    media. Returns (buffer_post_id, status). Buffer publishes asynchronously;
+    use `poll_status_for_post` for the final externalLink."""
+    token = _buffer_token(brand_id)
+    channel_id = await _channel_id_for_service(brand_id, service)
+    inp: dict = {
+        "channelId": channel_id,
+        "schedulingType": "automatic",
+        "mode": mode,
+        "text": text or "",
+        "source": "glitch-social-media-agent",
+    }
+    if media_url:
+        key = "videos" if media_url.lower().endswith((".mp4", ".mov")) else "photos"
+        inp["assets"] = {key: [{"url": media_url}]}
+    data = await _graphql(token, _CREATE_POST_QUERY, {"input": inp})
+    payload = data.get("createPost") or {}
+    if payload.get("__typename") != "PostActionSuccess":
+        raise RuntimeError(
+            f"Buffer createPost {payload.get('__typename')}: {payload.get('message') or 'no detail'}"
+        )
+    post = payload.get("post") or {}
+    log.info("buffer.create_post.ok", brand_id=brand_id, service=service,
+             channel_id=channel_id, post_id=post.get("id"), status=post.get("status"))
+    return post.get("id"), post.get("status")
+
+
+# ---------------------------------------------------------------------------
 # Publish entry point
 # ---------------------------------------------------------------------------
 
@@ -152,19 +258,11 @@ async def publish(
 
     if not brand_id:
         raise ValueError("buffer.publish: brand_id is required for live publish")
-    if not s.buffer_api_token:
-        raise RuntimeError("BUFFER_API_TOKEN is not set")
+    token = _buffer_token(brand_id)
 
     target = _PLATFORM_MAP.get(platform)
     if not target:
         raise ValueError(f"buffer.publish: unknown platform key {platform!r}")
-    if target != "tiktok":
-        # See module docstring: we deliberately only support TikTok for
-        # now. Extending to IG/YT requires pre-encoding to fit native
-        # API limits that Upload-Post normalises on our behalf today.
-        raise NotImplementedError(
-            f"buffer.publish: only tiktok is supported today (got target={target!r})"
-        )
 
     cfg_block = (brand_config(brand_id).get("platforms", {}).get(platform, {}) or {})
     channel_id = cfg_block.get("channel_id")
@@ -226,7 +324,7 @@ async def publish(
         resp = await client.post(
             _GRAPHQL_URL,
             headers={
-                "Authorization": f"Bearer {s.buffer_api_token}",
+                "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
             },
             json={"query": query, "variables": variables},
@@ -265,7 +363,7 @@ async def publish(
 # ---------------------------------------------------------------------------
 
 async def poll_status_for_post(
-    buffer_post_id: str, organization_id: str | None = None
+    buffer_post_id: str, organization_id: str | None = None, brand_id: str | None = None
 ) -> tuple[str | None, str | None]:
     """Return (platform_post_id, share_url) for a Buffer post, or (None, None).
 
@@ -285,9 +383,7 @@ async def poll_status_for_post(
     """
     del organization_id  # retained for caller symmetry, unused in query
 
-    s = settings()
-    if not s.buffer_api_token:
-        raise RuntimeError("BUFFER_API_TOKEN is not set")
+    token = _buffer_token(brand_id)
 
     query = (
         "query($input: PostInput!) {"
@@ -303,7 +399,7 @@ async def poll_status_for_post(
         resp = await client.post(
             _GRAPHQL_URL,
             headers={
-                "Authorization": f"Bearer {s.buffer_api_token}",
+                "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
             },
             json={"query": query, "variables": variables},

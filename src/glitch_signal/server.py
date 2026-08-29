@@ -379,6 +379,37 @@ async def internal_youtube_whoami(brand: str = "glitch_executor") -> dict:
     return {"ok": True, "brand": brand, "channels": channels}
 
 
+@app.get("/internal/buffer/channels", dependencies=[Depends(_require_jobs_auth)])
+async def internal_buffer_channels(brand: str = "glitch_executor") -> dict:
+    """List the brand's Buffer org + connected channels (auth: x-jobs-token)."""
+    from glitch_signal.platforms import buffer
+
+    return await buffer.list_channels(brand)
+
+
+@app.post("/internal/buffer/test-post", dependencies=[Depends(_require_jobs_auth)])
+async def internal_buffer_test_post(request: Request) -> dict:
+    """Create a Buffer post to a service (auth: x-jobs-token).
+
+    Body: {service?, text?, media_url?, mode?, brand?}. service = x/linkedin/tiktok/…
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    from glitch_signal.platforms import buffer
+
+    post_id, status = await buffer.create_post(
+        body.get("brand", "glitch_executor"),
+        body.get("service", "x"),
+        text=body.get("text", ""),
+        media_url=body.get("media_url"),
+        mode=body.get("mode", "shareNow"),
+    )
+    return {"ok": True, "buffer_post_id": post_id, "status": status}
+
+
 # ---------------------------------------------------------------------------
 # Media-serve — HMAC-signed short-lived URL for vendor fetch
 # ---------------------------------------------------------------------------
