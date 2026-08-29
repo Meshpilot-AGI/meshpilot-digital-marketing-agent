@@ -64,14 +64,16 @@ branches, one trunk:
 Flow:
 
 1. **Lane branches** (`lane/*`, `agent/*`) branch off **`production`** and PR
-   **into `production`**. The **drift-aware CI** (`.github/workflows/ci.yml`) gates
-   the PR: it diffs the change and runs **pytest only if API code drifted**, the
-   **web build only if `web/` drifted**, and **nothing** (fast pass) for docs/logs.
-   ⚠️ Never name a lane `*-production` — the `~/dev` commit-guard treats any
-   `*production` branch as a protected deploy branch and blocks commits on it.
-2. Merging the PR **auto-deploys production** (the API). To ship the web, then
+   **into `production`**. ⚠️ Never name a lane `*-production` — the `~/dev`
+   commit-guard treats any `*production` branch as a protected deploy branch.
+2. **CI runs ON PUSH to `production`** (not on PRs/feature branches) —
+   `.github/workflows/ci.yml` diffs the push and runs only what drifted: **pytest**
+   on API drift, a **from-scratch Alembic migration test** on DB drift (`alembic/**`,
+   `db/**`), the **Next build** on `web/` drift, and **nothing** (fast pass) for
+   docs/logs. It runs alongside the FastAPI Cloud auto-deploy, so **run `uv run
+   pytest -q` locally before merging** — the push CI is validation, not a pre-merge gate.
+3. Merging the PR **auto-deploys production** (the API). To ship the web, then
    fast-forward `web-production` from `production` (`git merge --ff-only production`).
-3. Docs-only changes still go through a lane PR — the CI just skips the tests.
 
 Pushing anything under `.github/workflows/**` needs a `gh` account with the
 `workflow` scope (`floating-astronaut`); repo-admin ops (e.g. branch rename)
