@@ -42,9 +42,22 @@ installed `muapi-*` skills — provenance) + a structured `recipe.json` (the exe
 plan). The deterministic `runner` fills `{{placeholders}}`, executes each phase
 (a phase's output becomes the next phase's input), and returns a hosted `Asset` URL.
 
-- **Template recipes** (e.g. `muapi-product-video-ad-maker`) run with **no LLM**.
-- **Prompt-authored recipes** (instagram/youtube/ugc) mark phases `prompt_mode: llm`
-  / `op: llm` and need the injected composer — wired in **MEDIA-2**.
+- **Template recipes** (e.g. `muapi-product-video-ad-maker`, `ad-creative`) run with **no LLM**.
+- **Prompt-authored recipes** (instagram, youtube-thumbnail, ugc, nano-banana, logo,
+  ui-design, cinema-director, seedance-2, social-media-video) mark phases `prompt_mode: llm`
+  / `op: llm`; the injected composer (`compose.py`) authors their prompt — see below.
+
+**11 recipes bundled** (starter 4 + MEDIA-2 7). Deferred: `ai-clipping`, `youtube-shorts`
+(they take an INPUT video via muapi's clipping endpoint — a `video.edit` op we don't have yet).
+
+## Text / LLM — the composer runs on muapi too
+
+muapi is a **unified gateway**: besides media it has **73 Text-to-Text models**
+(Gemini, Claude, GPT, DeepSeek) — same submit→poll contract, generated text in
+`outputs[0]`. So `compose.py` authors prompts by calling a muapi **text** model
+(default `gemini-3-5-flash`, ~\$0.0001/call; override with `MEDIA_TEXT_MODEL`)
+through the **same `MuapiEngine` + `MUAPI_API_KEY`** — no separate LLM/Gemini key.
+Text endpoint inputs: `{prompt, system_prompt}`.
 
 ## Endpoints (auth: `x-jobs-token` = `GE_JOBS_AUTH_TOKEN`)
 

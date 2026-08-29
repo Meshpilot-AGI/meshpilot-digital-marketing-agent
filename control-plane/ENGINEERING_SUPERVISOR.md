@@ -2,6 +2,19 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### MEDIA-2 — LLM composer (via muapi) + 7 more recipes — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the 9 remaining `~/dev/agent/skills/muapi-*` SKILL.md; `influencer/llm.py` (the app's Gemini-first completion); muapi's live model catalog (`GET /api/v1/models` → 655 models, categories) + the text-to-text call/result shape.
+
+**Changed:** `compose.py` now routes prompt-authoring through **muapi's text-to-text models** (default `gemini-3-5-flash`) via the same `MuapiEngine` — muapi is a unified gateway (73 Text-to-Text models: Gemini/Claude/GPT/DeepSeek), same submit→poll contract, generated text in `outputs[0]`, so the **one `MUAPI_API_KEY` powers media AND text** (no separate LLM/Gemini key). Wired `compose=llm_compose` into `/internal/media/generate`. Added op `video.generate` (text→video). Bundled 7 recipes (SKILL.md + recipe.json): ad-creative, cinema-director, logo-creator, nano-banana, seedance-2, social-media-video, ui-design. Every model slug hand-verified against the live catalog + category-checked (fixed the subagent's `kling-master`→`kling-v2.5-turbo-pro-t2v`; logo/ui-design→`flux-2-pro` since their skills say "Flux"). Parity test relaxed to a family-token match (skills often name a model family in prose, not a literal slug). Updated `docs/vendors/muapi.md`.
+
+**Verified (observed):** full suite **305 passed, 1 skipped** (new: composer via fake engine, empty-raises, 4-phase social-media-video chain, cinema-director text→video no-images, family-parity over all 11). Live on api.meshpilot.app: `/internal/media/recipes` → **11 recipes**; **`/internal/media/generate` on an LLM-authored recipe produced a real image** — `nano-banana` → `https://cdn.muapi.ai/outputs/generated/05dc1f6e107247c0b9a0c215c6b31474.png` (engine `muapi:nano-banana-pro`, 62s), proving muapi-text prompt authoring → image generation end-to-end.
+
+**Notes / remains:** DEFERRED `muapi-ai-clipping` + `muapi-youtube-shorts` — both take an INPUT video via the managed clipping endpoint, outside the 5 generation ops (image.generate/edit, video.generate/from_image, llm). A future lane (MEDIA-3) could add a `video.edit`/clipping op. Multi-output packs (ad-creative's 4 formats, social-media-video's 8 platforms) modeled as a single primary asset per the runner's one-Asset contract. Composer model overridable via `MEDIA_TEXT_MODEL`.
+
+---
+
 ### MEDIA-1 — vendor-pluggable media generation (MUapi) via the recipe library — CLOSED 2026-08-29
 **Owner:** Claude
 
