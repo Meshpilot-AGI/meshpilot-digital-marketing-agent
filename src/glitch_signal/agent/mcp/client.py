@@ -30,6 +30,7 @@ class ServerSpec:
     name: str
     url: str
     headers: dict[str, str] = field(default_factory=dict)
+    oauth: str = ""  # provider key in oauth_tokens → resolve a refreshed Bearer at connect time
 
 
 def parse_servers(raw: str | None) -> list[ServerSpec]:
@@ -45,7 +46,8 @@ def parse_servers(raw: str | None) -> list[ServerSpec]:
     for item in data if isinstance(data, list) else []:
         name, url = (item.get("name") or "").strip(), (item.get("url") or "").strip()
         if name and url:
-            out.append(ServerSpec(name=name, url=url, headers=dict(item.get("headers") or {})))
+            out.append(ServerSpec(name=name, url=url, headers=dict(item.get("headers") or {}),
+                                  oauth=(item.get("oauth") or "").strip()))
     return out
 
 
@@ -150,4 +152,18 @@ async def manager_for_brand(brand_id: str, *, connector: Connector | None = None
     by_name = {s.name: s for s in servers}
     for s in parse_servers(brand_env("MCP_SERVERS", brand_id)):
         by_name[s.name] = s
-    return MCPManager(list(by_name.values()), connector=connector)
+
+    # Resolve OAuth-backed servers to a fresh Bearer (refresh-on-demand) at build time.
+    resolved: list[ServerSpec] = []
+    for s in by_name.values():
+        if s.oauth:
+            try:
+                from glitch_signal.agent.mcp.oauth import get_bearer
+                token = await get_bearer(s.oauth)
+                s = ServerSpec(name=s.name, url=s.url,
+                               headers={**s.headers, "Authorization": f"Bearer {token}"}, oauth=s.oauth)
+            except Exception as exc:  # noqa: BLE001 — a token failure drops that server, not the run
+                log.warning("agent.mcp.oauth_failed", server=s.name, provider=s.oauth, error=str(exc)[:200])
+                continue
+        resolved.append(s)
+    return MCPManager(resolved, connector=connector)
