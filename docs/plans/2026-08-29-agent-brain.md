@@ -1,6 +1,6 @@
 # Design Spec — Agent Brain (memory + agent capabilities)
 
-**Date:** 2026-08-29 · **Status:** proposed (awaiting review) · **Method:** brainstorming → this spec → writing-plans → build
+**Date:** 2026-08-29 · **Status:** AGENT-MEM DONE (verified live) · increments 2–4 pending · **Method:** brainstorming → spec → build
 
 ## Goal
 

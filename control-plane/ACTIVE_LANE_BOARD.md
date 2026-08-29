@@ -12,7 +12,18 @@ Acceptance: schema holds only what source→publish needs; orphaned old-SaaS tab
 Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.md
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
+## Active
+
+### AGENT-BRAIN — memory-first, self-improving agent (Hermes/OpenClaw patterns on our stack)
+Reading: docs/plans/2026-08-29-agent-brain.md
+- **AGENT-MEM** — per-brand Supabase memory (facts+episodes, hybrid pgvector+FTS recall, NVIDIA embeddings). **[CLOSED 2026-08-29]**
+- **AGENT-LOOP** — muapi-LLM loop: recall context → plan → call capability-tools → verify → write episode. [OPEN, next]
+- **AGENT-POLICY** — action gate (allow/deny before execution; posting stays off). [OPEN]
+- **AGENT-LEARN** — curator: distill episodes → durable facts + new/updated skills. [OPEN]
+
 ## Recently closed
+
+- **AGENT-MEM — per-brand agent memory (facts + episodes, hybrid recall)** (2026-08-29) — Supabase `agent_memory` (halfvec(2048)+HNSW + FTS), NVIDIA nemotron-3-embed-1b embeddings (injectable), remember/recall + `/internal/agent/{remember,recall}`. 11 tests; suite 243 pass; **verified live** — paraphrase queries rank the right GE fact #1 (audience vs voice, clear semantic separation). First increment of AGENT-BRAIN. → supervisor
 
 - **VENDOR-1 — remove Upload-Post + redundant integrations; re-point publishing** (2026-08-29) — deleted platforms/{upload_post,tiktok,twitter} + webhooks/analytics/onboarding upload_post + integrations/{linkedin,x} + oauth/tiktok + routes + their tests; built the Meta **Instagram** publisher (container→publish, uses STORAGE-1 public URLs); repointed `_PUBLISH_PRIORITY` + publisher.py + the sheet-poster to **Buffer (TikTok/X/LinkedIn) / Meta (FB/IG) / YouTube**; scheduler analytics tick removed, webhook-reconcile now Buffer-only. Full suite **232 pass**, no live imports of removed modules. New `/internal/instagram/test-post`. **Remains:** live IG post verification; carousel degraded to single image; threads/pinterest/bluesky/reddit dropped; influencer/posting.py left as dead code (imports the removed upload_post pip pkg). → supervisor
 
