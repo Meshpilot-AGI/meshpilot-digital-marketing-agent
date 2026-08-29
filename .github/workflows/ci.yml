@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Install deps
-        run: uv sync
+        run: uv sync --extra dev   # pytest/ruff live in the dev extra
       - name: Import smoke test (deploy entrypoint loads)
         # Proves FastAPI Cloud can import the app. Config has all-default
         # settings, so no env is required just to import.

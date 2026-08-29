@@ -234,12 +234,6 @@ class Settings(BaseSettings):
     make_org_id: str = ""
     make_api_token: str = ""
 
-    # --- Zernio (audited multi-platform social-posting API) ---
-    # Used as a parallel publisher ("zernio_tiktok", "zernio_instagram", …)
-    # when our own per-platform dev apps are unaudited. See platforms/zernio.py.
-    zernio_api_key: str = ""
-    zernio_base_url: str = "https://zernio.com/api"
-
     # --- Upload-Post (alternative audited multi-platform vendor) ---
     # Cheaper than Zernio at real volume. Platform keys: "upload_post_tiktok",
     # "upload_post_instagram", etc. See platforms/upload_post.py.
@@ -476,11 +470,11 @@ def brand_config(brand_id: str | None = None) -> dict:
 # file URL untouched and the audio plays everywhere. Diagnosed 2026-04-19
 # with A/B posts of the same byte-identical file. See platforms/buffer.py.
 _PUBLISH_PRIORITY = {
-    "tiktok":    ["buffer_tiktok", "upload_post_tiktok", "zernio_tiktok", "tiktok"],
-    "instagram": ["upload_post_instagram", "zernio_instagram", "instagram_reels"],
-    "youtube":   ["upload_post_youtube", "zernio_youtube", "youtube_shorts"],
-    "facebook":  ["upload_post_facebook", "zernio_facebook"],
-    "x":         ["upload_post_x", "zernio_twitter", "twitter"],
+    "tiktok":    ["buffer_tiktok", "upload_post_tiktok", "tiktok"],
+    "instagram": ["upload_post_instagram", "instagram_reels"],
+    "youtube":   ["upload_post_youtube", "youtube_shorts"],
+    "facebook":  ["upload_post_facebook"],
+    "x":         ["upload_post_x", "twitter"],
     "threads":   ["upload_post_threads"],
     "pinterest": ["upload_post_pinterest"],
     "bluesky":   ["upload_post_bluesky"],

@@ -40,8 +40,11 @@ def test_local_default_needs_no_ssl():
 
 
 def test_precedence_database_url_used_when_signal_unset():
+    # Pin signal_db_url to its default explicitly so this is deterministic
+    # regardless of any ambient SIGNAL_DB_URL in the env or a local .env.
     s = Settings(
         _env_file=None,
+        signal_db_url=_LOCAL_DB_DEFAULT,
         database_url="postgresql://postgres:pw@db.x.supabase.co:5432/postgres?sslmode=require",
     )
     assert s.resolved_db_url().startswith("postgresql+asyncpg://")
