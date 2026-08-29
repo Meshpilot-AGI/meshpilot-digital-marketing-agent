@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# vibe-scaffold — drop the vibe-coding-kit method into a target repo.
+#
+# Copies the method docs, a fresh control-plane (live lane board / session-
+# coordination / supervisor), and the per-agent enforcing configs into a
+# project so a Claude/Codex/Kimi team can work it with zero drift.
+#
+# Usage:
+#   vibe-scaffold [target-dir]      # default: current directory
+#   vibe-scaffold --force [dir]     # overwrite existing files (backs them up)
+#
+set -euo pipefail
+
+FORCE=0
+[[ "${1:-}" == "--force" ]] && { FORCE=1; shift; }
+TARGET="${1:-$PWD}"
+
+# Resolve the kit root (this script lives in <kit>/bin/).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KIT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+[[ -d "$TARGET" ]] || { echo "error: target '$TARGET' is not a directory" >&2; exit 1; }
+TARGET="$(cd "$TARGET" && pwd)"
+[[ "$TARGET" == "$KIT_ROOT" ]] && { echo "error: refusing to scaffold the kit into itself" >&2; exit 1; }
+
+say()  { printf '  %s\n' "$*"; }
+backup(){ [[ -e "$1" ]] && cp -a "$1" "$1.bak.$(date +%s)" && say "backed up $(basename "$1")"; }
+
+place() { # src dst
+  local src="$1" dst="$2"
+  if [[ -e "$dst" && $FORCE -eq 0 ]]; then say "skip (exists): ${dst#$TARGET/}  — use --force to overwrite"; return; fi
+  [[ -e "$dst" && $FORCE -eq 1 ]] && backup "$dst"
+  mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; say "+ ${dst#$TARGET/}"
+}
+
+echo "Scaffolding vibe-coding-kit method into: $TARGET"
+
+# 1) Method docs
+for d in THE-METHOD AGENT-SYNC-PROTOCOL ROLES LANE-LIFECYCLE DOC-SYSTEM; do
+  place "$KIT_ROOT/docs/$d.md" "$TARGET/docs/$d.md"
+done
+
+# 2) Fresh, live control plane (clean — not the verbose templates)
+mkdir -p "$TARGET/control-plane"
+write_fresh() { # path  heredoc-on-stdin
+  local p="$1"
+  if [[ -e "$p" && $FORCE -eq 0 ]]; then say "skip (exists): ${p#$TARGET/}"; return; fi
+  [[ -e "$p" && $FORCE -eq 1 ]] && backup "$p"
+  cat > "$p"; say "+ ${p#$TARGET/}"
+}
+write_fresh "$TARGET/control-plane/ACTIVE_LANE_BOARD.md" <<'EOF'
+# Active Lane Board
+
+> The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
+> Format + rules: see docs/LANE-LIFECYCLE.md.
+
+## Active
+
+_(no lanes yet — `vibe-lane open <ID> "<title>"`)_
+
+## Recently closed
+
+- _none yet_
+EOF
+write_fresh "$TARGET/control-plane/SESSION_COORDINATION.md" <<'EOF'
+# Session Coordination
+
+> Who is active right now, and on what. Claim before you touch. See docs/AGENT-SYNC-PROTOCOL.md §4.
+
+| Agent | Started | Lane | Surface | Status |
+|-------|---------|------|---------|--------|
+| _none_ | | | | |
+EOF
+write_fresh "$TARGET/control-plane/ENGINEERING_SUPERVISOR.md" <<'EOF'
+# Engineering Supervisor — evidence log
+
+> Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
+
+_(no closed lanes yet)_
+EOF
+
+# 3) Per-agent enforcing configs at the repo root
+place "$KIT_ROOT/agent-configs/claude-code/CLAUDE.md" "$TARGET/CLAUDE.md"
+place "$KIT_ROOT/agent-configs/codex/AGENTS.md"       "$TARGET/AGENTS.md"
+place "$KIT_ROOT/agent-configs/kimi/KIMI.md"          "$TARGET/KIMI.md"
+
+cat <<EOF
+
+Done. Next:
+  1. Read docs/THE-METHOD.md
+  2. Open your first lane:   vibe-lane open SETUP-1 "wire up the project"
+  3. Point Claude / Codex / Kimi at this repo — the root CLAUDE.md / AGENTS.md / KIMI.md enforce the method.
+EOF
