@@ -422,7 +422,7 @@ This is a **doc-driven** repo (vibe-coding-kit method). Before code, read in ord
 | `docs/THE-METHOD.md` · `docs/ROLES.md` | How the multi-agent team works a lane |
 | `docs/plans/2026-08-29-agent-brain.md` | The brain design (MEM · LOOP · POLICY · LEARN) |
 | `docs/vendors/` | Cloudflare, FastAPI Cloud, MUapi, … runbooks |
-| `ARCHITECTURE.md` | Original extraction design notes |
+| `ARCHITECTURE.md` | Deep architecture reference (runtime topology, loop internals, data + security model) |
 
 A lane isn't done until the contract docs are updated and evidence is appended to
 `control-plane/ENGINEERING_SUPERVISOR.md`.
