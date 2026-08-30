@@ -1,0 +1,17 @@
+# gitleaks config — extends the default ruleset, then allowlists known non-secrets.
+title = "meshpilot-agent gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional test fixtures — not real secrets"
+# The test suite sets a fixed dummy Fernet key so crypto.encrypt/decrypt work offline. It protects
+# nothing real (production AUTH_ENCRYPTION_KEY is a different value, injected from the environment).
+regexes = [
+  '''l3mgT3MDKZ2g8oh2l8r4e1XaS0o7Q8mT9H5V1v3P2Hk=''',
+]
+# .env.example is a committed template with placeholder values only.
+paths = [
+  '''\.env\.example$''',
+]

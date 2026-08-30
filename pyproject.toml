@@ -13,7 +13,7 @@ keywords = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: Other/Proprietary License",
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -101,8 +101,8 @@ dev = [
 #   TypeError: URL `dependencies` of field `project.urls` must be a string
 [project.urls]
 Homepage = "https://meshpilot.app"
-Repository = "https://github.com/xenon2512/meshpilot-digital-marketing-agent"
-Issues = "https://github.com/xenon2512/meshpilot-digital-marketing-agent/issues"
+Repository = "https://github.com/Meshpilot-AGI/meshpilot-digital-marketing-agent"
+Issues = "https://github.com/Meshpilot-AGI/meshpilot-digital-marketing-agent/issues"
 
 [build-system]
 requires = ["hatchling"]

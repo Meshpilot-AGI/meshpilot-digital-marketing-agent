@@ -7,9 +7,15 @@
 > gets *better on its own* as it runs. No cockpit, no six-agent mesh, no SaaS
 > surface. Just the worker.
 
-Private repo. Live, headless, at **`api.meshpilot.app`** (FastAPI Cloud). No
-frontend to the agent itself — the service *is* the agent: HTTP endpoints, an
-in-process scheduler, and a cognitive loop are how it acts.
+**Open source (AGPL-3.0).** MeshPilot is open-core: *this agent is free and
+self-hostable* — read it, run it, extend it. A managed, multi-tenant **hosted
+platform** (run the agent for you, at scale) is the paid product, coming later.
+Same model as Supabase: open core, paid cloud.
+
+Runs headless — the service *is* the agent: HTTP endpoints, an in-process
+scheduler, and a cognitive loop are how it acts (no frontend to the agent
+itself). The maintainers operate a live instance at **`api.meshpilot.app`**
+(FastAPI Cloud); you can run your own the same way.
 
 ---
 
@@ -314,3 +320,31 @@ This is a **doc-driven** repo (vibe-coding-kit method). Before code, read in ord
 
 A lane isn't done until the contract docs are updated and evidence is appended to
 `control-plane/ENGINEERING_SUPERVISOR.md`.
+
+---
+
+## License
+
+**GNU AGPL-3.0-or-later** — see [`LICENSE`](LICENSE). MeshPilot is **open-core**:
+the agent is free and open source, and you may self-host and modify it. Because
+it's AGPL, if you run a modified version **as a network service**, you must make
+your source available to its users under the same license. A commercial, managed
+**hosted platform** (the paid product) is offered separately by the maintainers —
+if the AGPL's network-copyleft doesn't fit your use, that hosted option (or a
+commercial license) is the path.
+
+## Contributing
+
+Issues and PRs welcome. This is a doc-driven repo (see the doc index above and
+[`CONTRIBUTING.md`](CONTRIBUTING.md)): open a lane, keep the change small and
+tested (`uv run pytest -q`), and PR into `production`. Content the agent writes
+must pass the content policy (no AI footprints) — the same bar applies to docs.
+
+## Acknowledgements
+
+MeshPilot's brain stands on prior open work. Its memory-first, self-improving loop
+draws on **[Hermes](https://github.com/NousResearch)** (NousResearch) patterns, and
+its trusted-gateway / untrusted-execution / deterministic-policy shape and self-cron
+draw on **[OpenClaw](https://github.com/openclaw/openclaw)**. We adapted those ideas
+to a cloud, multi-brand stack rather than wrapping either — with gratitude to both
+communities.
