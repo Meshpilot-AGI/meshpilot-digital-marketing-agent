@@ -2,6 +2,17 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### README-REFRESH + repo hardening — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Changed:** `README.md` refreshed to reflect the chat control plane — intro now says you can *talk to* the agent across channels ("our own OpenClaw, on managed cloud"), a new **Talk to it (chat control plane)** section describes the Discord gateway (`gateway/`), plus a TOC entry and a live-state note. Repo hardening (via `gh api`, floating-astronaut): **branch protection** set — `production` requires a PR (0 approvals, enforce_admins off) and blocks force-push/deletion; `web-production` blocks force-push/deletion but allows the ff deploy pushes. **`#github` live feed**: created a Discord channel webhook in #github and registered a GitHub repo webhook (id 672167539, events push/pull_request/issues/release/star) pointing at it.
+
+**Verified:** `gh api` returns `production: PR-required=true, force_push=false, deletions=false` and `web-production: PR-required=false, force_push=false, deletions=false`; repo hook active; README headings/anchors + both mermaid diagrams intact.
+
+**Remains:** none for this lane.
+
+---
+
 ### GATEWAY-1 — Discord ↔ MeshPilot bridge — CLOSED 2026-08-30
 **Owner:** Claude
 
