@@ -12,11 +12,13 @@ from __future__ import annotations
 import json
 import os
 
-# ── Anthropic (USD per 1M tokens). Verify against current pricing; edit via env. ──
+# ── Anthropic (USD per 1M tokens). Verified vs platform.claude.com/pricing 2026-08-30.
+#    cache_read = 0.1× input; cache_write = 1.25× input (5-minute TTL). Edit via env. ──
 _ANTHROPIC_DEFAULT = {
     "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0, "cache_read": 0.10, "cache_write": 1.25},
-    "claude-sonnet-5": {"input": 3.0, "output": 15.0, "cache_read": 0.30, "cache_write": 3.75},
-    "claude-opus-5": {"input": 15.0, "output": 75.0, "cache_read": 1.50, "cache_write": 18.75},
+    "claude-sonnet-5": {"input": 2.0, "output": 10.0, "cache_read": 0.20, "cache_write": 2.50},
+    "claude-opus-5": {"input": 5.0, "output": 25.0, "cache_read": 0.50, "cache_write": 6.25},
+    "claude-fable-5": {"input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.50},
 }
 
 

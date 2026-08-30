@@ -37,6 +37,16 @@ def test_anthropic_cost_counts_cache_tokens():
     assert usd == pytest.approx(0.10)
 
 
+def test_anthropic_cost_sonnet5_is_2_and_10():
+    # Sonnet 5 is $2 in / $10 out per MTok (corrected from a stale $3/$15). 1M+1M = $12.
+    usd = anthropic_cost("claude-sonnet-5",
+                         {"input_tokens": 1_000_000, "output_tokens": 1_000_000})
+    assert usd == pytest.approx(12.0)
+    # cache read = 0.1x input = $0.20 / MTok
+    assert anthropic_cost("claude-sonnet-5",
+                          {"cache_read_input_tokens": 1_000_000}) == pytest.approx(0.20)
+
+
 def test_anthropic_cost_unknown_model_falls_back():
     # unknown model must not raise — it falls back to the first price entry
     assert anthropic_cost("mystery-model", {"input_tokens": 1_000_000}) > 0

@@ -55,6 +55,25 @@ async def test_image_url_data_uri_converted_to_anthropic_block(monkeypatch):
                          "source": {"type": "base64", "media_type": "image/jpeg", "data": "QUJD"}}
 
 
+async def test_no_sampling_params_sent(monkeypatch):
+    """Current-gen models 400 on temperature/top_p/top_k — we must never send them."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
+    c = _Client(_ok())
+    # caption.py passes temperature=0.7; it must be accepted by the kwarg but not forwarded.
+    await loop_llm.complete_messages([{"role": "user", "content": "U"}], temperature=0.7, client=c)
+    assert "temperature" not in c.posted
+    assert "top_p" not in c.posted and "top_k" not in c.posted
+
+
+async def test_default_model_and_max_tokens(monkeypatch):
+    monkeypatch.delenv("AGENT_LLM_MODEL", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
+    c = _Client(_ok())
+    await loop_llm.complete_messages([{"role": "user", "content": "U"}], client=c)
+    assert c.posted["model"] == "claude-sonnet-5"     # moved off Haiku 4.5
+    assert c.posted["max_tokens"] == 2048             # headroom for thinking + output
+
+
 async def test_multiple_system_messages_joined(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
     c = _Client(_ok())
