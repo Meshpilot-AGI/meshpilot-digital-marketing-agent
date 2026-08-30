@@ -8,6 +8,8 @@ so call sites migrating off LiteLLM keep their message shapes.
     ANTHROPIC_API_KEY    required — an INFERENCE key (sk-ant-api…). NOT an Admin key.
     AGENT_LLM_MODEL      default model for `complete()` (default claude-sonnet-5)
     AGENT_LLM_BASE       override base URL (default https://api.anthropic.com)
+    AGENT_LLM_EFFORT     adaptive-thinking depth (default "low" — suppresses the thinking
+                         block for the JSON loop; "default" skips the param)
 
 Current-generation Claude models (Sonnet 5 / Opus 5 / 4.7+) REJECT sampling params
 (`temperature`/`top_p`/`top_k`) with a 400, so we never send them — steer via the prompt.
@@ -18,6 +20,9 @@ import asyncio
 import os
 
 import httpx
+import structlog
+
+log = structlog.get_logger(__name__)
 
 _DEFAULT_BASE = "https://api.anthropic.com"
 _DEFAULT_MODEL = "claude-sonnet-5"
@@ -74,9 +79,17 @@ def _flatten_text(content) -> str:
     return str(content)
 
 
+def _retry_delay(r: httpx.Response, attempt: int) -> float:
+    """Honor a numeric Retry-After header (capped); else brief linear backoff."""
+    ra = ((getattr(r, "headers", None) or {}).get("retry-after") or "").strip()
+    if ra.replace(".", "", 1).isdigit():
+        return min(float(ra), 10.0)
+    return 0.5 * attempt
+
+
 async def _post(messages: list[dict], *, system: str | None, model: str | None,
                 max_tokens: int, temperature: float, timeout_s: int,
-                client: httpx.AsyncClient | None) -> str:
+                client: httpx.AsyncClient | None, effort: str | None = None) -> str:
     base = (os.environ.get("AGENT_LLM_BASE") or _DEFAULT_BASE).rstrip("/")
     payload: dict = {
         "model": model or os.environ.get("AGENT_LLM_MODEL", _DEFAULT_MODEL),
@@ -86,8 +99,17 @@ async def _post(messages: list[dict], *, system: str | None, model: str | None,
     # NB: `temperature` (and top_p/top_k) are intentionally NOT sent — current-gen models
     # (Sonnet 5 / Opus 5 / 4.7+) 400 on them. The kwarg is kept for caller back-compat only.
     _ = temperature
+    # Adaptive-thinking depth. `low` suppresses the thinking block entirely (verified) → the
+    # loop gets clean JSON, ~half the output tokens. `default` skips the param (model default).
+    eff = (effort if effort is not None else os.environ.get("AGENT_LLM_EFFORT", "low")).strip()
+    if eff and eff != "default":
+        payload["output_config"] = {"effort": eff}
     if system:
-        payload["system"] = system
+        # Cache the (stable) system prefix — our SOUL/tools prompt is byte-identical across
+        # every step/run/brand, so this is the biggest cost+latency lever. GA on 2023-06-01,
+        # no beta header. Caches on Sonnet 5 (min 1024 tok); a small system just won't cache.
+        payload["system"] = [{"type": "text", "text": system,
+                              "cache_control": {"type": "ephemeral"}}]
     headers = {
         "x-api-key": _key(),
         "anthropic-version": _ANTHROPIC_VERSION,
@@ -101,7 +123,7 @@ async def _post(messages: list[dict], *, system: str | None, model: str | None,
             r = await client.post(f"{base}/v1/messages", headers=headers, json=payload)
             if r.status_code not in _RETRYABLE or attempt == _MAX_ATTEMPTS:
                 break
-            await asyncio.sleep(0.5 * attempt)  # brief linear backoff on transient 5xx/429
+            await asyncio.sleep(_retry_delay(r, attempt))  # Retry-After, else linear backoff
     finally:
         if owns:
             await client.aclose()
@@ -109,8 +131,19 @@ async def _post(messages: list[dict], *, system: str | None, model: str | None,
         raise RuntimeError(f"anthropic messages -> {r.status_code}: {r.text[:200]}")
     body = r.json()
     await _meter(payload["model"], body)
+    stop = body.get("stop_reason")
     blocks = body.get("content", [])
-    return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+    text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+    # Surface non-happy terminal states instead of silently returning "" (the ReAct loop
+    # would otherwise just log an unparseable step with no idea why).
+    if stop == "max_tokens":
+        log.warning("agent.llm.truncated", model=payload["model"], max_tokens=max_tokens)
+    elif stop == "refusal":
+        log.warning("agent.llm.refusal", model=payload["model"])
+    elif not text:
+        log.warning("agent.llm.empty_text", stop_reason=stop,
+                    blocks=[b.get("type") for b in blocks])
+    return text
 
 
 async def _meter(model: str, body: dict) -> None:
@@ -134,15 +167,18 @@ async def _meter(model: str, body: dict) -> None:
 
 
 async def complete(prompt: str, *, system: str | None = None, model: str | None = None,
-                   timeout_s: int = 90, client: httpx.AsyncClient | None = None) -> str:
+                   timeout_s: int = 90, client: httpx.AsyncClient | None = None,
+                   effort: str | None = None) -> str:
     """Single user turn → assistant text. `client` injectable for tests."""
     return await _post([{"role": "user", "content": prompt}], system=system, model=model,
-                       max_tokens=2048, temperature=0.2, timeout_s=timeout_s, client=client)
+                       max_tokens=2048, temperature=0.2, timeout_s=timeout_s, client=client,
+                       effort=effort)
 
 
 async def complete_messages(messages: list[dict], *, model: str | None = None,
                             max_tokens: int = 2048, temperature: float = 0.2,
-                            timeout_s: int = 90, client: httpx.AsyncClient | None = None) -> str:
+                            timeout_s: int = 90, client: httpx.AsyncClient | None = None,
+                            effort: str | None = None) -> str:
     """OpenAI/LiteLLM-style messages (system extracted, multimodal converted) → assistant text."""
     system_parts: list[str] = []
     conv: list[dict] = []
@@ -154,4 +190,4 @@ async def complete_messages(messages: list[dict], *, model: str | None = None,
                          "content": _content_to_anthropic(m.get("content", ""))})
     system = "\n\n".join(p for p in system_parts if p) or None
     return await _post(conv, system=system, model=model, max_tokens=max_tokens,
-                       temperature=temperature, timeout_s=timeout_s, client=client)
+                       temperature=temperature, timeout_s=timeout_s, client=client, effort=effort)

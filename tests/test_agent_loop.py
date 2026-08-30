@@ -131,7 +131,10 @@ async def test_llm_complete_parses_text_blocks(monkeypatch):
     out = await agent_llm.complete("hi", system="sys", client=fake)
     assert out == '{"final":"ok"}'
     assert fake.posted["url"].endswith("/v1/messages")
-    assert fake.posted["json"]["system"] == "sys"            # system is top-level, not a message
+    # system is top-level and wrapped in a cacheable block (HARDEN — prompt caching)
+    assert fake.posted["json"]["system"] == [
+        {"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}
+    ]
     assert fake.posted["json"]["messages"][0] == {"role": "user", "content": "hi"}
     assert fake.posted["headers"]["x-api-key"] == "sk-ant-api-test"
     assert fake.posted["headers"]["anthropic-version"]

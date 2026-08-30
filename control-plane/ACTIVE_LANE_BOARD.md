@@ -3,16 +3,6 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### CLAUDE-PLATFORM — adopt Claude best practices in the agent loop          [IN PROGRESS]
-Owner: Claude (Opus)        Opened: 2026-08-30
-Goal: use the Claude Messages API well now that it's the agent's messaging brain. Three phases:
-  (1) DOC-ANTHROPIC — `docs/vendors/anthropic.md` reference (models, gotchas, caching, tools, files). ← in review
-  (2) CLAUDE-P0 — move the loop to `claude-sonnet-5`: drop sampling params (they 400 on current-gen), bump max_tokens, fix pricing.py (Sonnet 5 $2/$10 not $3/$15; Opus 5 $5/$25).
-  (3) CLAUDE-HARDEN — llm.py: effort=low (suppresses thinking, verified), prompt caching on the SOUL system block (~3k tok, caches on Sonnet 5), stop_reason/retry-after handling.
-Verified live against the real Sonnet 5 API (local key): temperature→400; effort:low→clean JSON no thinking; cache_control accepted on 2023-06-01. Native tool use = separate future CLAUDE-TOOLS lane.
-Reading: src/glitch_signal/agent/loop/{llm,runner,prompt}.py, analytics/cost/pricing.py, docs/vendors/anthropic.md
-Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
@@ -23,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **CLAUDE-PLATFORM — adopt Claude best practices in the agent loop** (2026-08-30) — three phases, all shipped + verified live against the real Sonnet 5 API. **(1) DOC-ANTHROPIC**: `docs/vendors/anthropic.md` runbook (models, current-gen gotchas, caching, native tool use, files, context mgmt). **(2) CLAUDE-P0** (#151): loop model Haiku 4.5 → **claude-sonnet-5**; stopped sending `temperature` (current-gen 400s on it — confirmed live); max_tokens 800→2048; fixed pricing.py (Sonnet 5 $2/$10 not a stale $3/$15, Opus 5 $5/$25, +Fable 5). **(3) CLAUDE-HARDEN**: `effort=low` (suppresses the thinking block — verified `blocks=['text']`, ~half the output tokens, env `AGENT_LLM_EFFORT`), **prompt caching** on the SOUL system block (verified live: 4260-tok cache WRITE on call 1 → cache READ on call 2, 0.1× cost), `stop_reason` warnings (truncated/refusal/empty) + `Retry-After` honoring. Suite **451 pass**. Native tool use (replace the JSON-in-text ReAct) = tracked future **CLAUDE-TOOLS** lane. → supervisor
 
 - **CI-GATEWAY — gateway build check + `gateway-production` deploy branch** (2026-08-30) — added a drift-gated `gateway` CI job (`docker build ./gateway` + `python3 -m py_compile gateway/bridge.py`) that runs only on `gateway/` drift and skips otherwise, like api/web/db. Created the **`gateway-production`** deploy branch (peer of web-production, ff from production, never developed on) so Railway deploys the gateway **on-demand** instead of on every production push. CI stays **production-only** by design: a gateway-production ff carries the identical SHA, so Railway's wait-for-CI gates on the gateway check already run on the production push. **Verified live**: the merge push (which touched `gateway/README.md`) ran the new job — `changes` computed `gateway=true`, api/db/web correctly **skipped**, `gateway` job **success** (real `docker build` green on CI); branch SHA == production. **Remains (operator)**: set the Railway service deploy branch = `gateway-production` in the dashboard (wait-for-CI already on). → supervisor
 

@@ -37,8 +37,12 @@ async def test_system_extracted_and_user_kept(monkeypatch):
         client=c,
     )
     assert out == "hi"
-    assert c.posted["system"] == "S"                        # system lifted out of messages
+    # system lifted out of messages AND wrapped in a cacheable block (HARDEN)
+    assert c.posted["system"] == [
+        {"type": "text", "text": "S", "cache_control": {"type": "ephemeral"}}
+    ]
     assert c.posted["messages"] == [{"role": "user", "content": "U"}]
+    assert c.posted["output_config"] == {"effort": "low"}   # thinking suppressed by default
 
 
 async def test_image_url_data_uri_converted_to_anthropic_block(monkeypatch):
@@ -74,6 +78,31 @@ async def test_default_model_and_max_tokens(monkeypatch):
     assert c.posted["max_tokens"] == 2048             # headroom for thinking + output
 
 
+async def test_effort_env_override(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
+    monkeypatch.setenv("AGENT_LLM_EFFORT", "high")
+    c = _Client(_ok())
+    await loop_llm.complete_messages([{"role": "user", "content": "U"}], client=c)
+    assert c.posted["output_config"] == {"effort": "high"}
+
+
+async def test_effort_default_skips_output_config(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
+    monkeypatch.delenv("AGENT_LLM_EFFORT", raising=False)
+    c = _Client(_ok())
+    await loop_llm.complete_messages([{"role": "user", "content": "U"}], effort="default", client=c)
+    assert "output_config" not in c.posted
+
+
+def test_retry_delay_honors_retry_after():
+    class _R:
+        def __init__(self, h):
+            self.headers = h
+    assert loop_llm._retry_delay(_R({"retry-after": "3"}), 1) == 3.0     # header wins
+    assert loop_llm._retry_delay(_R({"retry-after": "999"}), 1) == 10.0  # capped at 10s
+    assert loop_llm._retry_delay(_R({}), 2) == 1.0                       # linear fallback 0.5*2
+
+
 async def test_multiple_system_messages_joined(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
     c = _Client(_ok())
@@ -82,7 +111,9 @@ async def test_multiple_system_messages_joined(monkeypatch):
          {"role": "user", "content": "U"}],
         client=c,
     )
-    assert c.posted["system"] == "A\n\nB"
+    assert c.posted["system"] == [
+        {"type": "text", "text": "A\n\nB", "cache_control": {"type": "ephemeral"}}
+    ]
 
 
 def test_model_for_defaults_and_env_override(monkeypatch):
