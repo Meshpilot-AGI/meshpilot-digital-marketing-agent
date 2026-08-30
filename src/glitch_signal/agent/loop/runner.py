@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 
-from glitch_signal.agent.loop import policy, scopes, tools
+from glitch_signal.agent.loop import conscience, policy, reckoning, scopes, tools
 from glitch_signal.agent.loop import llm as agent_llm
 from glitch_signal.agent.loop.prompt import build_prompt, system_prompt
 
@@ -32,10 +32,32 @@ def _final_text(content: list[dict]) -> str:
                    if isinstance(b, dict) and b.get("type") == "text").strip()
 
 
+def _deliberation_summary(deliberation: dict) -> str:
+    """Compact one-line-ish tail folded into the episode so LEARN can curate self-flagged patterns."""
+    out = ""
+    r = deliberation.get("reckoning") or {}
+    c = deliberation.get("conscience") or {}
+    if r:
+        out += f" | Reckoning[{r.get('trust')}]: met={r.get('met')}"
+        if r.get("discrepancy"):
+            out += f"; {r['discrepancy']}"
+        if r.get("attribution") not in (None, "none"):
+            out += f"; cause={r['attribution']}"
+        if r.get("lesson"):
+            out += f"; lesson={r['lesson']}"
+    if c:
+        out += f" | Conscience: {c.get('verdict')}"
+        if c.get("notes"):
+            out += f"; {c['notes']}"
+    return out
+
+
 async def _write_episode(brand_id: str, goal: str, transcript: list[dict], final: str,
-                         execute: ExecFn) -> None:
+                         execute: ExecFn, *, deliberation: dict | None = None) -> None:
     actions = [t.get("action") for t in transcript if t.get("action")]
     content = f"Goal: {goal}. Actions: {', '.join(actions) or 'none'}. Result: {final}"
+    if deliberation:
+        content += _deliberation_summary(deliberation)
     try:
         await execute("remember", {"kind": "episode", "content": content[:2000]}, brand_id)
     except Exception as exc:  # noqa: BLE001 — episode logging must never fail the run
@@ -102,6 +124,31 @@ async def run(
         counts: dict[str, int] = {}  # executed tool counts this run — feeds per-run budgets
         messages: list[dict] = [{"role": "user", "content": build_prompt(goal, seed)}]
 
+        # DELIBERATION (advisory, flag-gated OFF). Expectation is captured BEFORE acting (foresight,
+        # not hindsight); reckoning + conscience run at the single finalize point below.
+        from glitch_signal.config import settings as _settings
+        _reck_on = bool(getattr(_settings(), "agent_reckoning_enabled", False))
+        _consc_on = bool(getattr(_settings(), "agent_conscience_enabled", False))
+        expectation_text = await reckoning.expectation(goal, seed) if _reck_on else ""
+
+        async def _finalize(episode_final: str, steps: int, ret_final: Any) -> dict[str, Any]:
+            delib: dict[str, Any] = {}
+            if _reck_on:
+                r = await reckoning.reckon(goal, expectation_text, transcript, episode_final)
+                if r:
+                    delib["reckoning"] = r
+            if _consc_on:
+                c = await conscience.review(goal, episode_final)
+                if c:
+                    delib["conscience"] = c
+            if delib:
+                log.info("agent.loop.deliberation", brand=brand_id,
+                         met=(delib.get("reckoning") or {}).get("met"),
+                         verdict=(delib.get("conscience") or {}).get("verdict"))
+            await _write_episode(brand_id, goal, transcript, episode_final, base_execute,
+                                 deliberation=delib)
+            return {"final": ret_final, "transcript": transcript, "steps": steps, **delib}
+
         for step in range(max_steps):
             resp = await llm(messages, tools=tool_defs, system=sys)
             content = resp.get("content", []) or []
@@ -118,8 +165,7 @@ async def run(
 
             if stop != "tool_use" or not tool_uses:
                 final = _final_text(content)
-                await _write_episode(brand_id, goal, transcript, final, base_execute)
-                return {"final": final, "transcript": transcript, "steps": step + 1}
+                return await _finalize(final, step + 1, final)
 
             results: list[dict] = []
             for b in tool_uses:
@@ -141,8 +187,7 @@ async def run(
                 transcript.append({"action": name, "args": args, "observation": obs})
             messages.append({"role": "user", "content": results})
 
-        await _write_episode(brand_id, goal, transcript, "(max steps reached)", base_execute)
-        return {"final": None, "transcript": transcript, "steps": max_steps}
+        return await _finalize("(max steps reached)", max_steps, None)
     finally:
         if own_mcp:
             await mcp.__aexit__(None, None, None)

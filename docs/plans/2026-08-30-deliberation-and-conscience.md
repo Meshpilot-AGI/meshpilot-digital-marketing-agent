@@ -1,8 +1,11 @@
 # Deliberation & Conscience — from a scheduled executor to a reflective agent
 
-**Status:** DESIGN / for review (2026-08-30). No code. Follows PIPELINE
-(`docs/plans/2026-08-30-pipelines.md`). Author: Claude (Opus), from operator direction + a 4-thread
-research sweep (sources at the end).
+**Status:** DESIGN approved by operator 2026-08-30 ("1 and 2 is good … we do not need heavy
+engineering because nothing is tested yet"). **Phase 1 (Reckoning) + Phase 2 (Conscience) SHIPPED,
+gated OFF** — `agent_reckoning_enabled` / `agent_conscience_enabled`, both default `False`. Phase 3
+(Foresight, pairs with enabling publishing) and Phase 4 (Intent/beliefs + two-tier learning) remain
+future. Follows PIPELINE (`docs/plans/2026-08-30-pipelines.md`). Author: Claude (Opus), from operator
+direction + a 4-thread research sweep (sources at the end).
 
 ## 1. Why
 
