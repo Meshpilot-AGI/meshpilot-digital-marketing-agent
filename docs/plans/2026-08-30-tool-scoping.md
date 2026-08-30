@@ -1,6 +1,6 @@
 # SCOPE — per-run / per-pipeline tool scoping for the agent loop
 
-**Status:** design (awaiting build)  ·  **Opened:** 2026-08-30  ·  **Owner:** Claude
+**Status:** SHIPPED 2026-08-30 (verified live — chat scope offered 6/15 tools)  ·  **Owner:** Claude
 
 ## Why
 

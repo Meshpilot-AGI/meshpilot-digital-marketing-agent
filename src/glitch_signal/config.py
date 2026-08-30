@@ -295,6 +295,9 @@ class Settings(BaseSettings):
     # deliberately enabled — the ability ships inert.
     agent_discovery_enabled: bool = False
     agent_max_discovery_per_run: int = 5     # per-loop-run cap (policy gate, via counts)
+    # SCOPE: default toolset for an un-specified run (Discord/bare). `chat` = safe read+plan only;
+    # a pipeline/operator run passes a broader scope (discovery/content/orm/full).
+    agent_default_scope: str = "chat"
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
     # Hard ceiling on agent-loop steps (COST-METER INC-3) — clamps any caller/payload max_steps so an

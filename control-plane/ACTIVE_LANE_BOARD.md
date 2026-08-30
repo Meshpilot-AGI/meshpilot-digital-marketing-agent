@@ -3,14 +3,6 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### SCOPE — per-run/per-pipeline tool scoping          [DESIGN]
-Owner: Claude (Opus)        Opened: 2026-08-30
-Goal: bound the ReAct loop's toolset to the active job so a capability is usable only within its pipeline, not by free-roaming autonomy (the loop currently offers ALL tools every run). Add a `scope` per run (default `chat` = memory+knowledge+quality, no external/paid tools); scope registry (agent/loop/scopes.py) maps named scopes → capability groups → tools; runner filters tool_defs by scope. Two layers: scope=OFFERED, policy=ALLOWED (both must pass). Anti-escalation: self-scheduled cron scope ⊆ current scope. Plumb scope through /internal/agent/run + cron agentTurn.
-Design: docs/plans/2026-08-30-tool-scoping.md  ← awaiting operator go before build
-Reading: agent/loop/{runner,tools,policy}.py, server.py (/internal/agent/run), agent/cron/service.py, config.py
-Acceptance: chat scope offers no discovery/media/publish/mcp; content scope offers media+mcp; default=chat; self-schedule clamped; suite green; live payload shows scoped tools.
-Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
@@ -21,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **SCOPE — per-run/per-pipeline tool scoping** (2026-08-30) — the ReAct loop offered ALL tools every run, so a global kill-switch made a capability usable everywhere the moment it flipped. Now each run has a **`scope`** that bounds the offered toolset to the active job. `agent/loop/scopes.py`: capabilities (memory/knowledge/quality/media/discovery/web/schedule/publish/mcp:*) → named scopes (**chat** default=memory+knowledge+quality; discovery; content=+media+mcp:higgsfield; orm; full). `runner.run(scope=)` filters `tool_defs` (built-in+server+mcp) to the scope; two layers — **scope=OFFERED, policy=ALLOWED** (both must pass). Plumbed through `/internal/agent/run` (default `agent_default_scope=chat`) + cron `agentTurn`. **Anti-escalation:** a self-scheduled job's scope is clamped to ⊆ the current run's scope (contextvar). **Verified live**: chat scope offered **6/15** tools (no discovery/media/publish/mcp), real loop ran; filter correct (chat ✗ generate_media, content ✓ generate_media ✗ discover_trending). Suite **476 pass**. Enablement is now enforceable: build tool (gated) → define pipeline+scope → enable. Design: docs/plans/2026-08-30-tool-scoping.md. → supervisor
 
 - **DISCOVERY — trending social content via CaptAPI** (2026-08-30) — built the agent's discovery ability: `agent/discovery/captapi.py` (thin CaptAPI client — trending reels/feed/hashtags/songs/creators for IG+TikTok, Bearer auth, free 24h cache) + a **`discover_trending(platform,kind?,country?)`** loop tool (returns top-10 items compacted to caption/engagement/hashtags/author/url). **Gated OFF by the policy** (`agent_discovery_enabled`, default False — mirrors email/publish kill-switches) so the ability ships **inert, no external pulls** until deliberately enabled; per-run cap `agent_max_discovery_per_run` (5). Chosen over Apify/Bright Data (general scraping) for its direct trending endpoints. `CAPTAPI_KEY` stored (FastAPI Cloud secret + .env); Apify/Bright Data keys held in .env for later. Endpoint verified live during vetting (US IG trending reels, real data). Suite **470 pass**. Operator note: "build the ability, don't start scraping" — honored (gated off, no live pulls in the build). → supervisor
 
