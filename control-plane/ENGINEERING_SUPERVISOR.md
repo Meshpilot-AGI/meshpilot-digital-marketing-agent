@@ -2,6 +2,21 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### GATEWAY-1 — Discord ↔ MeshPilot bridge — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Context:** operator's vision — MeshPilot is "our own OpenClaw" (talk to one agent across chat channels) but on managed cloud, not a VM, and simpler. Studied OpenClaw's real source (github.com/openclaw/openclaw, MIT, cloned) — its channels are a heavy plugin framework inside an always-on Node gateway; running it (even as a gateway via a CLI-backend shim) drags 643MB + its session/watchdog machinery. Decision: **build our own lean bridge**, adapting only the patterns. Discord-only for now (Telegram/WhatsApp are future adapters).
+
+**Changed:** new `gateway/` in the agent repo — `bridge.py` (~90 lines, discord.py gateway bot, `message_content` intent) + Dockerfile + requirements + railway.json + README. Flow: message in `#agent-chat` → `POST {MESHPILOT_URL}/internal/agent/run {goal,brand}` (header `x-jobs-token`) → poll `GET /internal/agent/run/{id}` until `done`/`error` → reply with `final` (chunked at 2000 chars). Access control = the channel's own privacy (`#agent-chat` is Team+bot only). No inbound port (websocket client).
+
+**Infra:** deployed to Railway service `meshpilot-digital-marketing-agent` (project "Mesh Pilot - Gateway", id 83c226d5…) via `railway up` — one always-on replica, managed container (fits "no VM"). Env on Railway: DISCORD_BOT_TOKEN, DISCORD_AGENT_CHANNEL_ID (#agent-chat 1543461321809338419), MESHPILOT_URL, MESHPILOT_JOBS_TOKEN, MESHPILOT_BRAND. **`GE_JOBS_AUTH_TOKEN` rotated** (Claude-generated `secrets.token_urlsafe(36)`), set on BOTH FastAPI Cloud env and the bridge; the agent was redeployed (env changes need a redeploy) — probe confirmed the new token live (200). Set the service **Root Directory = `gateway`** in the Railway dashboard (driven via Claude-in-Chrome) so a push deploys the bridge, not the whole agent — a prior GitHub auto-deploy of the full repo had FAILED at build (harmless: a failed build never replaces the active deploy).
+
+**Verified:** Railway logs — `bridge online as meshpilot_agent#8654 (guilds=1, chat_channel=1543461321809338419)` (connected to Discord gateway with no PrivilegedIntentsRequired → Message Content Intent is on). End-to-end run test via the bridge's exact call path returned the agent's real answer ("I'm a Digital Marketing AGI … for Glitch Executor"). **Operator confirmed** talking to MeshPilot in `#agent-chat` works live.
+
+**Remains:** delete the unused Railway deploy-webhook pointed at `api.meshpilot.app/railway/webhook` (404s). Future increments: agent → Discord notifications (post to `#agent-activity` / `#alerts`, incl. a `/railway/webhook` receiver for deploy events); Telegram + WhatsApp (Meta Cloud API) adapters; a superseded in-app Discord attempt is stashed on `lane/discord-control-plane`.
+
+---
+
 ### EMAIL-1 — the agent's email capability (Resend), gated OFF — CLOSED 2026-08-30
 **Owner:** Claude
 
