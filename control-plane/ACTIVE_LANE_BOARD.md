@@ -3,6 +3,14 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### SCOPE — per-run/per-pipeline tool scoping          [DESIGN]
+Owner: Claude (Opus)        Opened: 2026-08-30
+Goal: bound the ReAct loop's toolset to the active job so a capability is usable only within its pipeline, not by free-roaming autonomy (the loop currently offers ALL tools every run). Add a `scope` per run (default `chat` = memory+knowledge+quality, no external/paid tools); scope registry (agent/loop/scopes.py) maps named scopes → capability groups → tools; runner filters tool_defs by scope. Two layers: scope=OFFERED, policy=ALLOWED (both must pass). Anti-escalation: self-scheduled cron scope ⊆ current scope. Plumb scope through /internal/agent/run + cron agentTurn.
+Design: docs/plans/2026-08-30-tool-scoping.md  ← awaiting operator go before build
+Reading: agent/loop/{runner,tools,policy}.py, server.py (/internal/agent/run), agent/cron/service.py, config.py
+Acceptance: chat scope offers no discovery/media/publish/mcp; content scope offers media+mcp; default=chat; self-schedule clamped; suite green; live payload shows scoped tools.
+Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
