@@ -501,6 +501,17 @@ async def internal_agent_routing_metrics() -> dict:
     return {"ok": True, **routing.metrics()}
 
 
+@app.get("/internal/agent/routing/audit", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_routing_audit(request: Request) -> dict:
+    """Data-grounded ROUTER audit (jobs-auth): flags a tier's primary not serving (fallback firing)
+    + per-model cost/call drift from usage_events. `?days=` / `?baseline_days=` optional. Also
+    runnable nightly via the `routing_audit` cron capability."""
+    from glitch_signal.agent.loop.audit import routing_audit
+    qp = request.query_params
+    res = await routing_audit(days=int(qp.get("days", 1)), baseline_days=int(qp.get("baseline_days", 7)))
+    return {"ok": True, **res}
+
+
 @app.get("/internal/agent/run/{run_id}", dependencies=[Depends(_require_jobs_auth)])
 async def internal_agent_run_status(run_id: str) -> dict:
     """Poll an agent run started via POST /internal/agent/run (reads the shared agent_runs table)."""

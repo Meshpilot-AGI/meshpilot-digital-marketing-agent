@@ -136,15 +136,26 @@ def test_model_for_claude_defaults_and_env_override(monkeypatch):
     assert agent_llm.model_for("smart") == "claude-opus-5"
 
 
-async def test_chat_routes_through_openrouter(monkeypatch):
+async def test_chat_routes_through_router_by_default(monkeypatch):
+    for k in ("AGENT_CONTENT_TEXT_MODEL_SMART", "AGENT_CONTENT_MODEL_SMART"):
+        monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
     c = _Client(_ok())
     out = await agent_llm.chat(
         [{"role": "system", "content": "S"}, {"role": "user", "content": "write X"}],
         tier="smart", client=c)
     assert out == "hi"
-    assert c.posted["models"] == ["anthropic/claude-sonnet-5"]   # smart tier → Sonnet 5, normalized
+    # smart tier → ROUTER complex tier (quality-first list + native fallback)
+    assert c.posted["models"] == ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "moonshotai/kimi-k3"]
     assert c.posted["messages"] == [{"role": "system", "content": "S"}, {"role": "user", "content": "write X"}]
+
+
+async def test_chat_env_override_pins_single_model(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
+    monkeypatch.setenv("AGENT_CONTENT_MODEL_SMART", "z-ai/glm-5.3")   # override → single model, no router
+    c = _Client(_ok())
+    await agent_llm.chat([{"role": "user", "content": "x"}], tier="smart", client=c)
+    assert c.posted["models"] == ["z-ai/glm-5.3"]
 
 
 async def test_complete_with_fallback_returns_sentinel_on_error(monkeypatch):

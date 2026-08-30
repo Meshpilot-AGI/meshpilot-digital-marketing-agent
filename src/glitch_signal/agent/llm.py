@@ -21,6 +21,9 @@ log = structlog.get_logger(__name__)
 
 # tier -> default Claude model.
 _TIER_DEFAULTS = {"cheap": "claude-haiku-4-5-20251001", "smart": "claude-sonnet-5"}
+# content tier -> ROUTER tier (quality-first list + native fallback). An explicit env override
+# (AGENT_CONTENT_[TEXT_]MODEL_<TIER>) still pins a single model and skips the router.
+_ROUTER_TIER = {"cheap": "simple", "smart": "complex"}
 
 
 def model_for(tier: str = "cheap") -> str:
@@ -28,6 +31,16 @@ def model_for(tier: str = "cheap") -> str:
     return (os.environ.get(f"AGENT_CONTENT_TEXT_MODEL_{tier.upper()}")
             or os.environ.get(f"AGENT_CONTENT_MODEL_{tier.upper()}")
             or _TIER_DEFAULTS.get(tier, _TIER_DEFAULTS["cheap"]))
+
+
+def _route(tier: str) -> tuple[str | None, str | None]:
+    """(model, router_tier): an explicit env override pins a model; otherwise route through the
+    model router's tier so content generation gets quality-first selection + native fallback."""
+    override = (os.environ.get(f"AGENT_CONTENT_TEXT_MODEL_{tier.upper()}")
+                or os.environ.get(f"AGENT_CONTENT_MODEL_{tier.upper()}"))
+    if override:
+        return override, None
+    return None, _ROUTER_TIER.get(tier, "moderate")
 
 
 async def chat(messages: list[dict], *, tier: str = "cheap", max_tokens: int = 800,
@@ -38,7 +51,11 @@ async def chat(messages: list[dict], *, tier: str = "cheap", max_tokens: int = 8
     compatibility but not forwarded (current-gen models reject sampling params).
     """
     from glitch_signal.agent.loop.llm import complete_messages
-    return await complete_messages(messages, model=model or model_for(tier),
+    if model:                                    # caller pinned a model → use it verbatim
+        routed_model, routed_tier = model, None
+    else:
+        routed_model, routed_tier = _route(tier)
+    return await complete_messages(messages, model=routed_model, tier=routed_tier,
                                    max_tokens=max_tokens, temperature=temperature, client=client)
 
 
