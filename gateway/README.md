@@ -46,19 +46,17 @@ anyone who can post there is authorized.
 Builds from the `Dockerfile` (Railway root dir = `gateway`). Set the env vars above in the service.
 No inbound port (it's a websocket client), so it needs no public domain or healthcheck.
 
-**Branch-triggered deploy.** Railway watches the **`gateway-production`** branch and deploys on
-push to it — the gateway ships on-demand, not on every `production` push. To ship:
+**Auto-deploys from `production`.** Railway watches the **`production`** branch with **watch paths
+= `gateway/**`**, so it rebuilds and redeploys the gateway automatically whenever a push to
+`production` changed something under `gateway/` — and stays untouched on the many API-only pushes,
+so the Discord websocket doesn't reconnect for changes that don't concern it. **No manual step:**
+merging a `gateway/` change into `production` ships it.
 
-```bash
-git switch gateway-production
-git merge --ff-only production      # this is the ship step
-git push
-git switch production
-```
+Railway does a **zero-downtime** rollout — the old bridge keeps serving until the new container is
+healthy — and has **wait-for-CI** on, gating on the `gateway` build check (`docker build` +
+`py_compile`) that runs on the `production` push whenever `gateway/**` drifts, so a broken
+`Dockerfile` or `requirements.txt` never reaches a deploy. (`railway up` from this dir still works
+for a manual one-off.)
 
-`gateway-production` is fast-forwarded from `production`, **never developed on** (a commit authored
-directly on it forks it off `production` and breaks the ff path — the ~/dev commit-guard blocks it).
-Railway has **wait-for-CI** on: because the ff carries the identical commit SHA, it gates on the
-`gateway` build check (`docker build` + `py_compile`) that already ran on the `production` push —
-so a broken Dockerfile or `requirements.txt` never reaches a deploy. (`railway up` from this dir
-still works for a manual one-off, but the branch push is the normal path.)
+> Retired 2026-08-30: the gateway used to ship by fast-forwarding a separate `gateway-production`
+> branch. That manual dance is gone — Railway now deploys `production` directly via watch paths.
