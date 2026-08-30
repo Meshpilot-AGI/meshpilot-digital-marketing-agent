@@ -48,7 +48,7 @@ async def test_loop_runs_actions_and_writes_episode():
         _done("made a logo"),
     ])
     ex = FakeExec()
-    res = await run("glitch_executor", "make a logo", llm=llm, execute=ex)
+    res = await run("glitch_executor", "make a logo", llm=llm, execute=ex, scope="full")
     assert res["final"] == "made a logo" and res["steps"] == 2
     called = [c[0] for c in ex.calls]
     assert called[0] == "recall"          # seed recall before the loop
@@ -75,7 +75,7 @@ async def test_loop_enforces_media_budget(monkeypatch):
     llm = ScriptedLLM([_use("generate_media", gm, "a"), _use("generate_media", gm, "b"),
                        _use("generate_media", gm, "c"), _done("done")])
     ex = FakeExec()
-    res = await run("b", "make logos", llm=llm, execute=ex, max_steps=6)
+    res = await run("b", "make logos", llm=llm, execute=ex, max_steps=6, scope="full")
     gen_calls = [c for c in ex.calls if c[0] == "generate_media"]
     assert len(gen_calls) == 2                                  # only 2 actually executed
     assert res["transcript"][2]["observation"].startswith("DENIED")  # 3rd blocked by budget
@@ -91,7 +91,7 @@ async def test_loop_handles_parallel_tool_uses_in_one_turn():
         _done("ok"),
     ])
     ex = FakeExec()
-    res = await run("b", "g", llm=llm, execute=ex)
+    res = await run("b", "g", llm=llm, execute=ex, scope="full")
     assert res["final"] == "ok"
     names = [c[0] for c in ex.calls]
     assert "recall" in names and "list_recipes" in names

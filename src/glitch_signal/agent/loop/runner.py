@@ -125,14 +125,19 @@ async def run(
             for b in tool_uses:
                 name = str(b.get("name", ""))
                 args = b.get("input", {}) or {}
-                allowed, reason = policy.allow(name, args, brand_id, counts=counts)
-                if allowed:
-                    obs = await dispatch(name, args, brand_id)
-                    counts[name] = counts.get(name, 0) + 1  # only count what actually ran
+                # SCOPE enforced at DISPATCH, not just at the offer — a crafted/hallucinated
+                # tool_use for an out-of-scope tool must not execute even if policy would allow it.
+                if not active_scope.allows(name):
+                    obs = f"DENIED: tool {name!r} is out of scope ({active_scope.name})"
                 else:
-                    obs = f"DENIED: {reason}"
+                    allowed, reason = policy.allow(name, args, brand_id, counts=counts)
+                    if allowed:
+                        obs = await dispatch(name, args, brand_id)
+                        counts[name] = counts.get(name, 0) + 1  # only count what actually ran
+                    else:
+                        obs = f"DENIED: {reason}"
                 results.append({"type": "tool_result", "tool_use_id": b.get("id"),
-                                "content": obs, "is_error": (not allowed) or obs.startswith("ERROR")})
+                                "content": obs, "is_error": obs.startswith(("DENIED", "ERROR"))})
                 transcript.append({"action": name, "args": args, "observation": obs})
             messages.append({"role": "user", "content": results})
 

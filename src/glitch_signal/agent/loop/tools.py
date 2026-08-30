@@ -135,7 +135,10 @@ def _compact_trending(item: Any) -> dict:
         return {"value": str(item)[:80]}
     out: dict[str, Any] = {}
     for k, v in item.items():
-        if k in ("videoUrl", "thumbnailUrl", "videoUrlExpiresAt", "thumbnailUrlExpiresAt"):
+        # Drop large signed CDN links + their expiries generically: any camelCase *Url
+        # (videoUrl/thumbnailUrl/coverUrl/dynamicCoverUrl/originCoverUrl…) or *ExpiresAt.
+        # The item's canonical lowercase `url`/`permalink` is kept.
+        if k.endswith("Url") or k.endswith("ExpiresAt"):
             continue
         if isinstance(v, str):
             out[k] = v[:160]

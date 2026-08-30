@@ -19,7 +19,9 @@ def test_resolve_and_allows():
 
     disc = scopes.resolve("discovery")
     assert disc.allows("discover_trending") and disc.allows("web_search")
-    assert scopes.resolve("full").allows("publish")               # full = everything
+    full = scopes.resolve("full")
+    assert full.allows("publish")                                 # full = everything…
+    assert full.allows("mcp__anything__foo")                      # …incl. any configured MCP server
 
 
 def test_unknown_scope_falls_back_to_chat():
@@ -71,3 +73,29 @@ async def test_runner_default_scope_is_chat():
     cap = {}
     await run("b", "g", llm=_capturing_llm(cap), execute=_exec)   # no scope → chat
     assert "recall" in cap["tools"] and "generate_media" not in cap["tools"]
+
+
+# ── scope enforced at DISPATCH, not just at the offer (security regression) ──
+async def test_runner_scope_blocks_out_of_scope_tool_at_dispatch():
+    """A crafted model response that names an out-of-scope tool must NOT execute it."""
+    calls: list[str] = []
+
+    async def _exec_recording(tool, args, brand_id):
+        calls.append(tool)
+        return "[]"
+
+    def _rogue_llm():
+        step = {"n": 0}
+
+        async def _llm(messages, *, tools=None, system=None):
+            step["n"] += 1
+            if step["n"] == 1:  # emit an out-of-scope tool the offer never included
+                return {"stop_reason": "tool_use", "content": [
+                    {"type": "tool_use", "id": "t1", "name": "generate_media", "input": {}}]}
+            return {"stop_reason": "end_turn", "content": [{"type": "text", "text": "done"}]}
+        return _llm
+
+    res = await run("b", "g", llm=_rogue_llm(), execute=_exec_recording, scope="chat")
+    assert "generate_media" not in calls                 # never dispatched
+    obs = [t["observation"] for t in res["transcript"] if t["action"] == "generate_media"]
+    assert obs and obs[0].startswith("DENIED") and "out of scope" in obs[0]

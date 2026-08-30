@@ -43,14 +43,18 @@ class Scope:
     name: str
     exact: frozenset[str]
     prefixes: tuple[str, ...]
+    all: bool = False   # `full` allows EVERY tool (incl. any configured MCP server, not just the two known)
 
     def allows(self, tool_name: str) -> bool:
-        return tool_name in self.exact or any(tool_name.startswith(p) for p in self.prefixes)
+        return (self.all or tool_name in self.exact
+                or any(tool_name.startswith(p) for p in self.prefixes))
 
 
 def resolve(name: str | None) -> Scope:
     """Resolve a scope name → a Scope. Unknown/blank → the safe `chat` default."""
     key = (name or DEFAULT_SCOPE).strip().lower()
+    if key == "full":
+        return Scope(name="full", exact=frozenset(), prefixes=(), all=True)  # everything, incl. any MCP
     caps = SCOPES.get(key)
     if caps is None:
         key, caps = DEFAULT_SCOPE, SCOPES[DEFAULT_SCOPE]
