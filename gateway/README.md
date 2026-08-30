@@ -12,10 +12,15 @@ plugin framework. **Discord only for now**; Telegram / WhatsApp are future adapt
 
 ```
 #agent-chat message
-   → POST  {MESHPILOT_URL}/internal/agent/run  {goal, brand}   (header: x-jobs-token)
-   → poll  GET  /internal/agent/run/{run_id}  until status = done|error
+   → POST  {MESHPILOT_URL}/internal/agent/run?brand={BRAND}  {goal, brand}   (header: x-jobs-token)
+   → poll  GET  /internal/agent/run/{run_id}?brand={BRAND}   until status = done|error
    → reply with `final` on the channel
 ```
+
+The `brand` goes on the **query string** of both calls: `x-jobs-token` is validated against
+`?brand=`, and the agent resolves each run's target brand from `?brand=` (not the body), so a
+non-default `MESHPILOT_BRAND` would 401/400 without it. It stays in the run POST body too, where it
+must match the query value.
 
 Discord free-form chat needs a persistent gateway (websocket) connection, which is why this
 runs as one always-on container (Railway, one replica) rather than on the stateless agent host.
