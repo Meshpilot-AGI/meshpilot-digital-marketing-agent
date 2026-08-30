@@ -95,18 +95,25 @@ system-prompt overhead (~354 tok on Sonnet 5). Structured outputs
 (`output_config:{format:{type:"json_schema",…}}`, **incompatible with citations**) and
 `token-efficient-tools` (**retired**) are not used.
 
-## Built-in server tools (worth adopting later)
+## Built-in server tools
 
-- **web_search** (`web_search_20260209`+) — $10 / 1,000 searches; real-time facts for replies.
-- **web_fetch** (`web_fetch_20260318`) — **free**; summarize a URL already in the conversation.
-- **code_execution** (`code_execution_20260521`) — Python sandbox; **free when bundled with
-  web_search/web_fetch**; data crunching / charts.
+- **web_search — ADOPTED (WEB-TOOLS, 2026-08-30).** `tools.py::server_tool_defs()` offers it
+  (default on, `max_uses=3`, metered $0.01/search via `usage.server_tool_use.web_search_requests`
+  → flows into the per-brand budget). ⚠️ **Our org is HIPAA-regulated without ZDR**, which blocks
+  `web_fetch` + `code_execution`, and the dynamic-filtering web_search (`web_search_20260318`)
+  auto-provisions code_execution → also blocked. So we use the **basic `web_search_20250305`**
+  tag (verified live). Override via `AGENT_WEB_SEARCH_TAG`.
+- **web_fetch** (`web_fetch_20260318`, free) — plumbing shipped but **default OFF**: blocked on
+  our HIPAA org until Zero Data Retention is enabled. Flip `AGENT_WEB_FETCH_ENABLED=true` then.
+- **code_execution** (`code_execution_20260521`) — also blocked on our HIPAA org without ZDR.
 - **memory tool** (`memory_20250818`) — persistent agent memory; **overlaps our Supabase
   `agent_memory`**, so it's a decision, not a freebie.
 - Skip bash / text-editor / computer-use unless we add filesystem/GUI automation.
-- Server-tool errors return **HTTP 200** with an error object (never raise); web_search/fetch
-  results carry `encrypted_content` that must be echoed back verbatim on later turns or the
-  request 400s.
+- Server tools run **server-side** (Claude calls, Anthropic executes, result inline — they never
+  hit our `execute()`/`policy.allow`). Errors return **HTTP 200** with an error object (never
+  raise); results carry `encrypted_content` that must be echoed back verbatim on later turns or
+  the request 400s (our loop appends response content verbatim, so this holds). A long server-tool
+  turn can `pause_turn` — the runner re-sends to resume.
 
 ## Working with files (for brand PDFs / creatives)
 

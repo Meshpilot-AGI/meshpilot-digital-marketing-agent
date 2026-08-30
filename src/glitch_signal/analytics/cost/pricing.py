@@ -32,20 +32,30 @@ def _anthropic_prices() -> dict:
     return _ANTHROPIC_DEFAULT
 
 
+def _web_search_usd() -> float:
+    """USD per web_search request ($10 / 1,000 = 0.01). web_fetch is free."""
+    try:
+        return float(os.environ.get("COST_ANTHROPIC_WEB_SEARCH_USD", "0.01"))
+    except ValueError:
+        return 0.01
+
+
 def anthropic_cost(model: str, usage: dict) -> float:
-    """usage = Anthropic response `usage` (input_tokens, output_tokens, cache_read/creation_input_tokens)."""
+    """usage = Anthropic response `usage` (input/output tokens, cache tokens, server_tool_use)."""
     prices = _anthropic_prices()
     p = prices.get(model) or next(iter(prices.values()), {"input": 1.0, "output": 5.0})
     it = float(usage.get("input_tokens", 0) or 0)
     ot = float(usage.get("output_tokens", 0) or 0)
     cr = float(usage.get("cache_read_input_tokens", 0) or 0)
     cw = float(usage.get("cache_creation_input_tokens", 0) or 0)
+    ws = float((usage.get("server_tool_use") or {}).get("web_search_requests", 0) or 0)
     per_m = 1_000_000.0
     return round(
         it * p.get("input", 0) / per_m
         + ot * p.get("output", 0) / per_m
         + cr * p.get("cache_read", p.get("input", 0)) / per_m
-        + cw * p.get("cache_write", p.get("input", 0)) / per_m,
+        + cw * p.get("cache_write", p.get("input", 0)) / per_m
+        + ws * _web_search_usd(),   # server-side web_search ($10/1k); web_fetch is free
         6,
     )
 

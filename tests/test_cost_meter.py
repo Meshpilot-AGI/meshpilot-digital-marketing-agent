@@ -47,6 +47,14 @@ def test_anthropic_cost_sonnet5_is_2_and_10():
                           {"cache_read_input_tokens": 1_000_000}) == pytest.approx(0.20)
 
 
+def test_anthropic_cost_web_search_requests():
+    # server-side web_search billed at $0.01/request via usage.server_tool_use
+    usd = anthropic_cost("claude-sonnet-5",
+                         {"input_tokens": 0, "output_tokens": 0,
+                          "server_tool_use": {"web_search_requests": 3, "web_fetch_requests": 9}})
+    assert usd == pytest.approx(0.03)   # web_fetch is free
+
+
 def test_anthropic_cost_unknown_model_falls_back():
     # unknown model must not raise — it falls back to the first price entry
     assert anthropic_cost("mystery-model", {"input_tokens": 1_000_000}) > 0

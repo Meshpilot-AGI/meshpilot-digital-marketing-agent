@@ -7,6 +7,7 @@ observation the LLM reads back. Publishing tools exist but are denied by `policy
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Awaitable, Callable
 
 from glitch_signal.agent.memory import recall as mem_recall
@@ -205,6 +206,48 @@ def tool_defs() -> list[dict[str, Any]]:
                              "input_schema": t["input_schema"]}
         if t.get("strict"):
             d["strict"] = True
+        defs.append(d)
+    return defs
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.environ.get(name)
+    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name) or default)
+    except ValueError:
+        return default
+
+
+def server_tool_defs() -> list[dict[str, Any]]:
+    """Anthropic **server-side** tools (web_search / web_fetch) — Anthropic executes them and
+    returns the result inline, so they are NOT in the TOOLS registry (no fn) and never go through
+    `execute()`/`policy.allow`. Config-gated; web_search is capped + metered ($0.01/search).
+
+    ⚠️ Our org is HIPAA-regulated WITHOUT Zero Data Retention, so `web_fetch` and `code_execution`
+    are blocked (400). The *dynamic-filtering* web_search (web_search_20260318) auto-provisions
+    code_execution and is therefore also blocked — so we default to the **basic**
+    `web_search_20250305` tag, which works. `web_fetch` defaults **off** (flag ready for when ZDR
+    is enabled). Override the tags via `AGENT_WEB_SEARCH_TAG` / `AGENT_WEB_FETCH_TAG`.
+    """
+    blocked = [d.strip() for d in (os.environ.get("AGENT_WEB_BLOCKED_DOMAINS") or "").split(",")
+               if d.strip()]
+    defs: list[dict[str, Any]] = []
+    if _env_bool("AGENT_WEB_SEARCH_ENABLED", True):
+        d: dict[str, Any] = {
+            "type": os.environ.get("AGENT_WEB_SEARCH_TAG") or "web_search_20250305",
+            "name": "web_search", "max_uses": _env_int("AGENT_WEB_SEARCH_MAX_USES", 3)}
+        if blocked:
+            d["blocked_domains"] = blocked
+        defs.append(d)
+    if _env_bool("AGENT_WEB_FETCH_ENABLED", False):   # off until ZDR (HIPAA org blocks web_fetch)
+        d = {"type": os.environ.get("AGENT_WEB_FETCH_TAG") or "web_fetch_20260318",
+             "name": "web_fetch", "max_uses": _env_int("AGENT_WEB_FETCH_MAX_USES", 5)}
+        if blocked:
+            d["blocked_domains"] = blocked
         defs.append(d)
     return defs
 
