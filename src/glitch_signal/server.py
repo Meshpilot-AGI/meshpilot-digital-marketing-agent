@@ -260,6 +260,31 @@ async def _require_jobs_auth(request: Request, x_jobs_token: str = Header(defaul
         raise HTTPException(status_code=401, detail="invalid or missing x-jobs-token")
 
 
+def _authorized_brand(request: Request, body: dict | None = None) -> str:
+    """Resolve the brand a /internal|/jobs handler may act on (BFLA fix, #95).
+
+    Derive it from the SAME source `_require_jobs_auth` validated the token against — the
+    `?brand=` query param (default brand when absent) — NEVER the request body. A caller holding
+    one brand's jobs token (or the default brand's, with no `?brand=`) must not be able to start
+    actions for another brand by naming it in the body. Mirrors the PIPELINE endpoints.
+
+    If the body carries a `brand` that differs from the authorized query brand, reject with 400
+    rather than silently acting on the wrong one. Behavior is unchanged for the single-brand
+    (glitch_executor default) case: no query brand + no body brand → the default brand, as before.
+    """
+    brand = request.query_params.get("brand") or "glitch_executor"
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    if body is not None:
+        body_brand = body.get("brand")
+        if body_brand is not None and body_brand != brand:
+            raise HTTPException(
+                status_code=400,
+                detail="body 'brand' must match the authorized ?brand= query param",
+            )
+    return brand
+
+
 @app.post("/internal/facebook/test-post", dependencies=[Depends(_require_jobs_auth)])
 async def internal_facebook_test_post(request: Request) -> dict:
     """Publish one post to a brand's Facebook Page (verification / manual).
@@ -328,9 +353,7 @@ async def internal_agent_remember(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     kind = body.get("kind")
     content = body.get("content")
     if kind not in ("fact", "episode") or not content:
@@ -356,9 +379,7 @@ async def internal_agent_recall(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     query = body.get("query")
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
@@ -449,9 +470,7 @@ async def internal_agent_run(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     goal = body.get("goal")
     if not goal:
         raise HTTPException(status_code=400, detail="goal is required")
@@ -577,9 +596,7 @@ async def internal_agent_curate(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     res = await agent_curate(brand, limit=int(body.get("limit", 20)))
     return {"ok": True, "brand": brand, **res}
 
@@ -660,9 +677,7 @@ async def internal_cron_create(request: Request) -> dict:
     from glitch_signal.agent.cron import store as cron_store
 
     body = await _json(request)
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     for field in ("name", "schedule_kind", "schedule", "payload_kind"):
         if not body.get(field):
             raise HTTPException(status_code=400, detail=f"{field} is required")
@@ -1060,9 +1075,7 @@ async def internal_buffer_test_post(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     from glitch_signal.platforms import buffer
 
     post_id, status = await buffer.create_post(
@@ -1117,9 +1130,7 @@ async def internal_media_generate(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     slug = body.get("recipe")
     if not slug:
         raise HTTPException(status_code=400, detail="recipe is required")
@@ -1171,9 +1182,7 @@ async def internal_media_ensure_bucket(request: Request) -> dict:
         body = await request.json()
     except Exception:
         pass
-    brand = body.get("brand", "glitch_executor")
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    brand = _authorized_brand(request, body)
     from glitch_signal.media.generation.engines.base import EngineError
     from glitch_signal.media.generation.storage import bucket_for, ensure_bucket
 

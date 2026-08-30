@@ -2,6 +2,23 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### SEC-BFLA — brand-scoped authz on the rest of the internal surface — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Context:** `_require_jobs_auth` (server.py) brand-scopes the x-jobs-token to the brand in the `?brand=` query param (#95). The PIPELINE endpoints already take brand from `?brand=`, but **eight other** `/internal|/jobs` POST handlers still read `brand` from the JSON **body** — so a caller holding the default brand's jobs token (or any brand's, with no `?brand=`) could start actions for a *different* configured brand by naming it in the body (BFLA / cross-brand escalation).
+
+**Read:** `_require_jobs_auth` + the fixed PIPELINE endpoints (`internal_agent_pipeline{,_schedule}`) as the reference pattern; `config.brand_ids/brand_env`; `tests/test_pipeline_endpoints.py` for the TestClient-with-monkeypatched-store style.
+
+**Changed:** `src/glitch_signal/server.py` — added a `_authorized_brand(request, body)` helper that derives brand from the SAME source the token was authorized against (`request.query_params.get("brand") or "glitch_executor"`, validated against `brand_ids()`), and **400s if the body carries a `brand` that differs** from the authorized query brand (else silently acts on it). Replaced the `brand = body.get("brand", "glitch_executor")` idiom in all **8** remaining handlers: `POST /internal/agent/{remember,recall,run,curate}`, `POST /internal/cron/jobs`, `POST /internal/buffer/test-post`, `POST /internal/media/{generate,ensure-bucket}`. The GET handlers already read brand from a query param (safe, untouched). Single-brand (glitch_executor default) behavior is unchanged: no query + no body brand → the default brand, as before.
+
+**Verified:** new `tests/test_internal_brand_auth.py` (7 tests, DB stores monkeypatched — no real Supabase hit) proves for `remember`/`run`/`cron.create` that a body brand differing from the authorized query brand → **400 with the action never executed** (store fake never called), while the no-body-brand and matching-body-brand paths still run on the authorized brand. `uv run pytest -q` → **501 passed, 1 skipped**. Ruff: 20 pre-existing issues before and after — **0 new debt** (none on the added lines).
+
+**Docs:** this entry; `control-plane/ACTIVE_LANE_BOARD.md` (lane CLOSED).
+
+**Remains:** none. (The two `raise HTTPException(...)`-without-`from` B904 warnings in the media handlers are pre-existing and out of scope.)
+
+---
+
 ### README-REFRESH + repo hardening — CLOSED 2026-08-30
 **Owner:** Claude
 
