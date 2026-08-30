@@ -46,10 +46,21 @@ async def _cap_reconcile(brand_id: str, args: dict) -> dict:
     return await reconcile.run(args.get("vendors"))
 
 
+async def _cap_routing_audit(brand_id: str, args: dict) -> dict:
+    """ROUTER self-monitoring: flag primary-not-serving (fallback firing) + cost/call drift from
+    usage_events. Account-level (not per-brand), so `brand_id` is ignored."""
+    from glitch_signal.agent.loop.audit import routing_audit
+
+    res = await routing_audit(days=int(args.get("days", 1)),
+                              baseline_days=int(args.get("baseline_days", 7)))
+    return {"summary": res["summary"], "findings": res["findings"]}
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "drive_scout": _cap_drive_scout,
     "reconcile": _cap_reconcile,
+    "routing_audit": _cap_routing_audit,
 }
 
 

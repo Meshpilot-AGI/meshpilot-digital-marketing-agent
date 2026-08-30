@@ -70,7 +70,28 @@ treat it as a sample — the durable, cross-worker per-model spend lives in `usa
 queryable via `GET /internal/analytics/spend`. For dashboards, scrape the cost table (Grafana over
 Postgres) rather than this endpoint.
 
+## Content pipeline routing (added)
+
+`agent/llm.py::chat(tier="cheap"|"smart")` now routes through the model router by default: `cheap`
+→ router `simple`, `smart` → router `complex` (quality-first list + native fallback). An explicit
+`AGENT_CONTENT_[TEXT_]MODEL_<TIER>` env override still pins a single model and skips the router. So
+every content node (text_writer / script_writer / scout / storyboard / media captions / influencer)
+gets failover for free.
+
+## Self-optimization — data-grounded, not speculative (added)
+
+`agent/loop/audit.py::routing_audit()` reads `usage_events` (durable, cross-worker) and flags real
+anomalies:
+- **primary_not_serving** — a tier whose PRIMARY had 0 calls while a FALLBACK served → the primary is
+  degraded/rate-limited (the router's native failover is firing).
+- **cost_per_call_drift** — a model whose recent cost/call is > 1.5× its baseline.
+
+No ML, no auto-tuned thresholds — anomalies for a human, grounded in actual usage. Run it:
+- **On demand:** `GET /internal/agent/routing/audit?days=1&baseline_days=7` (jobs-auth).
+- **Nightly:** the `routing_audit` cron capability — seed a `capability` job
+  `{name: "routing_audit"}` on a nightly `cron` schedule (fires when `agent_cron_enabled`).
+
 ## Verified
 
 Live against real OpenRouter: `tier=simple`→Haiku, `tier=complex`→Sonnet 5, multi-model fallback array
-+ system `cache_control` accepted, per-model metrics recorded. Suite **540 pass**.
++ system `cache_control` accepted, per-model metrics + audit findings correct. Suite **545 pass**.
