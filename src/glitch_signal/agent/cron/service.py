@@ -103,10 +103,11 @@ async def _run_agent_turn(brand: str, payload: dict) -> dict:
     if not goal:
         raise ValueError("agentTurn payload requires a goal")
     max_steps = int(payload.get("max_steps", 5))
+    scope = str(payload.get("scope") or "chat")   # SCOPE: the job's toolset (clamped at create time)
     agent_run_id = _uuid.uuid4().hex
     await run_store.create_run(agent_run_id, brand, goal)
     try:
-        res = await agent_run(brand, goal, max_steps=max_steps)
+        res = await agent_run(brand, goal, max_steps=max_steps, scope=scope)
         await run_store.finish_run(agent_run_id, res)
         return {"run_id": agent_run_id, "steps": res.get("steps")}
     except Exception as exc:

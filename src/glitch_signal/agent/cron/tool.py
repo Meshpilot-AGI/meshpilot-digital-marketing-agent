@@ -51,6 +51,12 @@ async def schedule_tool(args: dict, brand_id: str) -> str:
         active = await store.count_active_owned(brand_id, owner)
         if active >= _max_jobs():
             return f"ERROR: creator-cap reached ({active}/{_max_jobs()} active jobs); cancel one first"
+        payload = dict(args.get("payload", {}) or {})
+        # SCOPE anti-escalation: a self-scheduled agentTurn may not exceed the CURRENT run's scope.
+        if str(args.get("payload_kind", "")) == "agentTurn":
+            from glitch_signal.agent.loop import scopes
+            if not scopes.is_subset(payload.get("scope"), scopes.current()):
+                payload["scope"] = scopes.current()
         try:
             job_id = await store.create_job(
                 brand_id=brand_id, owner=owner,
@@ -58,7 +64,7 @@ async def schedule_tool(args: dict, brand_id: str) -> str:
                 schedule_kind=str(args["schedule_kind"]),
                 schedule=args["schedule"],
                 payload_kind=str(args["payload_kind"]),
-                payload=args.get("payload", {}) or {},
+                payload=payload,
                 pacing=args.get("pacing") or {},
                 delete_after_run=bool(args.get("delete_after_run", args.get("schedule_kind") == "at")),
                 now=datetime.now(timezone.utc),

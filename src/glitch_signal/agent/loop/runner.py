@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 
-from glitch_signal.agent.loop import policy, tools
+from glitch_signal.agent.loop import policy, scopes, tools
 from glitch_signal.agent.loop import llm as agent_llm
 from glitch_signal.agent.loop.prompt import build_prompt, system_prompt
 
@@ -50,6 +50,7 @@ async def run(
     execute: ExecFn | None = None,
     mcp: Any = None,
     max_steps: int = 8,
+    scope: str = scopes.DEFAULT_SCOPE,
 ) -> dict[str, Any]:
     """Run the loop for a goal. Returns {final, transcript, steps}.
 
@@ -60,6 +61,7 @@ async def run(
     from glitch_signal.analytics.cost import budget as cost_budget
     from glitch_signal.analytics.cost import set_brand
     set_brand(brand_id)  # attribute every vendor call in this run to the brand (COST-METER)
+    scopes.set_current(scope)  # SCOPE: bound this run's toolset; the schedule tool clamps to ⊆ this
 
     max_steps = cost_budget.clamp_steps(max_steps)  # INC-3: hard ceiling (fixes unbounded max_steps)
 
@@ -80,9 +82,13 @@ async def run(
         await mcp.__aenter__()
         own_mcp = True
 
-    # Built-in client tools + Anthropic server tools (web_search/web_fetch) + this brand's MCP tools.
-    tool_defs = (tools.tool_defs() + tools.server_tool_defs()
+    # Built-in client tools + Anthropic server tools (web_search/web_fetch) + this brand's MCP tools,
+    # then SCOPE-filtered: the model is only offered the tools the active scope allows.
+    active_scope = scopes.resolve(scope)
+    _all_defs = (tools.tool_defs() + tools.server_tool_defs()
                  + (mcp.tool_defs() if mcp is not None else []))
+    tool_defs = [d for d in _all_defs if active_scope.allows(d["name"])]
+    log.info("agent.loop.scope", scope=active_scope.name, offered=len(tool_defs), total=len(_all_defs))
     sys = system_prompt()
 
     async def dispatch(tool_name: str, args: dict, bid: str) -> str:

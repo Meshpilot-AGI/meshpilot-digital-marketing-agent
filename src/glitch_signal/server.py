@@ -419,11 +419,11 @@ async def internal_brand_document_delete(brand_id: str, doc_id: str) -> dict:
     return {"ok": True, "deleted": doc_id, "file_id": file_id}
 
 
-async def _run_agent_bg(run_id: str, brand: str, goal: str, max_steps: int) -> None:
+async def _run_agent_bg(run_id: str, brand: str, goal: str, max_steps: int, scope: str) -> None:
     from glitch_signal.agent.loop import run as agent_run
     from glitch_signal.agent.loop import runs as run_store
     try:
-        res = await agent_run(brand, goal, max_steps=max_steps)
+        res = await agent_run(brand, goal, max_steps=max_steps, scope=scope)
         await run_store.finish_run(run_id, res)
     except Exception as exc:  # noqa: BLE001
         await run_store.fail_run(run_id, str(exc))
@@ -455,10 +455,15 @@ async def internal_agent_run(request: Request) -> dict:
     if not goal:
         raise HTTPException(status_code=400, detail="goal is required")
 
+    # SCOPE: bound the run's toolset (default `chat` = safe read+plan). A pipeline/operator run
+    # passes a broader scope (e.g. discovery/content/full).
+    from glitch_signal.config import settings as _settings
+    scope = body.get("scope") or getattr(_settings(), "agent_default_scope", "chat")
+
     run_id = _uuid.uuid4().hex
     await run_store.create_run(run_id, brand, goal)  # row exists before we return
-    asyncio.create_task(_run_agent_bg(run_id, brand, goal, int(body.get("max_steps", 5))))
-    return {"ok": True, "run_id": run_id, "status": "running"}
+    asyncio.create_task(_run_agent_bg(run_id, brand, goal, int(body.get("max_steps", 5)), scope))
+    return {"ok": True, "run_id": run_id, "status": "running", "scope": scope}
 
 
 @app.get("/internal/agent/run/{run_id}", dependencies=[Depends(_require_jobs_auth)])

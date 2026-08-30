@@ -612,3 +612,23 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** enable it (`AGENT_DISCOVERY_ENABLED=true` + redeploy) when ready; a scheduled scout node (trending → `Signal` rows) + credit-metering of pulls; Apify/Bright Data for deeper scrapes.
 
 ---
+### SCOPE — per-run/per-pipeline tool scoping — CLOSED 2026-08-30
+**Owner:** Claude (Opus)
+
+**Read:** `agent/loop/{runner,tools,policy}.py`, `server.py` (/internal/agent/run + `_run_agent_bg`), `agent/cron/{service,tool}.py`, `config.py`. Design: `docs/plans/2026-08-30-tool-scoping.md`.
+
+**Why:** the ReAct loop offered `tools.tool_defs()+server_tool_defs()+mcp.tool_defs()` — ALL tools — on every run, so a global kill-switch made a capability usable everywhere at once. For a 24/7 autonomous agent that means "enabled = may act unprompted anywhere." Scoping bounds the toolset to the active job/pipeline.
+
+**Changed:**
+- `agent/loop/scopes.py` (new) — `CAPABILITIES` (tool groups incl. `mcp__…*` prefixes) → `SCOPES` (chat/discovery/content/orm/full). `resolve(name)→Scope.allows(tool)` (exact + prefix; unknown→chat). `is_subset(child,parent)` for anti-escalation. `set_current/current` contextvar.
+- `runner.run(…, scope="chat")` — `set_current(scope)`; `tool_defs = [d for d in all_defs if scope.allows(d["name"])]`; logs `agent.loop.scope`. **Two layers:** scope=OFFERED, policy=ALLOWED (both must pass); the policy gate is unchanged. Seed recall / episode remember are internal calls, unaffected.
+- `server.py` `/internal/agent/run` — reads `scope` (default `agent_default_scope=chat`) → `_run_agent_bg` → run.
+- `agent/cron/service.py::_run_agent_turn` — reads `scope` from the job payload → run.
+- `agent/cron/tool.py` (schedule) — **anti-escalation:** a self-scheduled `agentTurn`'s scope is clamped to `scopes.current()` unless it's `is_subset` of it. Operator-created cron/REST runs may set any scope.
+- `config.py` — `agent_default_scope="chat"`.
+
+**Verified:** suite **476 pass** (6 scope tests: resolve/allows incl. mcp prefix, unknown→chat, is_subset anti-escalation, contextvar, runner filters offered tools chat vs content, default=chat). **Live:** real loop with `scope="chat"` → `agent.loop.scope offered=6 scope=chat total=15` and a coherent answer; filter correct (chat ✗ generate_media; content ✓ generate_media, ✗ discover_trending).
+
+**Remains:** per-channel Discord scope mapping; env/per-brand scope-registry override; then define the actual pipelines (discovery/content/orm scheduled runs) that use the broader scopes. Enablement is now enforceable: build tool (policy-gated off) → define pipeline+scope → enable the kill-switch.
+
+---
