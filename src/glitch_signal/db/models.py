@@ -6,9 +6,15 @@ Every table stores a full audit trail:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlmodel import Field, SQLModel
+
+
+def _utcnow() -> datetime:
+    """Naive UTC now. `datetime.utcnow()` is deprecated; this keeps the same naive-UTC value
+    (no tzinfo) the schema and time comparisons rely on — see the sso-timestamps lesson."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # ---------------------------------------------------------------------------
 # Signal — one row per discovered event worth making a video about
@@ -24,7 +30,7 @@ class Signal(SQLModel, table=True):
     summary: str                          # LLM-generated 1-sentence novelty description
     novelty_score: float
     status: str = "queued"                # queued | scripting | scripted | skipped
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +49,7 @@ class ContentScript(SQLModel, table=True):
     key_visuals: str = "[]"               # JSON list[str]
     shots: str = "[]"                     # JSON list[{visual, duration_s, model_hint}]
     status: str = "draft"                 # draft | approved | generating | done | failed
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +71,7 @@ class VideoJob(SQLModel, table=True):
     local_path: str | None = None
     cost_usd: float | None = None
     last_error: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
     completed_at: datetime | None = None
 
 
@@ -84,7 +90,7 @@ class VideoAsset(SQLModel, table=True):
     quality_score: float | None = None
     qc_notes: str | None = None       # JSON from QC LLM
     assembler_version: str = "1.0"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +141,7 @@ class PublishedPost(SQLModel, table=True):
     platform: str
     platform_post_id: str
     platform_url: str | None = None
-    published_at: datetime = Field(default_factory=datetime.utcnow)
+    published_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +154,7 @@ class MetricsSnapshot(SQLModel, table=True):
     id: str = Field(primary_key=True)
     brand_id: str = Field(index=True, default="glitch_executor")
     published_post_id: str = Field(foreign_key="published_post.id", index=True)
-    captured_at: datetime = Field(default_factory=datetime.utcnow)
+    captured_at: datetime = Field(default_factory=_utcnow)
     views: int = 0
     likes: int = 0
     comments: int = 0
@@ -164,7 +170,7 @@ class ScoutCheckpoint(SQLModel, table=True):
 
     source_key: str = Field(primary_key=True)  # e.g. "github:glitch-cod-confirm"
     brand_id: str = Field(index=True, default="glitch_executor")
-    last_checked_at: datetime = Field(default_factory=datetime.utcnow)
+    last_checked_at: datetime = Field(default_factory=_utcnow)
     last_ref: str | None = None             # last commit SHA or MILESTONES SHA
 
 
@@ -187,7 +193,7 @@ class MentionEvent(SQLModel, table=True):
     sentiment: str | None = None
     confidence: float | None = None
     guardrail_hit: bool = False
-    received_at: datetime = Field(default_factory=datetime.utcnow)
+    received_at: datetime = Field(default_factory=_utcnow)
     processed_at: datetime | None = None
 
 
@@ -212,8 +218,8 @@ class PlatformAuth(SQLModel, table=True):
     scopes: str = "[]"                               # JSON list[str]
     status: str = "active"                           # active | needs_reauth | revoked
     raw_provider_response: str = "{}"                # raw provider JSON for debugging
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +239,7 @@ class OrmResponse(SQLModel, table=True):
     sent_by: str | None = None        # auto | human
     discord_message_id: str | None = None
     discord_channel_id: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +274,7 @@ class CommentReply(SQLModel, table=True):
     # approval embed; cleared / unused once the row is terminal.
     discord_message_id: str | None = None
     discord_channel_id: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime | None = None
 
 
@@ -298,5 +304,5 @@ class StrategicReply(SQLModel, table=True):
     # new | drafted | pending_approval | posted | copied | vetoed | failed
     requested_by_telegram_id: str | None = None
     posted_platform_post_id: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime | None = None
