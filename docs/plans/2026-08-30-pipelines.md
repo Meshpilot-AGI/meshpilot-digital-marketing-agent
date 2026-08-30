@@ -39,12 +39,30 @@ media credits.
 
 ## Triggers (both reuse existing plumbing)
 
-- **Manual (operator, live now):** `POST /internal/agent/pipeline/{name}` (jobs-auth), body `{brand?}`
+Both take **`brand` from the `?brand=` query param** — the brand `_require_jobs_auth` validated the
+token against (#95) — never from the body, so one brand's jobs token cannot target another.
+
+- **Manual (operator, live now):** `POST /internal/agent/pipeline/{name}?brand=` (jobs-auth)
   → resolve → check `requires` (409 if a switch is off) → `_run_agent_bg(run_id, brand, goal,
   max_steps, scope)`. Returns `{run_id, pipeline, scope}`; poll `GET /internal/agent/run/{id}`.
-- **Scheduled (inert):** `POST /internal/agent/pipeline/{name}/schedule` (jobs-auth) seeds a
-  `payload_kind=agentTurn` cron job (owner `pipeline:<brand>`, carrying goal+scope) at the pipeline's
-  cadence. The scheduler fires it **only when `agent_cron_enabled`** is on (409 while off).
+- **Scheduled (inert):** `POST /internal/agent/pipeline/{name}/schedule?brand=` (jobs-auth) seeds a
+  `payload_kind=pipelineTurn` cron job (owner `pipeline:<brand>`, name `pipeline:<pipeline>`) at the
+  pipeline's cadence, carrying **only the pipeline name**. The scheduler fires it **only when
+  `agent_cron_enabled`** (409 while off). Idempotent per `(brand, pipeline)`: a re-seed updates the
+  existing job rather than colliding on the unique index.
+
+### Fire-time re-resolution (why the payload is name-only)
+
+A scheduled occurrence runs through `cron.service._run_pipeline_turn`, which **re-resolves the
+pipeline from the registry every fire** — reading the current scope, goal, and `requires`. So:
+- a `discovery` schedule stays inert (run **skipped**, recorded not executed) while
+  `agent_discovery_enabled` is off, and starts producing once it's flipped — the schedule need not be
+  re-seeded;
+- a `content` schedule honors the **current** `agent_content_media_enabled` (paid media on/off) on
+  each run, instead of freezing that decision at seed time.
+
+Freezing the resolved goal+scope into the payload (the first cut) silently defeated both switches —
+hence name-only + live resolution.
 
 ## Ships inert
 
