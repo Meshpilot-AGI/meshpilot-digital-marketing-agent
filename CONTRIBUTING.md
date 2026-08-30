@@ -1,71 +1,44 @@
-# Contributing to Glitch Social Media Agent
+# Contributing to MeshPilot
 
-Thanks for your interest. This is a build-in-public project — contributions that improve the open-source engine are welcome.
+Thanks for your interest. MeshPilot is **open-core** (AGPL-3.0): the agent is open
+source and self-hostable; a managed hosted platform is the separate paid product.
+Contributions to the agent are welcome.
 
-## What's in scope
+## Ground rules
 
-- Bug fixes in the video pipeline, scheduler, ORM, or platform integrations
-- New video model clients (`src/glitch_signal/video_models/`)
-- New platform publishers (`src/glitch_signal/platforms/`)
-- Performance improvements to the scheduler or assembler
-- Test coverage improvements
+- **By contributing, you agree your contribution is licensed under AGPL-3.0-or-later**
+  (the project license). Keep it your own work or properly attributed.
+- **No secrets, ever.** Real keys/tokens live only in the environment, never in code,
+  tests, or fixtures. A `gitleaks` scan runs against the tree — dummy/test values must
+  be allowlisted in `.gitleaks.toml`, not real ones.
+- **Content the agent produces must pass the content policy** (no AI footprints — no
+  em/en-dashes, no filler-ese). The same bar applies to docs and comments you write.
 
-## What's out of scope
+## Workflow (doc-driven, lane-based)
 
-- Changes to brand voice, guardrail phrases, or watermark assets (these live in the private `brand.config.json`)
-- Scope creep beyond short-form video + ORM
+1. **Open a lane** — a branch off `production` (`git switch -c lane/<name>`). Never
+   commit to `production` directly. This repo has no `main`; `production` is the trunk.
+2. **Read the docs first** if your change touches product behavior, tracking, security,
+   or the data model — see the doc index in the README (`docs/DOC-SYSTEM.md` →
+   `control-plane/ACTIVE_LANE_BOARD.md` → the relevant spoke doc).
+3. **Small, tested increments.** Tests are part of the change, not a follow-up:
+   ```bash
+   uv sync --extra dev
+   uv run pytest -q
+   ```
+4. **PR into `production`.** Keep the diff focused; explain what you changed, what you
+   verified, and what remains.
 
-## Setup
+## Running it locally
 
-```bash
-git clone https://github.com/glitch-exec-labs/glitch-grow-ai-social-media-agent
-cd glitch-grow-ai-social-media-agent
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-```
+You need Python ≥ 3.11 + `uv`, a Supabase Postgres (for memory/runs), and the vendor
+keys you want to exercise (Anthropic for the brain; MUapi/HeyGen/Higgsfield for media;
+NVIDIA NIM for embeddings). Copy `.env.example` to `.env` and fill what you need — the
+app degrades gracefully when an optional capability's key is absent. Publishing is
+**off by default** (`AGENT_PUBLISH_ENABLED` unset); the agent plans and generates but
+does not post until you deliberately enable it.
 
-## Run tests (no API keys needed)
+## Reporting issues
 
-```bash
-DISPATCH_MODE=dry_run pytest tests/ -v
-```
-
-## Lint
-
-```bash
-ruff check src/ tests/
-```
-
-## Adding a video model
-
-1. Create `src/glitch_signal/video_models/{model_name}.py`
-2. Implement the `VideoModel` ABC from `video_models/base.py`:
-   - `generate(req: VideoGenerationRequest) -> VideoGenerationResult`
-   - `poll(api_job_id: str) -> VideoGenerationResult`
-3. Register it in `get_model()` in `video_models/kling.py` (or extract to a factory)
-4. Add a model_hint entry to `brand.config.example.json`
-5. Add dry-run path (return mock result when `DISPATCH_MODE=dry_run`)
-6. Add tests
-
-## Adding a platform
-
-1. Create `src/glitch_signal/platforms/{platform}.py`
-2. Implement `upload(asset_path, metadata) -> str` (returns platform post ID)
-3. Wire into `agent/nodes/publisher.py`
-4. Document required env vars in `.env.example`
-
-## Commit style
-
-```
-type: short description (≤72 chars)
-
-Optional body. Explain why, not what.
-```
-
-Types: `fix`, `feat`, `refactor`, `test`, `docs`, `chore`
-
-## Pull requests
-
-- One logical change per PR
-- All CI checks must pass
-- No credentials in diff — ever
+Bugs, security findings, and feature ideas: open a GitHub issue. For anything
+security-sensitive, please note it clearly so it can be triaged before public detail.

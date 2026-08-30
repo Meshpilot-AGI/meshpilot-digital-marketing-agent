@@ -2,6 +2,19 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### OSS-PREP — open-source licensing prep (AGPL-3.0) — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the open-core strategy (memory `meshpilot-open-core-strategy` — Supabase model: agent open + self-hostable, hosted multi-tenant SaaS is the paid product); the existing README/pyproject; the full commit history for secrets.
+
+**Changed:** `LICENSE` — full **AGPL-3.0** text (network copyleft: a hosted or modified fork must publish its source, protecting the future managed-SaaS product). `README.md` — open-core framing up top (this agent is free + self-hostable; the managed multi-tenant platform is the paid product, "same model as Supabase") + License / Contributing / Acknowledgements sections (credits Hermes/NousResearch + OpenClaw, per operator — "we took a lot from openclaw and hermes"). `CONTRIBUTING.md` — doc-driven/lane workflow, AGPL inbound=outbound contribution terms, hard no-secrets rule, uv-based setup. `.gitleaks.toml` — extends the default ruleset; allowlists ONLY the fixed dummy test Fernet key (`l3mgT3…`, which protects nothing real — prod `AUTH_ENCRYPTION_KEY` is env-injected) + `.env.example`. `pyproject.toml` — classifier `License :: Other/Proprietary License` → `License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)`; Repository/Issues URLs → `Meshpilot-AGI` org (repo was transferred from xenon2512).
+
+**Verified:** `gitleaks detect` full-history scan — **103 commits, 3.88 MB, no leaks found** → clean for public release. Suite **431 passed, 1 skipped**. pyproject sanity: `license = {file="LICENSE"}` + AGPLv3+ classifier + Meshpilot-AGI URLs. (Blocker from the WIP state — "suite green pending upload-post removal" — resolved by VENDOR-2, which this lane rebased onto.)
+
+**Repo is PUBLIC:** the operator flipped it to public 2026-08-29, right after this prep — the full-history gitleaks scan (no leaks) means nothing sensitive was exposed. Optional later: a NOTICE/attribution file if any Hermes/OpenClaw-derived code needs per-file headers; a short "why AGPL, not MIT/Apache" note for contributors.
+
+---
+
 ### VENDOR-2 — remove Upload-Post completely — CLOSED 2026-08-29
 **Owner:** Claude
 
