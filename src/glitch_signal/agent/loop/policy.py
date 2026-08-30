@@ -25,6 +25,10 @@ PUBLISH_TOOLS = frozenset({"publish", "post", "publish_facebook", "publish_insta
 # Tools that send email (EMAIL-1) — gated by their own kill-switch, separate from publishing.
 EMAIL_TOOLS = frozenset({"send_email"})
 
+# Discovery tools (CaptAPI trending pulls) — gated by their own kill-switch. External, credit-metered
+# pulls stay OFF until deliberately enabled, so the ability ships inert (no scraping until flipped).
+DISCOVERY_TOOLS = frozenset({"discover_trending"})
+
 # External MCP tools default-DENY (#93): we can't know an arbitrary MCP tool's blast radius, so a
 # tool is allowed only if it is explicitly allowlisted per brand, has a read-only verb prefix, or
 # publishing is deliberately enabled. A denylist of "bad" verbs is leaky (misses create/update/run/
@@ -45,8 +49,10 @@ class Decision:
 class Policy:
     publish_enabled: bool = False
     email_enabled: bool = False
+    discovery_enabled: bool = False
     max_media_per_run: int = 3
     max_emails_per_run: int = 5
+    max_discovery_per_run: int = 5
     brand_denied: Mapping[str, frozenset[str]] = field(default_factory=dict)
     mcp_allow: Mapping[str, frozenset[str]] = field(default_factory=dict)  # brand -> allowed mcp__ tools
 
@@ -83,6 +89,13 @@ class Policy:
             if counts.get(tool_name, 0) >= self.max_emails_per_run:
                 return Decision(False, f"email budget exhausted ({self.max_emails_per_run} per run)")
 
+        # 3c. discovery kill-switch + per-run pull cap — external CaptAPI pulls stay off until enabled
+        if tool_name in DISCOVERY_TOOLS:
+            if not self.discovery_enabled:
+                return Decision(False, "discovery is disabled (agent_discovery_enabled is off)")
+            if counts.get(tool_name, 0) >= self.max_discovery_per_run:
+                return Decision(False, f"discovery budget exhausted ({self.max_discovery_per_run} per run)")
+
         # 4. per-run media budget (cost control)
         if tool_name == "generate_media" and counts.get("generate_media", 0) >= self.max_media_per_run:
             return Decision(False, f"media budget exhausted ({self.max_media_per_run} per run)")
@@ -116,8 +129,10 @@ def from_config() -> Policy:
     return Policy(
         publish_enabled=bool(getattr(s, "agent_publish_enabled", False)),
         email_enabled=bool(getattr(s, "agent_email_enabled", False)),
+        discovery_enabled=bool(getattr(s, "agent_discovery_enabled", False)),
         max_media_per_run=int(getattr(s, "agent_max_media_per_run", 3)),
         max_emails_per_run=int(getattr(s, "agent_max_emails_per_run", 5)),
+        max_discovery_per_run=int(getattr(s, "agent_max_discovery_per_run", 5)),
         mcp_allow=mcp_allow,
     )
 

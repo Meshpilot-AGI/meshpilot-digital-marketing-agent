@@ -129,6 +129,44 @@ async def _t_send_email(args: dict, brand_id: str) -> str:
     return f"email sent (message_id={rid})"
 
 
+def _compact_trending(item: Any) -> dict:
+    """Trim one trending item to the signals the agent needs (drops noisy url/expiry fields)."""
+    if not isinstance(item, dict):
+        return {"value": str(item)[:80]}
+    out: dict[str, Any] = {}
+    for k, v in item.items():
+        if k in ("videoUrl", "thumbnailUrl", "videoUrlExpiresAt", "thumbnailUrlExpiresAt"):
+            continue
+        if isinstance(v, str):
+            out[k] = v[:160]
+        elif isinstance(v, (int, float, bool)):
+            out[k] = v
+        elif isinstance(v, dict):
+            out[k] = {kk: vv for kk, vv in list(v.items())[:5] if isinstance(vv, (str, int, float, bool))}
+        elif isinstance(v, list):
+            out[k] = v[:6]
+    return out
+
+
+async def _t_discover_trending(args: dict, brand_id: str) -> str:
+    """Discover TRENDING social content (CaptAPI) as inspiration/signals. Gated by the policy —
+    denied unless discovery is enabled, so this makes no external pull until deliberately turned on."""
+    from glitch_signal.agent.discovery import captapi
+    platform = str(args.get("platform", "instagram")).strip().lower()
+    kind = str(args.get("kind") or ("reels" if platform == "instagram" else "feed")).strip().lower()
+    country = args.get("country")
+    try:
+        data = await captapi.trending(platform, kind, country=country)
+    except Exception as exc:  # noqa: BLE001 — surface to the loop, don't crash it
+        return f"ERROR: discovery failed: {str(exc)[:200]}"
+    lst = (next((v for v in data.values() if isinstance(v, list) and v), [])
+           if isinstance(data, dict) else (data if isinstance(data, list) else []))
+    trimmed = [_compact_trending(x) for x in lst[:10]]
+    return json.dumps({"platform": data.get("platform", platform) if isinstance(data, dict) else platform,
+                       "kind": kind, "country": (data.get("country") if isinstance(data, dict) else None),
+                       "count": len(trimmed), "trending": trimmed})
+
+
 async def _t_read_brand_doc(args: dict, brand_id: str) -> str:
     """Answer a question grounded ONLY in THIS brand's uploaded documents (Files API).
 
@@ -211,6 +249,16 @@ TOOLS: dict[str, dict[str, Any]] = {
     "read_playbook": {"fn": _t_read_playbook, "strict": True,
                       "description": "Read a handbook's full guidance by slug (from list_playbooks).",
                       "input_schema": _obj({"slug": {"type": "string"}}, ["slug"])},
+    "discover_trending": {"fn": _t_discover_trending,
+                          "description": "Discover TRENDING social content for inspiration / signals. "
+                                         "platform=instagram|tiktok; kind: instagram→reels, "
+                                         "tiktok→feed|hashtags|songs|creators (default reels/feed). "
+                                         "Returns the top trending items (caption, engagement, hashtags, "
+                                         "author, url). NOTE: gated — denied unless discovery is enabled.",
+                          "input_schema": _obj({"platform": {"type": "string", "enum": ["instagram", "tiktok"]},
+                                                "kind": {"type": "string",
+                                                         "enum": ["reels", "feed", "hashtags", "songs", "creators"]},
+                                                "country": {"type": "string"}}, ["platform"], closed=False)},
     "read_brand_doc": {"fn": _t_read_brand_doc, "strict": True,
                        "description": "Consult THIS brand's uploaded documents (style guide / brief / "
                                       "deck) to answer a question or ground content in the real brand "

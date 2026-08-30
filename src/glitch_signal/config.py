@@ -288,6 +288,13 @@ class Settings(BaseSettings):
     agent_email_enabled: bool = False
     agent_max_emails_per_run: int = 5        # per-loop-run cap (policy gate, via counts)
     agent_email_brand_daily_cap: int = 50    # per-brand/day cap (send path; 0 = unlimited)
+    # --- Discovery (CaptAPI) — trending social content signals ---
+    captapi_key: str = ""                    # capt_live_… (Bearer); the discover_trending tool
+    # Discovery kill-switch (mirrors agent_email_enabled): while False the agent's
+    # `discover_trending` tool is denied by the policy gate. Stays OFF (no external pulls) until
+    # deliberately enabled — the ability ships inert.
+    agent_discovery_enabled: bool = False
+    agent_max_discovery_per_run: int = 5     # per-loop-run cap (policy gate, via counts)
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
     # Hard ceiling on agent-loop steps (COST-METER INC-3) — clamps any caller/payload max_steps so an

@@ -595,3 +595,20 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** structured outputs (`output_config.format`) for guaranteed caption JSON; citations; per-node tier tuning (some nodes may want cheap=Haiku to control cost); consider moving script/text_writer doc-grounding too. Watch content cost (Gemini-flash → Haiku/Sonnet) via the per-brand budget.
 
 ---
+### DISCOVERY — trending social content via CaptAPI — CLOSED 2026-08-30
+**Owner:** Claude (Opus)
+
+**Read:** `agent/loop/{policy,tools}.py` (email/publish gate + tool registry), `config.py` (kill-switch flags). Vendor vetting: CaptAPI vs Apify vs Bright Data.
+
+**Changed:** built the agent's discovery ability (operator directive: "build the ability, don't start scraping").
+- `agent/discovery/captapi.py` — thin CaptAPI client (`trending(platform,kind,country?,cache=True)` → the endpoint `data`). 5 endpoints wired (IG trending-reels; TikTok trending-feed/popular-hashtags/songs/creators). Bearer `CAPTAPI_KEY`, `cache=true` default (free 24h).
+- `agent/loop/tools.py` — `discover_trending(platform,kind?,country?)` tool (+ `_compact_trending`): top-10 items projected to caption/engagement/hashtags/author/url, noisy video/thumbnail-expiry fields dropped.
+- `agent/loop/policy.py` — `DISCOVERY_TOOLS={"discover_trending"}` gated by `Policy.discovery_enabled` (from `agent_discovery_enabled`, default **False**) + per-run cap `max_discovery_per_run` (5). Mirrors the email kill-switch — the tool is offered but **DENIED until enabled**, so no external pull happens in the build.
+- `config.py` — `captapi_key`, `agent_discovery_enabled=False`, `agent_max_discovery_per_run=5`.
+- `CAPTAPI_KEY` stored (FastAPI Cloud env secret + local `.env`); `APIFY_KEY`/`BRIGHTDATA_KEY` in local `.env` for later (unused). Vendor doc `docs/vendors/captapi.md` + README.
+
+**Verified:** suite **470 pass** (8 discovery tests: gate denied-off/allowed-on/per-run-cap, client endpoint-map + request shape + unsupported target, tool compaction + error). The CaptAPI endpoint itself was verified **live during vetting** (200; real US IG trending reels w/ caption/engagement/hashtags) — **no live pull in the build** (gated off, per the operator's "don't scrape").
+
+**Remains:** enable it (`AGENT_DISCOVERY_ENABLED=true` + redeploy) when ready; a scheduled scout node (trending → `Signal` rows) + credit-metering of pulls; Apify/Bright Data for deeper scrapes.
+
+---
