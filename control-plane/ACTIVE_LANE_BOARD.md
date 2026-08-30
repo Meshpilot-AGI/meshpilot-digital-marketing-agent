@@ -3,6 +3,14 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### CAPTION-CLAUDE — move caption generation to Claude + brand-doc grounding          [DESIGN]
+Owner: Claude (Opus)        Opened: 2026-08-30
+Goal: caption_writer generates via MUapi/Gemini today, so it can't use the Files API (Claude-only) to follow a brand's uploaded style guide. Move CAPTION generation to Claude (Sonnet 5) + ground it in the brand's uploaded docs. Scope: caption_writer only (rest of the content pipeline stays MUapi). One seam `_caption_llm(system,user,brand)` both caption paths call; provider switch AGENT_CAPTION_PROVIDER (claude default, muapi revert); doc blocks from documents.list_for_brand; complete_messages(Sonnet 5). COST-METER already covers it.
+Design: docs/plans/2026-08-30-caption-claude.md  ← awaiting operator go before build
+Reading: agent/nodes/caption_writer.py, agent/llm.py, agent/loop/llm.py, agent/documents.py, tests/test_caption_writer_*.py
+Acceptance: captions generate on Claude grounded in the brand doc; provider=muapi still works; suite green; live Sonnet 5 caption obeys an uploaded guide + parses JSON.
+Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
