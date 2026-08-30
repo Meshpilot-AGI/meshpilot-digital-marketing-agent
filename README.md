@@ -86,11 +86,16 @@ the simpler thing that keeps one agent autonomous wins.
 ## What it is (the 60-second version)
 
 - It holds **per-brand memory** (durable facts + episodes of what it did).
-- It runs a **reasoning loop** that recalls context, plans, and calls its
-  **tools** — generate media, read/write memory, publish (gated) — then records
-  what happened.
-- A **deterministic policy gate** sits in front of every tool: unsafe actions are
-  refused before they run (publishing is off until deliberately enabled).
+- It runs a **native tool-use loop** that recalls context, plans, and calls its
+  **tools** — read/write memory, generate media, search/fetch the web, read a
+  brand's documents, discover trending content, publish, email, schedule its own
+  future work (the outward ones gated) — then records what happened.
+- Each run has a **scope** that bounds which tools are even offered, and a
+  **deterministic policy gate** sits in front of every call: unsafe or disabled
+  actions are refused before they run (publishing/web/email/discovery ship off).
+- It can **deliberate**: an optional independent *conscience* reviews outward output
+  against a constitution, and a *reckoning* pass checks each run against a
+  before-the-fact expectation (both advisory, default off).
 - A **curator** distills its episodes into durable lessons, so the next run starts
   smarter. The loop closes: *act → remember → learn → act better.*
 
@@ -120,9 +125,12 @@ is always MeshPilot; the gateway is dumb plumbing (message in → `/internal/age
 
 ## How it works (the architecture)
 
-Two model backends, split by job. **Claude** is the agent's *brain* (fast,
-synchronous, multi-step reasoning). **MUapi** is its *content factory* (one
-gateway for text, image, and video generation). The agent never confuses the two.
+Two model backends, split by job. **Claude — reached through OpenRouter** — is the
+agent's *brain* (multi-step reasoning via **native tool use**) **and writes the
+copy** (captions, scripts, replies). **MUapi** is the *media factory* (one gateway
+for image and video generation). A quality-first **model router** picks the model
+per task and **fails over across providers** automatically. The agent never
+confuses the brain from the media factory.
 
 ```mermaid
 flowchart TB
@@ -130,32 +138,36 @@ flowchart TB
       CF["WAF · TLS/HSTS · body cap · origin-auth injection"]
     end
     subgraph App["FastAPI Cloud — the agent (glitch_signal)"]
-      API["HTTP surface<br/>/internal/agent/* · /internal/media/* · /jobs/*"]
-      SCHED["In-process scheduler<br/>~30s dispatch tick"]
-      subgraph Brain["The Brain — Claude"]
-        LOOP["Loop · ReAct runner"]
-        POLICY["Policy · deterministic gate"]
+      API["HTTP surface<br/>/internal/agent/* · /internal/media/* · /internal/analytics/* · /jobs/*"]
+      SCHED["Scheduler + self-cron<br/>~30s tick · exactly-once jobs"]
+      subgraph Brain["The Brain — Claude via OpenRouter"]
+        ROUTER["Router · tier → model + cross-provider failover"]
+        LOOP["Loop · native tool-use runner"]
+        SCOPE["Scope · which tools are OFFERED"]
+        POLICY["Policy · deterministic allow / deny + budget"]
+        DELIB["Deliberation · reckoning + independent conscience (advisory)"]
         MEM["Memory · recall + remember"]
         LEARN["Learn · curator"]
       end
-      subgraph Content["Content — MUapi"]
-        MEDIA["Media · image/video recipes"]
-        TEXT["Text · captions/scripts"]
+      subgraph Media["Media factory"]
+        GEN["MUapi · HeyGen · Higgsfield<br/>image / video"]
       end
+      METER["Cost meter · per-brand usage_events"]
       PUB["Publishers<br/>Buffer · Meta · YouTube (gated)"]
     end
     subgraph Data["Supabase — Postgres + Storage"]
-      DB[("agent_memory · agent_runs · scheduled_post · …")]
+      DB[("agent_memory · agent_runs · usage_events · brand_document · cron jobs")]
       BUCKETS[("per-brand media buckets")]
     end
-    CF --> API
-    API --> Brain
-    Brain --> Content
-    Brain --> MEM
-    MEM --> DB
-    LOOP --> POLICY --> PUB
-    Content --> BUCKETS
-    SCHED --> PUB
+    CF --> API --> Brain
+    ROUTER --> LOOP --> SCOPE --> POLICY
+    POLICY --> Media
+    POLICY --> PUB
+    LOOP --> MEM --> DB
+    LOOP -.-> METER --> DB
+    DELIB -.-> DB
+    Media --> BUCKETS
+    SCHED --> LOOP
     LEARN --> DB
 ```
 
@@ -166,39 +178,71 @@ memory and learning are always-on.
 
 ```mermaid
 flowchart LR
-    GOAL["Goal / trigger"] --> RECALL["Seed recall<br/>(per-brand memory)"]
-    RECALL --> PLAN["LLM plans next action<br/>(Claude, ReAct JSON)"]
-    PLAN --> GATE{"Policy gate<br/>allow / deny"}
-    GATE -->|denied| OBS["record DENIED"]
-    GATE -->|allowed| ACT["Execute tool<br/>recall · remember · generate_media · publish*"]
+    GOAL["Goal / trigger"] --> EXP["Reckoning<br/>capture expectation*"]
+    EXP --> RECALL["Seed recall<br/>(per-brand memory)"]
+    RECALL --> PLAN["LLM plans next action<br/>(Claude/OpenRouter · native tool use)"]
+    PLAN --> SCOPE{"In scope?<br/>(offered toolset)"}
+    SCOPE -->|no| OBS
+    SCOPE -->|yes| GATE{"Policy gate<br/>allow / deny · budget"}
+    GATE -->|denied| OBS["record result / DENIED"]
+    GATE -->|allowed| ACT["Execute tool<br/>recall · remember · generate_media · web · publish*"]
     ACT --> OBS
     OBS --> PLAN
-    PLAN -->|final| EP["Write episode"]
+    PLAN -->|final| CONS["Conscience<br/>independent critic vs constitution*"]
+    CONS --> EP["Write episode + reckon"]
     EP --> CUR["Curator<br/>episodes → durable lessons"]
     CUR -.->|lessons resurface via recall| RECALL
 ```
 
-Two things make it safe to leave running: **(1)** every tool call passes the
-policy gate first (publish tools denied unless `agent_publish_enabled`, per-run
-cost budgets on paid media); **(2)** background runs are persisted in Postgres
-(`agent_runs`), so they survive the multi-worker cloud and are pollable by run id.
+<sub>* Reckoning and Conscience are advisory and default-off (`agent_reckoning_enabled` / `agent_conscience_enabled`); publish/web tools are gated.</sub>
+
+Three things make it safe to leave running: **(1)** each run has a **scope** that
+bounds *which* tools are even offered, and **(2)** every offered tool call still
+passes the deterministic **policy gate** (publish/web/email denied unless their
+switch is on; per-run + per-brand-daily cost budgets); **(3)** background runs are
+persisted in Postgres (`agent_runs`), so they survive the multi-worker cloud and
+are pollable by run id. A self-scheduling job's scope is clamped to a subset of the
+run that created it, so the agent can't widen its own powers.
 
 ### The Brain (cognitive substrate)
 
-Four increments, all live and verified:
+All live and verified:
 
 - **MEM** — per-brand memory in Supabase (`agent_memory`): facts + episodes, hybrid
   recall (pgvector semantic + Postgres FTS, fused). `agent/memory/`.
-- **LOOP** — a ReAct runner over **Claude** that recalls, plans, calls tools, and
-  writes an episode; backgrounded + DB-backed for the cloud. `agent/loop/`.
+- **LOOP** — a **native tool-use** runner over **Claude** (`tool_use` → `tool_result`,
+  parallel-safe) that recalls, plans, calls tools, and writes an episode;
+  backgrounded + DB-backed for the cloud. `agent/loop/`.
+- **ROUTER** — a quality-first model router: each task tier (`critical` / `complex` /
+  `moderate` / `simple`) maps to an ordered model list sent as OpenRouter's `models`
+  array, so failover across providers is native (Claude → GLM → Kimi, …). Env
+  override `AGENT_ROUTER_<TIER>`. A data-grounded **audit** (`audit.py`) reads
+  `usage_events` and flags `primary_idle` / `cost_per_call_drift`. `agent/loop/routing.py`.
 - **POLICY** — a deterministic allow/deny gate run before every tool: per-brand
-  denies, a **publish kill-switch**, and per-run media budgets. `agent/loop/policy.py`.
+  denies, **kill-switches** (publish / web / email / discovery), and per-run +
+  per-brand-daily cost budgets. `agent/loop/policy.py`.
+- **SCOPE + PIPELINES** — each run carries a **scope** (`chat` default / `discovery` /
+  `content` / `orm` / `full`) bounding *which* tools are offered — a layer above the
+  policy gate (scope = OFFERED, policy = ALLOWED). Capabilities only turn on inside a
+  declarative **pipeline** (discovery / content / orm), each with its own scope, goal,
+  and cadence. `agent/loop/scopes.py`, `agent/loop/pipelines.py`.
+- **DELIBERATION** — two advisory, default-off passes wrapping a run: **Reckoning**
+  (capture an expectation *before* acting, self-assess after — grounded in the
+  transcript, never trusted as verified) and an independent **Conscience** critic
+  (fresh context, can't see the actor's reasoning) that reviews the outward output
+  against a written constitution (`agent/CONSCIENCE.md`) → `pass` / `concerns` /
+  `escalate`, fed only **operator-verified** brand facts as ground truth.
+  `agent/loop/{reckoning,conscience}.py`.
 - **LEARN** — a Hermes-style curator that distills episodes into durable lessons
   (stored as facts, deduped, idempotent), closing the self-improvement loop.
   `agent/learn/curator.py`.
+- **SELF-CRON** — the agent schedules its **own** future work via the `schedule`
+  tool; jobs are claimed exactly-once (`FOR UPDATE SKIP LOCKED`) and re-invoke the
+  loop (`agentTurn`) or run a capability. Gated by `agent_cron_enabled`. `agent/cron/`.
 
 Patterns adapted from **Hermes** (memory-first + curator) and **OpenClaw**
-(trusted-gateway / deterministic policy). See `docs/plans/2026-08-29-agent-brain.md`.
+(trusted-gateway / deterministic policy / self-cron). See
+`docs/plans/2026-08-29-agent-brain.md` and the dated design docs in `docs/plans/`.
 
 ---
 
@@ -213,12 +257,14 @@ Patterns adapted from **Hermes** (memory-first + curator) and **OpenClaw**
 | Database | **Supabase Postgres** (asyncpg, SQLModel/SQLAlchemy) | `agent_memory`, `agent_runs`, `oauth_tokens`, … |
 | Vectors | **pgvector** (`halfvec`, HNSW) | semantic recall in `agent_memory` |
 | Object storage | **Supabase Storage** | per-brand media buckets (`<prefix>-media`) |
-| Brain LLM | **Anthropic Claude** (Messages API) | the ReAct loop + curator |
+| Brain LLM | **Claude via OpenRouter** (OpenAI-compatible) | native tool-use loop + curator + content copy; model **router** with cross-provider failover |
 | Embeddings | **NVIDIA NIM** (nemotron) | memory recall |
-| Media — generate | **MUapi** (image/video/text) · **HeyGen** (avatar video, via MCP) · **Higgsfield** (Soul/DoP) | pluggable `Engine` protocol |
+| Media — generate | **MUapi** (image/video) · **HeyGen** (avatar video, via MCP) · **Higgsfield** (Soul/DoP) | pluggable `Engine` protocol (text moved to Claude) |
 | Media — edit | **Pillow** | native deterministic `edit_image` |
-| Agent framework | **custom ReAct loop** + **MCP client** (`mcp` SDK) | LangGraph for the legacy video pipeline |
+| Agent framework | **custom native tool-use loop** + **MCP client** (`mcp` SDK) | LangGraph for the legacy video pipeline |
 | Publishing | **Buffer** · **Meta Graph API** · **YouTube** | gated OFF by policy |
+| Email | **Resend** | agent `send_email` (gated OFF) |
+| Cost / budget | **self-metered** `usage_events` (per-brand) | meters OpenRouter + media vendors; per-run + daily budgets |
 | Web (waitlist) | **Next.js** (App Router, static export) → **Cloudflare Pages** | `web/`, `meshpilot.app` |
 | Migrations | **Supabase-native SQL** | `supabase/migrations/*.sql` (Alembic retired) |
 | CI/CD | **GitHub Actions** (drift-aware) | runs on push to `production` |
@@ -237,9 +283,11 @@ over time — the two axes are independent.
   resolves per-brand as `<BRAND>_<KEY>` (e.g. `GE_META_APP_ID`). Glitch Executor
   (`GE`) is the first project.
 - **Capabilities** — pluggable modules that own their routes, scheduler hooks, and
-  config. **#1 — social publishing** (Buffer / Meta / YouTube) plus the media
-  factory. Future: SEO, paid ads, email, analytics — each a module on the same
-  agent, not a new agent.
+  config. Live today: **social publishing** (Buffer / Meta / YouTube), the **media
+  factory** (image/video), **web research** (search/fetch), **brand-doc grounding**
+  (Files API), **trending discovery** (CaptAPI), and **email** (Resend) — most gated
+  off. Future: SEO, paid ads, deeper analytics — each a module on the same agent,
+  not a new agent.
 
 ---
 
@@ -252,14 +300,24 @@ One deployable service on **FastAPI Cloud**, behind **Cloudflare**.
 | `api.meshpilot.app` | The agent (custom domain, CF-proxied). Origin: `meshpilot-social-media-agent.fastapicloud.dev` |
 | `/healthz` | Liveness (exempt from auth + rate limit) |
 | `/internal/agent/{remember,recall,run,curate}` + `GET /internal/agent/run/{id}` | Brain: memory, backgrounded loop, curator (jobs-auth) |
+| `/internal/agent/pipeline/{name}` + `/schedule` | Run or schedule a discovery/content/orm pipeline (409 if its switch is off) |
+| `/internal/agent/routing/{metrics,audit}` | Per-worker routing metrics + data-grounded routing audit |
+| `/internal/brand/{brand}/documents` (POST/GET/DELETE) | Brand-doc ingest for grounded answers (Files API) |
+| `/internal/analytics/{spend,budget,reconcile}` | Per-brand cost rollup, budget, vendor-balance reconcile |
 | `/internal/media/{recipes,generate,ensure-bucket}` | MUapi media factory → per-brand Supabase buckets |
+| `/internal/cron/*` | Cron jobs the agent (or an operator) schedules |
 | `/internal/{buffer,facebook,instagram,youtube}/*` | Publisher test/introspection endpoints (gated) |
 | `/jobs/{scout,drive_scout,assemble}` | Legacy LangGraph content pipeline (superseded by the brain; still live) |
 
-- **LLM split:** Claude = brain (`ANTHROPIC_API_KEY`); MUapi = all content text +
-  media (`MUAPI_API_KEY`). Vision QC is the one Claude-vision exception.
+- **LLM split:** **Claude via OpenRouter** is the brain **and writes the copy**
+  (`OPENROUTER_API_KEY`, models still Claude slugs, router picks the tier);
+  **MUapi = image/video only** (`MUAPI_API_KEY`). `ANTHROPIC_API_KEY` is used only
+  for the Files API (brand-doc grounding). Embeddings via **NVIDIA NIM**.
 - **Data:** Supabase Postgres (project `qkztphfjwgluwwlgeyys`) + Storage buckets.
-  Embeddings via NVIDIA NIM. **Publishing is OFF by default** (`agent_publish_enabled=False`).
+  **All outward/paid capabilities ship OFF by default** — `agent_publish_enabled`,
+  `agent_web_fetch_enabled`, `agent_discovery_enabled`, `agent_email_enabled`,
+  `agent_conscience_enabled`, `agent_reckoning_enabled`, `agent_cron_enabled` are all
+  `False` until deliberately enabled.
 - **Scheduler:** in-process ~30s tick; the same dispatch is endpoint-reachable, so
   an external cron can drive it if the host scales to zero.
 - **Chat control plane:** a small Discord bridge ([`gateway/`](gateway/), one
@@ -276,12 +334,17 @@ src/glitch_signal/
   server.py                 FastAPI app + startup (installs middleware, starts scheduler)
   config.py                 pydantic-settings; all runtime config via env (per-brand <TAG>_*)
   agent/
-    loop/                   BRAIN — ReAct runner, Claude llm, policy gate, tools, runs, prompt
+    loop/                   BRAIN — native tool-use runner, OpenRouter llm + model router,
+                            policy gate, scopes, pipelines, reckoning, conscience, tools, runs
     memory/                 BRAIN — per-brand facts+episodes, hybrid recall, NVIDIA embeddings
     learn/                  BRAIN — curator (episodes → durable lessons)
-    llm.py                  CONTENT text shim → MUapi (retired the old LiteLLM router)
+    cron/                   BRAIN — agent self-cron (exactly-once jobs; agentTurn / capability)
+    discovery/              CaptAPI trending-content client (discover_trending tool)
+    documents.py files.py   Brand documents via the Anthropic Files API (read_brand_doc tool)
+    llm.py                  CONTENT copy → Claude via the loop router (MUapi is image/video only)
     graph.py nodes/         Legacy LangGraph video pipeline (superseded; QC on Claude vision)
-  media/                    Media factory — recipes + pluggable engines (MUapi · HeyGen), storage
+  analytics/cost/           Per-brand cost metering (usage_events), budget gate, reconcile
+  media/                    Media factory — recipes + pluggable engines (MUapi · HeyGen · Higgsfield), storage
   webhooks/                 Provider callbacks (e.g. /webhooks/heygen — HMAC-verified)
   middleware/               CF hardening — security headers, body cap, origin-auth, rate limit
   platforms/ integrations/  Publisher clients (Buffer, Meta, YouTube, Drive/Sheets)
@@ -306,7 +369,7 @@ control-plane/              ACTIVE_LANE_BOARD.md · SESSION_COORDINATION.md · E
 
 ```bash
 uv sync
-cp .env.example .env          # provider keys + SIGNAL_DB_URL (+ per-brand GE_* secrets)
+cp .env.example .env          # OPENROUTER_API_KEY · MUAPI_API_KEY · NVIDIA_API_KEY · SIGNAL_DB_URL (+ per-brand GE_* secrets)
 uv run pytest -q              # the suite must be green before you ship
 uv run fastapi dev main.py    # local run
 ```
