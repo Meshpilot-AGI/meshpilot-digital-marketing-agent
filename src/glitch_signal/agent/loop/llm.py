@@ -310,9 +310,11 @@ async def complete_tools(messages: list[dict], *, tools: list[dict], system: str
     """One native tool-use turn → assistant message {content, stop_reason, usage} (Anthropic shape).
 
     The main ReAct loop defaults to the **complex** tier (ROUTER — quality-first + native fallback);
-    an explicit `model` overrides. Caller runs the returned tool_use blocks, sends tool_results back.
+    an explicit `model` — or the `AGENT_LLM_MODEL` env (the loop's documented override) — pins a single
+    model instead. Caller runs the returned tool_use blocks, sends tool_results back.
     """
     _ = effort
+    model = model or os.environ.get("AGENT_LLM_MODEL")   # loop override wins over the default tier (#177.1)
     resp = await _chat(messages, system=system, tools=tools, model=model, tier=tier,
                        max_tokens=max_tokens, timeout_s=timeout_s, client=client, cache_system=True)
     return {"content": resp["content"], "stop_reason": resp["stop_reason"], "usage": resp["usage"]}

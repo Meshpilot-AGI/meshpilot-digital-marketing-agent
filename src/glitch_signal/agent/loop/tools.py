@@ -227,6 +227,8 @@ async def _t_web_search(args: dict, brand_id: str) -> str:
     """Search the LIVE web via OpenRouter's native web plugin. Returns {answer, sources}."""
     from glitch_signal.agent.loop import llm as agent_llm
 
+    if not _env_bool("AGENT_WEB_SEARCH_ENABLED", True):
+        return "ERROR: web_search is disabled (AGENT_WEB_SEARCH_ENABLED)"
     q = str(args.get("query", "")).strip()
     if not q:
         return "ERROR: web_search requires 'query'"
@@ -237,18 +239,67 @@ async def _t_web_search(args: dict, brand_id: str) -> str:
     return json.dumps({"answer": answer[:3000], "sources": sources[:8]})
 
 
+def _web_url_ok(url: str) -> tuple[bool, str]:
+    """SSRF guard for a model-supplied URL: http(s) only, not a blocked domain, and does NOT resolve
+    to a private / loopback / link-local / reserved / metadata address."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+
+    p = urlsplit(url)
+    if p.scheme not in ("http", "https"):
+        return False, f"scheme {p.scheme!r} not allowed"
+    host = (p.hostname or "").lower()
+    if not host:
+        return False, "no host"
+    blocked = [d.strip().lower() for d in (os.environ.get("AGENT_WEB_BLOCKED_DOMAINS") or "").split(",")
+               if d.strip()]
+    if any(host == b or host.endswith("." + b) for b in blocked):
+        return False, "domain is blocked (AGENT_WEB_BLOCKED_DOMAINS)"
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:  # noqa: BLE001
+        return False, "DNS resolution failed"
+    for info in infos:
+        try:
+            addr = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+                or addr.is_multicast or addr.is_unspecified):
+            return False, f"host resolves to a non-public address ({addr})"
+    return True, ""
+
+
 async def _t_web_fetch(args: dict, brand_id: str) -> str:
-    """Fetch a URL and return its readable text (crude tag-strip, capped)."""
+    """Fetch a URL and return its readable text. Guarded: gated by AGENT_WEB_FETCH_ENABLED, http(s)
+    only, no SSRF to private/metadata IPs, redirects NOT followed, response bounded to 500KB."""
     import re as _re
 
     import httpx as _httpx
+    if not _env_bool("AGENT_WEB_FETCH_ENABLED", True):
+        return "ERROR: web_fetch is disabled (AGENT_WEB_FETCH_ENABLED)"
     url = str(args.get("url", "")).strip()
     if not url:
         return "ERROR: web_fetch requires 'url'"
+    ok, why = _web_url_ok(url)
+    if not ok:
+        return f"ERROR: web_fetch refused: {why}"
     try:
-        async with _httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
-            r = await c.get(url, headers={"user-agent": "Mozilla/5.0"})
-        text = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", r.text, flags=_re.S | _re.I)
+        async with _httpx.AsyncClient(timeout=30, follow_redirects=False) as c:
+            async with c.stream("GET", url, headers={"user-agent": "Mozilla/5.0"}) as r:
+                if 300 <= r.status_code < 400:
+                    return f"ERROR: web_fetch got a redirect (HTTP {r.status_code}) — not followed"
+                if r.status_code >= 400:
+                    return f"ERROR: web_fetch got HTTP {r.status_code}"
+                chunks, total = [], 0
+                async for chunk in r.aiter_bytes():
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total >= 500_000:                 # bound bandwidth/memory, don't download the whole thing
+                        break
+        raw = b"".join(chunks).decode("utf-8", "ignore")
+        text = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw, flags=_re.S | _re.I)
         text = _re.sub(r"<[^>]+>", " ", text)
         return _re.sub(r"\s+", " ", text).strip()[:4000] or "(no readable text)"
     except Exception as exc:  # noqa: BLE001

@@ -57,16 +57,21 @@ async def routing_audit(*, days: int = 1, baseline_days: int = 7, drift_ratio: f
                              "base_cost": float(r["base_cost"] or 0)} for r in rows}
     findings: list[dict] = []
 
-    # (a) fallback firing per tier
-    for tier, models in routing.TIERS.items():
+    # (a) fallback firing per tier — uses the EFFECTIVE (override-aware) tier list. This is a SOFT
+    #     signal: usage_events records only the served model, not the requested tier, so a fallback
+    #     model may have served because the primary failed OR because a caller pinned it directly
+    #     (e.g. a content env override). Flagged as informational for a human to check, not a verdict.
+    for tier in routing.TIERS:
+        models = routing.resolve(tier)
         primary, fallbacks = models[0], models[1:]
         if (by_model.get(primary, {}).get("recent_calls", 0)) == 0:
             active = [m for m in fallbacks if by_model.get(m, {}).get("recent_calls", 0) > 0]
             if active:
-                findings.append({"type": "primary_not_serving", "tier": tier, "primary": primary,
-                                 "active_fallbacks": active,
-                                 "note": f"{tier} primary {primary} had 0 calls in {days}d while "
-                                         f"fallback(s) served — primary may be degraded/rate-limited."})
+                findings.append({"type": "primary_idle", "severity": "info", "tier": tier,
+                                 "primary": primary, "active_models_in_tier": active,
+                                 "note": f"{tier} primary {primary} had 0 calls in {days}d while other "
+                                         f"tier models served — the primary MAY be degraded, or those "
+                                         f"models were pinned directly. Verify against provider status."})
 
     # (b) cost-per-call drift
     for model, r in by_model.items():

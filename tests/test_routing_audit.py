@@ -46,7 +46,7 @@ async def test_flags_primary_not_serving_and_drift():
     ]
     res = await audit.routing_audit(engine=_Engine(rows))
     types = {(f["type"], f.get("tier") or f.get("model")) for f in res["findings"]}
-    assert ("primary_not_serving", "complex") in types
+    assert ("primary_idle", "complex") in types            # soft/informational (may be pinned, not just failover)
     assert ("cost_per_call_drift", "anthropic/claude-haiku-4.5") in types
 
 

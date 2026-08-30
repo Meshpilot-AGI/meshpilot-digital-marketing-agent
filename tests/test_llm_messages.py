@@ -103,6 +103,14 @@ async def test_complete_tools_translates_defs_and_response(monkeypatch):
     assert "output_config" not in c.posted
 
 
+async def test_complete_tools_honors_agent_llm_model_override(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "z-ai/glm-5.3")     # loop override must beat the default complex tier
+    c = _Client(_ok())
+    await loop_llm.complete_tools([{"role": "user", "content": "U"}], tools=[], client=c)
+    assert c.posted["models"] == ["z-ai/glm-5.3"]            # single pinned model, not the complex tier list
+
+
 async def test_tool_result_message_becomes_tool_role(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
     c = _Client(_ok())
