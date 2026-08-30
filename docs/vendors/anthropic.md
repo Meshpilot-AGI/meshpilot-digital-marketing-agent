@@ -97,15 +97,20 @@ system-prompt overhead (~354 tok on Sonnet 5). Structured outputs
 
 ## Built-in server tools
 
+> The agent moved to a **standard (non-HIPAA) Anthropic org** on 2026-08-30 (the old org had
+> HIPAA readiness enabled — irreversible — which hard-blocks web_fetch / code_execution / Files
+> API). On the standard org all of these are available. `ANTHROPIC_API_KEY` = the standard-org
+> inference key (FastAPI Cloud env + local `.env`).
+
 - **web_search — ADOPTED (WEB-TOOLS, 2026-08-30).** `tools.py::server_tool_defs()` offers it
   (default on, `max_uses=3`, metered $0.01/search via `usage.server_tool_use.web_search_requests`
-  → flows into the per-brand budget). ⚠️ **Our org is HIPAA-regulated without ZDR**, which blocks
-  `web_fetch` + `code_execution`, and the dynamic-filtering web_search (`web_search_20260318`)
-  auto-provisions code_execution → also blocked. So we use the **basic `web_search_20250305`**
-  tag (verified live). Override via `AGENT_WEB_SEARCH_TAG`.
-- **web_fetch** (`web_fetch_20260318`, free) — plumbing shipped but **default OFF**: blocked on
-  our HIPAA org until Zero Data Retention is enabled. Flip `AGENT_WEB_FETCH_ENABLED=true` then.
-- **code_execution** (`code_execution_20260521`) — also blocked on our HIPAA org without ZDR.
+  → flows into the per-brand budget). Defaults to the **basic `web_search_20250305`** tag; the
+  dynamic-filtering tag (`web_search_20260318`) auto-provisions code_execution + does extra search
+  rounds (more cost) so it's **opt-in via `AGENT_WEB_SEARCH_TAG`**.
+- **web_fetch** (`web_fetch_20260318`, free) — **ADOPTED, default on** (`AGENT_WEB_FETCH_ENABLED`).
+  Fetches a URL already in the conversation.
+- **code_execution** (`code_execution_20260521`) — available on the standard org; not wired into
+  the loop yet (future lane for data-crunching / charts).
 - **memory tool** (`memory_20250818`) — persistent agent memory; **overlaps our Supabase
   `agent_memory`**, so it's a decision, not a freebie.
 - Skip bash / text-editor / computer-use unless we add filesystem/GUI automation.

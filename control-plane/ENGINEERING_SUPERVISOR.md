@@ -553,3 +553,13 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** flip web_fetch (+ code_execution, Files API) on once ZDR is enabled on the org — or move the agent to a non-HIPAA workspace. Consider `response_inclusion` (web_search_20260318) under ZDR for fresher filtering. Files API + context editing are the next capability lanes.
 
 ---
+### WEB-TOOLS follow-up — moved to a STANDARD (non-HIPAA) Anthropic org — 2026-08-30
+**Owner:** Claude (Opus)
+
+**Why:** the agent's original Anthropic org had HIPAA readiness enabled (support@glitchexecutor.com, 2026-08-22, for a no-PHI marketing workload) which hard-blocks web_fetch / code_execution / Files API and is irreversible from the Console. Per platform.claude.com data-retention docs, code_execution + Files API are ineligible under BOTH ZDR and HIPAA — only a standard org unblocks them.
+
+**Changed:** operator provided a new **standard-org** inference key; set as `ANTHROPIC_API_KEY` on **FastAPI Cloud env** (delete+recreate, secret) + local `.env`. `tools.py::server_tool_defs()` — **web_fetch default flipped ON** (was off under HIPAA), docstring de-HIPAA'd; web_search keeps the basic `web_search_20250305` tag by default (dynamic `web_search_20260318` opt-in via AGENT_WEB_SEARCH_TAG — pulls in code_execution + extra rounds = more cost). Docs (`anthropic.md`) + memory updated.
+
+**Verified:** the new key live-accepts web_fetch + code_execution (no HIPAA 400); dynamic web_search + web_fetch both returned real results. Suite green. **Remains:** the merge auto-deploys prod onto the new key + web_fetch on — verify a live Discord run post-deploy. Now-unblocked lanes: **Files API** (brand PDFs), **code_execution** (data crunching).
+
+---
