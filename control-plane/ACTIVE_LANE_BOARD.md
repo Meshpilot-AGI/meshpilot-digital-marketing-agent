@@ -3,8 +3,6 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-## Active
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
@@ -15,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **SUPA-HARDEN — close the two Supabase security-advisor WARNs** (2026-08-30) — post-open-source security review: the DB is already RLS deny-all everywhere (schema being public exposes nothing exploitable — confirmed: anon key gets `200 []` on every table), but the advisor flagged two WARNs. New migration `20260830010000_supa_harden.sql`: **(1)** `revoke execute on public.rls_auto_enable() from public, anon, authenticated` — it's a SECURITY DEFINER fn wired to the `ensure_rls` EVENT TRIGGER (fires on DDL regardless of grants), so revoking the anon/authenticated RPC surface changes nothing functionally; **(2)** `alter extension vector set schema extensions` (out of the API-exposed `public`). Safe: extensions schema pre-exists, app connects as `postgres` (search_path includes extensions), only 1 dependent column (agent_memory.embedding). **Verified** via a transaction-rollback test on the live DB (ALTER + unqualified `halfvec <=>` ran clean, rollback confirmed prod untouched); advisor re-checked clean after the integration applied it. → supervisor
 
 - **AGENT-BRAIN — memory-first, self-improving agent (epic complete)** (2026-08-29) — all five increments CLOSED: **AGENT-MEM** (per-brand Supabase memory, hybrid pgvector+FTS recall, NVIDIA embeddings), **AGENT-LOOP** (Claude ReAct loop — recall→plan→tools→verify→episode, backgrounded DB-backed runs), **AGENT-POLICY** (deterministic gate: per-brand deny, MCP default-deny, publish kill-switch, per-run media budget), **AGENT-LEARN** (curator: episodes → durable facts), **AGENT-CRON** (self-cron). The memory-first brain (Hermes/OpenClaw patterns on our stack, `docs/plans/2026-08-29-agent-brain.md`) is complete. See the per-increment supervisor entries. → supervisor
 
