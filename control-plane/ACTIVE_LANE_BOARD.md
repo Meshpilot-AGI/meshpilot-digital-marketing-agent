@@ -14,17 +14,11 @@ Acceptance: schema holds only what source→publish needs; orphaned old-SaaS tab
 Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.md
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
-## Active
-
-### AGENT-BRAIN — memory-first, self-improving agent (Hermes/OpenClaw patterns on our stack)
-Reading: docs/plans/2026-08-29-agent-brain.md
-- **AGENT-MEM** — per-brand Supabase memory (facts+episodes, hybrid pgvector+FTS recall, NVIDIA embeddings). **[CLOSED 2026-08-29]**
-- **AGENT-LOOP** — Claude ReAct loop: recall context → plan → call capability-tools → verify → write episode; backgrounded, DB-backed runs. **[CLOSED 2026-08-29]**
-- **AGENT-POLICY** — deterministic action gate (per-brand deny, MCP default-deny, publish kill-switch, per-run media budget). **[CLOSED 2026-08-29]**
-- **AGENT-LEARN** — curator: distill episodes → durable facts (nightly self-cron job). **[CLOSED 2026-08-29]**
-- **AGENT-CRON** — self-cron (the agent schedules its own future work). **[CLOSED 2026-08-29 — see Recently closed]**
-
 ## Recently closed
+
+- **AGENT-BRAIN — memory-first, self-improving agent (epic complete)** (2026-08-29) — all five increments CLOSED: **AGENT-MEM** (per-brand Supabase memory, hybrid pgvector+FTS recall, NVIDIA embeddings), **AGENT-LOOP** (Claude ReAct loop — recall→plan→tools→verify→episode, backgrounded DB-backed runs), **AGENT-POLICY** (deterministic gate: per-brand deny, MCP default-deny, publish kill-switch, per-run media budget), **AGENT-LEARN** (curator: episodes → durable facts), **AGENT-CRON** (self-cron). The memory-first brain (Hermes/OpenClaw patterns on our stack, `docs/plans/2026-08-29-agent-brain.md`) is complete. See the per-increment supervisor entries. → supervisor
+
+- **BOARD-TIDY — move the completed AGENT-BRAIN epic out of Active + fix the duplicate `## Active` heading** (2026-08-29) — the Active section carried AGENT-BRAIN (all 5 sub-lanes already CLOSED) under a second stray `## Active` heading; moved it here so Active shows only genuinely-open work (now just DB-OPT [PARKED]). Reinforces the board-as-source-of-truth rule (update it before AND after every coding task). → supervisor
 
 - **README-SEO — flagship README polish + org profile + repo SEO metadata** (2026-08-29) — OSS-standard treatment for discoverability now that the repo is public. `README.md`: centered hero (🛰️ MeshPilot + tagline), 8-badge row (license/python/FastAPI/Claude/CI/live-API-uptime/PRs/stars), Contents TOC, keyword-rich intro, `Build & run`→`Quickstart`, deduped Git-hosting/Contributing, slim **Ecosystem** pointer up to the org (full portfolio lives in the org README, not duplicated here), star-CTA footer; fixed the stale `Nuraveda-Labs` org ref. **GitHub repo metadata** (`gh repo edit`): set description + homepage `meshpilot.app` + **18 SEO topics** (were all empty — the biggest discoverability gap, since that's what GitHub search/Google index). New **org profile**: `Meshpilot-AGI/.github` repo with `profile/README.md` (renders on the org landing page — hero + full agent/MCP portfolio table + philosophy). → supervisor
 

@@ -2,6 +2,17 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### BOARD-TIDY — board hygiene + AGENT-BRAIN epic closed — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Changed:** `control-plane/ACTIVE_LANE_BOARD.md` — the Active section had a **duplicate `## Active` heading** carrying the AGENT-BRAIN epic whose five sub-lanes (MEM/LOOP/POLICY/LEARN/CRON) were all already CLOSED. Moved AGENT-BRAIN to Recently closed as a single "epic complete" entry and removed the stray heading, so **Active now shows only genuinely-open work** — just `DB-OPT [PARKED]`.
+
+**Verified:** exactly one `## Active` heading remains; Active lists only DB-OPT.
+
+**Rule reinforced (operator, 2026-08-29):** the board is the **single source of truth** — update it **before AND after every coding task** (register/claim the lane before code; close it after). If it's stale on arrival, fix it first. Saved to agent memory.
+
+---
+
 ### README-SEO — flagship README polish + org profile — CLOSED 2026-08-29
 **Owner:** Claude
 
