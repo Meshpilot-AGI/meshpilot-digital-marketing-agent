@@ -159,9 +159,5 @@ async def test_read_brand_doc_builds_document_blocks(monkeypatch):
     assert blocks[-1]["type"] == "text"                  # query appended after the docs
 
 
-# ── document block passthrough in the OpenAI→Anthropic conversion ──────
-def test_content_to_anthropic_passes_document_blocks():
-    doc = {"type": "document", "source": {"type": "file", "file_id": "file_1"}}
-    out = loop_llm._content_to_anthropic([doc, {"type": "text", "text": "q"}])
-    assert out[0] == doc                                 # passed through, not stringified
-    assert out[1] == {"type": "text", "text": "q"}
+# NB: Anthropic Files-API `document` blocks are NOT supported on OpenRouter — read_brand_doc's
+# document-grounding path is deprecated post-migration (brand knowledge now lives in memory facts).

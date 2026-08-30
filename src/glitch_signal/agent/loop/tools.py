@@ -223,6 +223,38 @@ async def _t_read_brand_doc(args: dict, brand_id: str) -> str:
     return await complete_messages(msgs, max_tokens=800)
 
 
+async def _t_web_search(args: dict, brand_id: str) -> str:
+    """Search the LIVE web via OpenRouter's native web plugin. Returns {answer, sources}."""
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    q = str(args.get("query", "")).strip()
+    if not q:
+        return "ERROR: web_search requires 'query'"
+    try:
+        answer, sources = await agent_llm.complete_web(q, max_results=int(args.get("max_results", 5)))
+    except Exception as exc:  # noqa: BLE001
+        return f"ERROR: web_search failed: {str(exc)[:200]}"
+    return json.dumps({"answer": answer[:3000], "sources": sources[:8]})
+
+
+async def _t_web_fetch(args: dict, brand_id: str) -> str:
+    """Fetch a URL and return its readable text (crude tag-strip, capped)."""
+    import re as _re
+
+    import httpx as _httpx
+    url = str(args.get("url", "")).strip()
+    if not url:
+        return "ERROR: web_fetch requires 'url'"
+    try:
+        async with _httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
+            r = await c.get(url, headers={"user-agent": "Mozilla/5.0"})
+        text = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", r.text, flags=_re.S | _re.I)
+        text = _re.sub(r"<[^>]+>", " ", text)
+        return _re.sub(r"\s+", " ", text).strip()[:4000] or "(no readable text)"
+    except Exception as exc:  # noqa: BLE001
+        return f"ERROR: web_fetch failed: {str(exc)[:200]}"
+
+
 def _obj(properties: dict, required: list[str], *, closed: bool = True) -> dict:
     """A JSON-Schema object. `closed` sets additionalProperties:false (needed for strict)."""
     s: dict[str, Any] = {"type": "object", "properties": properties, "required": required}
@@ -299,6 +331,14 @@ TOOLS: dict[str, dict[str, Any]] = {
                                       "deck) to answer a question or ground content in the real brand "
                                       "guidelines. Returns an answer drawn only from those documents.",
                        "input_schema": _obj({"query": {"type": "string"}}, ["query"])},
+    "web_search": {"fn": _t_web_search, "strict": True,
+                   "description": "Search the LIVE web for current information (trends, examples, facts). "
+                                  "Returns {answer, sources}.",
+                   "input_schema": _obj({"query": {"type": "string"},
+                                         "max_results": {"type": "integer"}}, ["query"])},
+    "web_fetch": {"fn": _t_web_fetch, "strict": True,
+                  "description": "Fetch a specific URL and return its readable text.",
+                  "input_schema": _obj({"url": {"type": "string"}}, ["url"])},
     "schedule": {"fn": _t_schedule,
                  "description": "Schedule your OWN future work (self-cron). action=create|list|cancel|next_check. "
                                 "create: {name, schedule_kind:at|every|cron, schedule:{at|every_ms|cron_expr,tz?}, "
@@ -335,33 +375,10 @@ def _env_int(name: str, default: int) -> int:
 
 
 def server_tool_defs() -> list[dict[str, Any]]:
-    """Anthropic **server-side** tools (web_search / web_fetch) — Anthropic executes them and
-    returns the result inline, so they are NOT in the TOOLS registry (no fn) and never go through
-    `execute()`/`policy.allow`. Config-gated; web_search is capped + metered ($0.01/search).
-
-    The agent runs on a **standard (non-HIPAA) Anthropic org**, so both web_search and web_fetch
-    (and code_execution / Files API for future lanes) are available. web_search defaults to the
-    **basic `web_search_20250305`** tag on purpose — the *dynamic-filtering* tag
-    (`web_search_20260318`) auto-provisions code_execution and does extra search rounds (more cost),
-    so it's opt-in via `AGENT_WEB_SEARCH_TAG`. Override the fetch tag via `AGENT_WEB_FETCH_TAG`.
-    """
-    blocked = [d.strip() for d in (os.environ.get("AGENT_WEB_BLOCKED_DOMAINS") or "").split(",")
-               if d.strip()]
-    defs: list[dict[str, Any]] = []
-    if _env_bool("AGENT_WEB_SEARCH_ENABLED", True):
-        d: dict[str, Any] = {
-            "type": os.environ.get("AGENT_WEB_SEARCH_TAG") or "web_search_20250305",
-            "name": "web_search", "max_uses": _env_int("AGENT_WEB_SEARCH_MAX_USES", 3)}
-        if blocked:
-            d["blocked_domains"] = blocked
-        defs.append(d)
-    if _env_bool("AGENT_WEB_FETCH_ENABLED", True):
-        d = {"type": os.environ.get("AGENT_WEB_FETCH_TAG") or "web_fetch_20260318",
-             "name": "web_fetch", "max_uses": _env_int("AGENT_WEB_FETCH_MAX_USES", 5)}
-        if blocked:
-            d["blocked_domains"] = blocked
-        defs.append(d)
-    return defs
+    """Retired 2026-08-30 (OpenRouter migration). Anthropic server tools (web_search/web_fetch) don't
+    exist on OpenRouter — web is now CLIENT tools (`web_search`/`web_fetch` in TOOLS, backed by
+    OpenRouter's native web plugin). Kept as a no-op so the runner's tool assembly stays stable."""
+    return []
 
 
 async def execute(tool_name: str, args: dict, brand_id: str) -> str:
