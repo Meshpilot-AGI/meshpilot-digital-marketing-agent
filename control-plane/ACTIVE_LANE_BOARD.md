@@ -3,6 +3,13 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### GATEWAY-1 — Discord ↔ MeshPilot bridge (talk to the agent in #agent-chat)
+Owner: Claude        Opened: 2026-08-30        Status: IN PROGRESS
+Goal: our own thin channel gateway (not OpenClaw) — a small discord.py bot on Railway that relays messages in the private `#agent-chat` to the MeshPilot agent API and posts the reply back. Discord only for now (Telegram/WhatsApp later). MeshPilot is always the brain; the bridge is dumb plumbing.
+Design: `gateway/bridge.py` (discord.py gateway bot, message_content intent) → on message in `#agent-chat` (1543461321809338419) → `POST api.meshpilot.app/internal/agent/run {goal,brand}` (x-jobs-token) → poll `GET /internal/agent/run/{id}` until `done`/`error` → reply with `final`. Deployed to Railway project "Mesh Pilot - Gateway" via `railway up`. Channel privacy IS the allowlist (only Team+bot see #agent-chat).
+Acceptance: bot comes online; a message in #agent-chat gets an agent reply live; env wired (DISCORD_BOT_TOKEN, MESHPILOT_URL, MESHPILOT_JOBS_TOKEN, DISCORD_AGENT_CHANNEL_ID). Needs: Message Content Intent ON; GE_JOBS_AUTH_TOKEN value (rotate + set both sides).
+Write-back: ENGINEERING_SUPERVISOR.md + board CLOSED.
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
