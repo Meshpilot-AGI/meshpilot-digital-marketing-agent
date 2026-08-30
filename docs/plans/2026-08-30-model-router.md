@@ -82,12 +82,19 @@ gets failover for free.
 
 `agent/loop/audit.py::routing_audit()` reads `usage_events` (durable, cross-worker) and flags real
 anomalies:
-- **primary_not_serving** — a tier whose PRIMARY had 0 calls while a FALLBACK served → the primary is
-  degraded/rate-limited (the router's native failover is firing).
-- **cost_per_call_drift** — a model whose recent cost/call is > 1.5× its baseline.
+- **primary_idle** (`severity: "info"`) — a tier whose PRIMARY had 0 calls in the window while another
+  tier model served. This is **informational, not a verdict**: `usage_events` records only the served
+  model, not the requested tier, so the fallback may have served because the primary was
+  degraded/rate-limited **or** because a caller pinned it directly (e.g. a content env override). The
+  finding carries `{type, severity, tier, primary, active_models_in_tier, note}` and the tier list is
+  the **effective (override-aware)** one from `routing.resolve()`, not the static table.
+- **cost_per_call_drift** — a model whose recent cost/call is > 1.5× its own baseline
+  (`{type, model, recent_cost_per_call, baseline_cost_per_call, ratio}`).
 
 No ML, no auto-tuned thresholds — anomalies for a human, grounded in actual usage. Run it:
-- **On demand:** `GET /internal/agent/routing/audit?days=1&baseline_days=7` (jobs-auth).
+- **On demand:** `GET /internal/agent/routing/audit?days=1&baseline_days=7` (jobs-auth). `days` must be
+  an integer in **1–30** and `baseline_days` an integer in **1–90**; a non-integer or out-of-range value
+  returns **HTTP 400**. Omitted params default to `days=1`, `baseline_days=7`.
 - **Nightly:** the `routing_audit` cron capability — seed a `capability` job
   `{name: "routing_audit"}` on a nightly `cron` schedule (fires when `agent_cron_enabled`).
 

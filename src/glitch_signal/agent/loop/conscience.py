@@ -79,13 +79,16 @@ async def brand_facts(brand_id: str, *, limit: int = 8) -> str:
     seeing the AUTHOR's reasoning/transcript, not about withholding ground truth. Facts let it confirm
     real claims (and stop escalating a genuine brand it happens to be unfamiliar with)."""
     try:
+        from glitch_signal.agent.memory.store import is_verified_provenance
         from glitch_signal.agent.memory.store import recall as mem_recall
+        # The recall QUERY already restricts to operator-verified provenance, so `limit` applies to the
+        # filtered set (verified facts aren't dropped by a pre-filter row cap). Re-check in Python as
+        # defense in depth: trust comes from typed verification metadata / a reserved EXACT source,
+        # NEVER from arbitrary source substrings — an agent- or curator-written "fact" (source=agent_loop
+        # / curator) can't pass as verified and so can't suppress a critic escalation.
         mems = await mem_recall(brand_id, "brand identity product features audience pricing",
-                                k=limit * 2, kinds=["fact"])
-        # Only OPERATOR-VERIFIED facts are authoritative for the critic. Facts the agent/curator wrote
-        # (source=agent_loop / learn) must NOT be able to suppress an escalation (prompt-injection /
-        # self-authored "facts"): they carry no `verified` provenance, so they're excluded here.
-        verified = [m for m in mems if (m.source or "") and "verified" in (m.source or "").lower()]
+                                k=limit, kinds=["fact"], verified_only=True)
+        verified = [m for m in mems if is_verified_provenance(m.source, getattr(m, "metadata", None))]
         return "\n".join(f"- {m.content}" for m in verified[:limit])[:2500]
     except Exception:  # noqa: BLE001 — no facts → the critic just reviews without ground truth
         log.warning("agent.conscience.brand_facts_failed")   # sanitized: no exception detail in logs

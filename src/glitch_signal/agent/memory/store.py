@@ -27,6 +27,20 @@ log = structlog.get_logger(__name__)
 W_SEM = 0.7
 W_LEX = 0.3
 
+# Operator-verified provenance. Trust is conferred ONLY by the trusted verification workflow — never by
+# arbitrary `source` text (an agent- or curator-written "fact" must not be able to pass as verified). A
+# fact is authoritative iff its metadata carries a typed `verified` flag OR its `source` is one of these
+# reserved, EXACT tokens. The agent's own tools write source=agent_loop / curator, never these; exact
+# matching also stops negated/unrelated values (e.g. "unverified", "self-verified") from slipping through.
+VERIFIED_SOURCES = frozenset({"operator_verified", "operator-verified"})
+
+
+def is_verified_provenance(source: str | None, metadata: dict[str, Any] | None = None) -> bool:
+    """True iff this memory carries operator-verified provenance (typed metadata flag or exact source)."""
+    if metadata and str(metadata.get("verified", "")).strip().lower() in ("true", "1", "yes"):
+        return True
+    return (source or "").strip().lower() in VERIFIED_SOURCES
+
 EmbedFn = Callable[..., Awaitable[list[list[float]]]]
 
 _MAX_CONTENT_LEN = 4000  # cap on a stored fact/episode (poisoning + bloat guard, #100)
@@ -123,10 +137,14 @@ async def recall(
     *,
     k: int = 8,
     kinds: Sequence[str] | None = None,
+    verified_only: bool = False,
     embed_fn: EmbedFn | None = None,
     engine: Any = None,
 ) -> list[Memory]:
-    """Return top-k memories for a brand by fused semantic + lexical relevance."""
+    """Return top-k memories for a brand by fused semantic + lexical relevance.
+
+    `verified_only` restricts to operator-verified provenance IN THE QUERY, so `LIMIT :k` is applied to
+    the already-filtered set (verified facts outside an arbitrary top-N window aren't lost)."""
     qvec = await _embed_or_none(query, "query", embed_fn)
     # :qvec bound as text (String) so asyncpg can type it; text -> halfvec via CAST.
     sem = "(CASE WHEN embedding IS NULL OR :qvec IS NULL THEN 0 ELSE 1 - (embedding <=> CAST(:qvec AS halfvec)) END)"
@@ -138,13 +156,18 @@ async def recall(
         valid = [k2 for k2 in kinds if k2 in ("fact", "episode")]
         kind_clause = "AND kind = ANY(string_to_array(:kinds_csv, ',')::text[])"
         params["kinds_csv"] = ",".join(valid)
+    verified_clause = ""
+    if verified_only:                     # mirror is_verified_provenance() in SQL (typed flag OR exact source)
+        verified_clause = ("AND (lower(coalesce(source, '')) = ANY(string_to_array(:vsrc_csv, ',')::text[]) "
+                           "OR lower(coalesce(metadata->>'verified', '')) IN ('true', '1', 'yes'))")
+        params["vsrc_csv"] = ",".join(sorted(VERIFIED_SOURCES))
     sql = text(f"""
         SELECT id, brand_id, kind, key, content, metadata, importance, source,
                created_at, last_used_at,
                {sem} AS semantic, {lex} AS lexical,
                (:w_sem * {sem} + :w_lex * {lex}) AS score
         FROM agent_memory
-        WHERE brand_id = :brand {kind_clause}
+        WHERE brand_id = :brand {kind_clause} {verified_clause}
         ORDER BY score DESC, importance DESC, created_at DESC
         LIMIT :k
     """).bindparams(bindparam("qvec", type_=String))

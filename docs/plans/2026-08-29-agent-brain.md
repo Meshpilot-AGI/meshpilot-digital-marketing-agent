@@ -111,6 +111,20 @@ alter table agent_memory enable row level security;
 Idempotent (matches the SUPA-MIGRATE convention). Applies via the Supabase GitHub integration;
 CI `db` job validates it from scratch.
 
+**Operator-verified provenance (security contract).** The conscience critic treats a `kind=fact` as
+authoritative *ground truth* only when it carries operator-verified provenance — set **exclusively** by
+the trusted operator workflow (the jobs-auth `POST /internal/agent/remember`), never inferrable from
+arbitrary `source` text. A fact is verified iff **`metadata.verified` is `true`** (preferred, typed) **or
+its `source` is an exact reserved token** in `store.VERIFIED_SOURCES` = `{operator_verified,
+operator-verified}` (case-insensitive). The agent's own writes use `source=agent_loop` / `curator`, so
+self-authored or prompt-injected "facts" can never pass as verified. Matching is **exact, not substring**
+— `unverified`, `self-verified`, or free text like `"producthunt (verified)"` are NOT trusted. The
+provenance filter is applied **in the recall query** (`recall(..., verified_only=True)`) so `LIMIT`
+bounds the already-filtered set (a verified fact ranked past the row cap isn't lost), with a
+defense-in-depth `is_verified_provenance()` re-check in `conscience.brand_facts()`.
+⚠️ Migration note: this **supersedes** the earlier PR-179 convention (`source` *containing* "verified").
+Operators marking a fact verified must now use `metadata={"verified": true}` or `source=operator_verified`.
+
 ### Embeddings — NVIDIA NIM
 - Endpoint: `POST https://integrate.api.nvidia.com/v1/embeddings` (OpenAI-compatible),
   model `nvidia/nemotron-3-embed-1b` (2048-dim, verified live 2026-08-29), `input_type`
@@ -127,8 +141,9 @@ CI `db` job validates it from scratch.
   batch; injectable for tests). Raises on missing key.
 - `store.py` — `async remember(brand_id, kind, content, *, key=None, metadata=None,
   importance=0.5, source=None) -> Memory` (embed passage → upsert; facts upsert on key);
-  `async recall(brand_id, query, *, k=8, kinds=None) -> list[Memory]` (hybrid); `update`,
-  `forget`. asyncpg via the app's DSN.
+  `async recall(brand_id, query, *, k=8, kinds=None, verified_only=False) -> list[Memory]` (hybrid;
+  `verified_only` filters to operator-verified provenance in the query so `LIMIT` bounds the filtered
+  set); `is_verified_provenance(source, metadata)`; `update`, `forget`. asyncpg via the app's DSN.
 - `spec.py` — `Memory` dataclass.
 - `__init__.py` — `remember`, `recall`.
 

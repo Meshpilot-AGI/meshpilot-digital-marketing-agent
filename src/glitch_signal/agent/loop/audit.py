@@ -3,9 +3,10 @@
 Reads `usage_events` (the durable per-model cost/volume record — cross-worker, unlike the in-process
 routing metrics) and flags real anomalies for a human:
 
-  (a) **primary_not_serving** — a tier whose PRIMARY model had no calls while a FALLBACK did. Because
-      the loop sends OpenRouter a `models` array and OpenRouter fails over on runtime errors, a
-      fallback carrying the traffic means the primary was degraded/rate-limited.
+  (a) **primary_idle** (severity: info) — a tier whose PRIMARY model had no calls while a FALLBACK did.
+      This is a SOFT signal, not a verdict: `usage_events` records only the served model, not the
+      requested tier, so the fallback may have served because the primary was degraded/rate-limited OR
+      because a caller pinned it directly (e.g. a content env override). Flagged for a human to verify.
   (b) **cost_per_call_drift** — a model whose recent cost-per-call is well above its own baseline.
 
 No ML, no "auto-tuning" of thresholds — just anomalies grounded in actual usage. Run nightly via the
