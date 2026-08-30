@@ -1,11 +1,12 @@
-"""ReAct prompt construction for the agent loop."""
+"""Prompt construction for the agent loop (native tool use).
+
+The system prompt is identity + operating rules + the handbook index — the tools themselves
+are passed via the API `tools` param, not listed here. `build_prompt` is the first user turn.
+"""
 from __future__ import annotations
 
 import functools
-import json
 import pathlib
-
-from glitch_signal.agent.loop.tools import tool_descriptions
 
 _SOUL_PATH = pathlib.Path(__file__).resolve().parents[1] / "SOUL.md"
 
@@ -19,22 +20,18 @@ def _soul() -> str:
         return "You are an autonomous digital-marketing agent working for ONE brand."
 
 
-SYSTEM = """Accomplish the GOAL by thinking step by step and using TOOLS. Available tools:
-{tools}
+SYSTEM = """You are operating as an autonomous agent. Work toward the GOAL using the available
+tools, one step at a time: call a tool, read its result, then decide the next step. When you are
+finished, reply with your final answer as plain text (no tool call).
 
-Respond with a SINGLE JSON object and NOTHING else — either use a tool:
-  {{"thought": "<brief reasoning>", "action": "<tool_name>", "args": {{...}}}}
-or finish:
-  {{"thought": "<brief reasoning>", "final": "<summary of what you did / the answer>"}}
-
-Rules:
-- Call `recall` early to load what you already know about the brand; `remember` any
-  important new fact, and always `remember` a short episode of what you did before finishing.
-- Do NOT repeat a tool call you already made with the same input. Act on the result you got;
-  once a tool gives you what you need (e.g. `polish_copy` returned clean text with no violations),
-  move on and `finish` — re-calling it wastes your limited steps.
-- Publishing/posting is currently DISABLED; never attempt to publish; plan and generate only.
-- Output ONLY the JSON object. No markdown fences, no prose outside the JSON."""
+Operating rules:
+- Call `recall` early to load what you already know about the brand; `remember` any important new
+  fact, and always `remember` a short episode of what you did before you finish.
+- Do NOT repeat a tool call you already made with the same input — act on the result you got.
+  Once a tool gives you what you need, move on; re-calling it wastes your limited steps.
+- Before finalizing ANY content (caption, post, blog, etc.), run it through `polish_copy` and use
+  the returned clean text.
+- Publishing/posting is currently DISABLED; never attempt to publish — plan and generate only."""
 
 
 def _playbook_index() -> str:
@@ -53,27 +50,13 @@ def _playbook_index() -> str:
         return ""
 
 
-def system_prompt(extra_tools: dict[str, str] | None = None) -> str:
-    tools = tool_descriptions()
-    if extra_tools:
-        tools += "\n" + "\n".join(f"- {name}: {desc}" for name, desc in extra_tools.items())
-    # Identity first (who you are + mission + scope + guardrails), then the operating protocol,
-    # then the handbook index so the agent reads the right playbook without a list round-trip.
-    return _soul() + "\n\n---\n\n" + SYSTEM.format(tools=tools) + _playbook_index()
+def system_prompt() -> str:
+    # Identity first (who you are + mission + scope + guardrails), then the operating rules, then
+    # the handbook index so the agent reads the right playbook without a list round-trip.
+    return _soul() + "\n\n---\n\n" + SYSTEM + _playbook_index()
 
 
-def build_prompt(goal: str, seed_context: str, transcript: list[dict]) -> str:
-    lines = [f"GOAL: {goal}", "", "What you already recalled from memory:", seed_context or "[]", ""]
-    if transcript:
-        lines.append("Steps so far:")
-        for i, t in enumerate(transcript, 1):
-            if "error" in t:
-                lines.append(f"{i}. (unparseable response — respond with valid JSON)")
-                continue
-            lines.append(
-                f"{i}. action={t.get('action')} args={json.dumps(t.get('args', {}))} "
-                f"-> observation: {str(t.get('observation'))[:400]}"
-            )
-        lines.append("")
-    lines.append("Your next JSON action:")
-    return "\n".join(lines)
+def build_prompt(goal: str, seed_context: str) -> str:
+    """The first user turn: the goal + whatever was pre-recalled from memory."""
+    return (f"GOAL: {goal}\n\n"
+            f"What you already recalled from memory:\n{seed_context or '[]'}")

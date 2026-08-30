@@ -99,7 +99,8 @@ class MCPManager:
         self._connector = connector or _default_connector
         self._stack = AsyncExitStack()
         self._sessions: dict[str, _Session] = {}
-        self._tools: dict[str, tuple[str, str, str]] = {}  # ns -> (server, tool, description)
+        # ns -> (server, tool, description, input_schema)
+        self._tools: dict[str, tuple[str, str, str, dict]] = {}
 
     async def __aenter__(self) -> "MCPManager":
         for spec in self._servers:
@@ -109,7 +110,9 @@ class MCPManager:
                 resp = await session.list_tools()
                 for tool in getattr(resp, "tools", None) or []:
                     ns = f"mcp__{spec.name}__{tool.name}"
-                    self._tools[ns] = (spec.name, tool.name, getattr(tool, "description", "") or "")
+                    schema = getattr(tool, "inputSchema", None) or {"type": "object"}
+                    self._tools[ns] = (spec.name, tool.name,
+                                       getattr(tool, "description", "") or "", schema)
                 log.info("agent.mcp.connected", server=spec.name, tools=len(self._tools))
             except Exception as exc:  # noqa: BLE001 — one bad server must not kill the run
                 log.warning("agent.mcp.connect_failed", server=spec.name, error=str(exc)[:200])
@@ -119,7 +122,12 @@ class MCPManager:
         await self._stack.aclose()
 
     def tool_descriptions(self) -> dict[str, str]:
-        return {ns: desc for ns, (_s, _t, desc) in self._tools.items()}
+        return {ns: desc for ns, (_s, _t, desc, _sc) in self._tools.items()}
+
+    def tool_defs(self) -> list[dict[str, Any]]:
+        """MCP tools as Anthropic native tool definitions (no `strict` — server schemas vary)."""
+        return [{"name": ns, "description": desc or ns, "input_schema": schema or {"type": "object"}}
+                for ns, (_s, _t, desc, schema) in self._tools.items()]
 
     def has(self, namespaced: str) -> bool:
         return namespaced in self._tools
@@ -128,7 +136,7 @@ class MCPManager:
         spec = self._tools.get(namespaced)
         if spec is None:
             return f"ERROR: unknown MCP tool {namespaced!r}"
-        server, tool, _desc = spec
+        server, tool, _desc, _sc = spec
         try:
             result = await self._sessions[server].call_tool(tool, args or {})
         except Exception as exc:  # noqa: BLE001 — surface to the loop, don't crash it

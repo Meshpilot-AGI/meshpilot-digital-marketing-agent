@@ -128,44 +128,85 @@ async def _t_send_email(args: dict, brand_id: str) -> str:
     return f"email sent (message_id={rid})"
 
 
+def _obj(properties: dict, required: list[str], *, closed: bool = True) -> dict:
+    """A JSON-Schema object. `closed` sets additionalProperties:false (needed for strict)."""
+    s: dict[str, Any] = {"type": "object", "properties": properties, "required": required}
+    if closed:
+        s["additionalProperties"] = False
+    return s
+
+
+# Each tool: fn + description + input_schema (JSON Schema). `strict: True` is set only on tools
+# whose schema is fully closed (no free-form nested objects) — the model's input is then
+# guaranteed schema-valid, eliminating the missing/extra-arg retry loop. Tools with free-form
+# nested payloads (generate_media inputs, edit_image ops, schedule) omit strict but still validate.
 TOOLS: dict[str, dict[str, Any]] = {
-    "recall": {"fn": _t_recall,
-               "description": "Search the brand's memory. args: {query, k?}"},
-    "remember": {"fn": _t_remember,
-                 "description": "Store a durable fact or an episode of what you did. args: {kind: fact|episode, content, key?}"},
-    "list_recipes": {"fn": _t_list_recipes,
-                     "description": "List available media-generation recipes. args: {}"},
+    "recall": {"fn": _t_recall, "strict": True,
+               "description": "Search the brand's memory for what you already know.",
+               "input_schema": _obj({"query": {"type": "string"},
+                                     "k": {"type": "integer", "default": 5}}, ["query"])},
+    "remember": {"fn": _t_remember, "strict": True,
+                 "description": "Store a durable fact, or an episode of what you did.",
+                 "input_schema": _obj({"kind": {"type": "string", "enum": ["fact", "episode"]},
+                                       "content": {"type": "string"},
+                                       "key": {"type": "string"},
+                                       "importance": {"type": "number"}}, ["kind", "content"])},
+    "list_recipes": {"fn": _t_list_recipes, "strict": True,
+                     "description": "List available media-generation recipes.",
+                     "input_schema": _obj({}, [])},
     "generate_media": {"fn": _t_generate_media,
-                       "description": "Generate an image/video from a recipe (returns a stored URL). args: {recipe, inputs}"},
+                       "description": "Generate an image/video from a recipe (returns a stored URL).",
+                       "input_schema": _obj({"recipe": {"type": "string"},
+                                             "inputs": {"type": "object"}}, ["recipe"], closed=False)},
     "edit_image": {"fn": _t_edit_image,
-                   "description": "Deterministically edit an existing image (exact resize/crop-to-aspect/"
-                                  "text overlay/format) and return a stored URL. args: {image_url, ops:[{op:resize|fit|text|format, ...}]}"},
-    "publish": {"fn": _t_publish,
-                "description": "Publish content to a platform. args: {platform, ...}. NOTE: currently DISABLED."},
-    "send_email": {"fn": _t_send_email,
-                   "description": "Send an email for this brand via Resend. args: {to, subject, html?, text?, from?}. "
-                                  "Provide an html or text body; it is run through the content policy. "
-                                  "NOTE: gated — denied unless email sending is enabled for the agent."},
-    "polish_copy": {"fn": _t_polish_copy,
-                    "description": "MANDATORY before finalizing ANY content (caption, post, blog, etc.): "
-                                   "run your draft through the content policy. Returns {clean, violations} — "
-                                   "use `clean`, and if `violations` is non-empty rewrite to fix them. args: {text}"},
-    "list_playbooks": {"fn": _t_list_playbooks,
+                   "description": "Deterministically edit an existing image (exact resize / crop-to-aspect "
+                                  "/ text overlay / format) and return a stored URL.",
+                   "input_schema": _obj({"image_url": {"type": "string"},
+                                         "ops": {"type": "array", "items": {"type": "object"}}},
+                                        ["image_url"], closed=False)},
+    "publish": {"fn": _t_publish, "strict": True,
+                "description": "Publish content to a platform. NOTE: currently DISABLED (denied by policy).",
+                "input_schema": _obj({"platform": {"type": "string"},
+                                      "text": {"type": "string"}}, ["platform"])},
+    "send_email": {"fn": _t_send_email, "strict": True,
+                   "description": "Send an email for this brand via Resend (html or text body; run through "
+                                  "the content policy). NOTE: gated — denied unless email sending is enabled.",
+                   "input_schema": _obj({"to": {"type": "string"}, "subject": {"type": "string"},
+                                         "html": {"type": "string"}, "text": {"type": "string"},
+                                         "from": {"type": "string"}}, ["to"])},
+    "polish_copy": {"fn": _t_polish_copy, "strict": True,
+                    "description": "MANDATORY before finalizing ANY content (caption, post, blog, etc.): run "
+                                   "your draft through the content policy. Returns {clean, violations} — use "
+                                   "`clean`, and if `violations` is non-empty rewrite to fix them.",
+                    "input_schema": _obj({"text": {"type": "string"}}, ["text"])},
+    "list_playbooks": {"fn": _t_list_playbooks, "strict": True,
                        "description": "List your domain-knowledge handbooks (name + what each teaches). "
-                                      "Consult the relevant one BEFORE specialized work — ads audits, "
-                                      "per-platform captions/copy, SEO, YouTube, ORM, tracking. args: {}"},
-    "read_playbook": {"fn": _t_read_playbook,
-                      "description": "Read a handbook's full guidance by slug (from list_playbooks). args: {slug}"},
+                                      "Consult the relevant one BEFORE specialized work.",
+                       "input_schema": _obj({}, [])},
+    "read_playbook": {"fn": _t_read_playbook, "strict": True,
+                      "description": "Read a handbook's full guidance by slug (from list_playbooks).",
+                      "input_schema": _obj({"slug": {"type": "string"}}, ["slug"])},
     "schedule": {"fn": _t_schedule,
-                 "description": "Schedule your OWN future work (self-cron). args: {action: create|list|cancel|next_check, ...}. "
-                                "create: {name, schedule_kind: at|every|cron, schedule:{at|every_ms|cron_expr,tz?}, "
-                                "payload_kind: agentTurn|capability, payload:{goal,max_steps}|{name,args}, pacing?:{min_ms,max_ms}}. "
-                                "next_check {in:'30m'} re-paces the current scheduled run."},
+                 "description": "Schedule your OWN future work (self-cron). action=create|list|cancel|next_check. "
+                                "create: {name, schedule_kind:at|every|cron, schedule:{at|every_ms|cron_expr,tz?}, "
+                                "payload_kind:agentTurn|capability, payload:{goal,max_steps}|{name,args}, "
+                                "pacing?:{min_ms,max_ms}}. next_check {in:'30m'} re-paces the current run.",
+                 "input_schema": _obj({"action": {"type": "string",
+                                                   "enum": ["create", "list", "cancel", "next_check"]}},
+                                      ["action"], closed=False)},
 }
 
 
-def tool_descriptions() -> str:
-    return "\n".join(f"- {name}: {t['description']}" for name, t in TOOLS.items())
+def tool_defs() -> list[dict[str, Any]]:
+    """The built-in tools as Anthropic native tool definitions (name/description/input_schema[/strict])."""
+    defs = []
+    for name, t in TOOLS.items():
+        d: dict[str, Any] = {"name": name, "description": t["description"],
+                             "input_schema": t["input_schema"]}
+        if t.get("strict"):
+            d["strict"] = True
+        defs.append(d)
+    return defs
 
 
 async def execute(tool_name: str, args: dict, brand_id: str) -> str:

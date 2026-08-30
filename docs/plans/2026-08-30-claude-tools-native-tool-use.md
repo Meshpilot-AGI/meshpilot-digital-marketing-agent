@@ -1,6 +1,6 @@
 # CLAUDE-TOOLS — native tool use for the agent loop
 
-**Status:** design (awaiting build)  ·  **Opened:** 2026-08-30  ·  **Owner:** Claude
+**Status:** SHIPPED 2026-08-30 (verified live on Sonnet 5)  ·  **Owner:** Claude
 **Follows:** CLAUDE-PLATFORM (Sonnet 5 + hardening). See `docs/vendors/anthropic.md` §"Native tool use".
 
 ## Why

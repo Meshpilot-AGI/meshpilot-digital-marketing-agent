@@ -87,9 +87,11 @@ async def test_runner_clamps_max_steps(monkeypatch):
     monkeypatch.setattr(budget, "steps_ceiling", lambda: 3)
     seen_steps = []
 
-    async def _llm(prompt, *, system=None):
+    async def _llm(messages, *, tools=None, system=None):
         seen_steps.append(1)
-        return '{"action": null, "final": null}'  # never finishes → runs until max_steps
+        # always a tool_use → never finishes, runs until max_steps
+        return {"stop_reason": "tool_use",
+                "content": [{"type": "tool_use", "id": "t", "name": "recall", "input": {}}]}
 
     async def _exec(tool, args, brand_id):
         return "ok"

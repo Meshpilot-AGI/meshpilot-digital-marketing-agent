@@ -123,13 +123,22 @@ def test_policy_mcp_allowlist_overrides_deny():
     assert p.check("mcp__x__send_email", {}, "other").allow is False    # not for other brand
 
 
-# ── loop uses MCP tools, gated ────────────────────────────────────────
+# ── loop uses MCP tools, gated (native tool use) ──────────────────────
+def _use(name, inp=None, tid="t1"):
+    return {"stop_reason": "tool_use",
+            "content": [{"type": "tool_use", "id": tid, "name": name, "input": inp or {}}]}
+
+
+def _done(text):
+    return {"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}
+
+
 class _LLM:
     def __init__(self, responses):
         self.responses = list(responses)
 
-    async def __call__(self, prompt, *, system=None):
-        return self.responses.pop(0) if self.responses else '{"final":"(out)"}'
+    async def __call__(self, messages, *, tools=None, system=None):
+        return self.responses.pop(0) if self.responses else _done("(out)")
 
 
 class _Exec:
@@ -143,11 +152,15 @@ class _Exec:
 
 class _FakeMCP:
     def __init__(self, tools):
-        self._tools = tools
+        self._tools = tools                                 # {ns: description}
         self.calls = []
 
     def tool_descriptions(self):
         return self._tools
+
+    def tool_defs(self):
+        return [{"name": ns, "description": d, "input_schema": {"type": "object"}}
+                for ns, d in self._tools.items()]
 
     def has(self, n):
         return n in self._tools
@@ -158,7 +171,7 @@ class _FakeMCP:
 
 
 async def test_loop_calls_benign_mcp_tool():
-    llm = _LLM(['{"action":"mcp__heygen__list_avatars","args":{}}', '{"final":"listed"}'])
+    llm = _LLM([_use("mcp__heygen__list_avatars", {}), _done("listed")])
     mcp = _FakeMCP({"mcp__heygen__list_avatars": "list", "mcp__heygen__delete_avatar": "del"})
     res = await run("glitch_executor", "list avatars", llm=llm, execute=_Exec(), mcp=mcp)
     assert res["final"] == "listed"
@@ -166,7 +179,7 @@ async def test_loop_calls_benign_mcp_tool():
 
 
 async def test_loop_denies_side_effect_mcp_tool():
-    llm = _LLM(['{"action":"mcp__heygen__delete_avatar","args":{}}', '{"final":"stopped"}'])
+    llm = _LLM([_use("mcp__heygen__delete_avatar", {}), _done("stopped")])
     mcp = _FakeMCP({"mcp__heygen__delete_avatar": "del"})
     res = await run("glitch_executor", "delete it", llm=llm, execute=_Exec(), mcp=mcp)
     assert res["transcript"][0]["observation"].startswith("DENIED")
