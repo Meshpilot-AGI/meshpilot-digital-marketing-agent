@@ -35,6 +35,7 @@ video → **HeyGen**. Higgsfield Soul/DoP → **Higgsfield**. Exact edits → **
 
 | Vendor | Role | Doc |
 |---|---|---|
+| **Anthropic / Claude** | The agent's **brain** — Messages API (loop LLM, `claude-sonnet-5`) | [anthropic.md](anthropic.md) |
 | **FastAPI Cloud** | Runtime for the agent (`api.meshpilot.app`) | [fastapi-cloud.md](fastapi-cloud.md) |
 | **Cloudflare** | Edge: WAF, TLS, origin-auth, web (Pages) | [cloudflare.md](cloudflare.md) |
 | **Supabase** | Postgres (memory, runs) + Storage (per-brand media buckets) | [supabase.md](supabase.md) |
