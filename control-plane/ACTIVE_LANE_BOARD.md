@@ -3,6 +3,14 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### WEB-TOOLS — web_search + web_fetch (built-in server tools)          [DESIGN]
+Owner: Claude (Opus)        Opened: 2026-08-30
+Goal: give the agent live-web ability via Anthropic's server-side web_search (`web_search_20260318`) + web_fetch (`web_fetch_20260318`) — probe-confirmed to resolve inline (server_tool_use→web_search_tool_result→text, stop_reason=end_turn). Operator decision: ON, capped (max_uses=3, metered into the per-brand budget). ~3 files: tools.py server_tool_defs(), runner.py (append defs + pause_turn handling), pricing.py (web_search $0.01/req from usage.server_tool_use).
+Design: docs/plans/2026-08-30-web-tools.md  ← awaiting operator go before build
+Reading: agent/loop/{tools,runner}.py, analytics/cost/pricing.py, config.py
+Acceptance: server tools offered (config-gated, capped); pause_turn resumes; web_search metered; suite green; live Sonnet 5 run shows a real search + a metered web_search_request.
+Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
