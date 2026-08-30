@@ -51,7 +51,7 @@ key decision only in chat.
 
 ## Branches & promotion (THIS repo — read before any git work)
 
-This repo has no `main` and **no `preview`** (retired 2026-08-29). Two deploy
+This repo has no `main` and **no `preview`** (retired 2026-08-29). Three deploy
 branches, one trunk:
 
 - **`production`** — the trunk **and** the API deploy branch. GitHub **default**
@@ -60,6 +60,11 @@ branches, one trunk:
 - **`web-production`** — the **web** deploy branch (the Next.js `web/` app).
   Cloudflare Pages deploys it (root dir `web`, already configured). Fast-forwarded
   from `production`, never developed on. See docs/vendors + web/README.
+- **`gateway-production`** — the **gateway** deploy branch (the Discord↔agent
+  bridge in `gateway/`). Railway deploys it (root dir `gateway`, wait-for-CI on).
+  Fast-forwarded from `production`, never developed on. Because the ff carries the
+  identical SHA, Railway's wait-for-CI gates on the `gateway` build check that
+  already ran on the `production` push. See gateway/README.md.
 
 Flow:
 
@@ -68,12 +73,15 @@ Flow:
    commit-guard treats any `*production` branch as a protected deploy branch.
 2. **CI runs ON PUSH to `production`** (not on PRs/feature branches) —
    `.github/workflows/ci.yml` diffs the push and runs only what drifted: **pytest**
-   on API drift, a **from-scratch Alembic migration test** on DB drift (`alembic/**`,
-   `db/**`), the **Next build** on `web/` drift, and **nothing** (fast pass) for
-   docs/logs. It runs alongside the FastAPI Cloud auto-deploy, so **run `uv run
-   pytest -q` locally before merging** — the push CI is validation, not a pre-merge gate.
+   on API drift, a **from-scratch migration test** on DB drift (`supabase/migrations/**`,
+   `src/glitch_signal/db/**`), the **Next build** on `web/` drift, a **`docker build`
+   + `py_compile`** on `gateway/` drift, and **nothing** (fast pass) for docs/logs.
+   It runs alongside the FastAPI Cloud auto-deploy, so **run `uv run pytest -q`
+   locally before merging** — the push CI is validation, not a pre-merge gate.
 3. Merging the PR **auto-deploys production** (the API). To ship the web, then
    fast-forward `web-production` from `production` (`git merge --ff-only production`).
+   To ship the gateway, fast-forward `gateway-production` the same way (Railway
+   deploys it, gated on the gateway build check from this commit).
 
 Pushing anything under `.github/workflows/**` needs a `gh` account with the
 `workflow` scope (`floating-astronaut`); repo-admin ops (e.g. branch rename)

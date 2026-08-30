@@ -4,8 +4,12 @@ name: CI
 #   - API code changed  -> import smoke + pytest
 #   - DB changed         -> apply the full Alembic chain to a throwaway Postgres
 #   - web/ changed       -> Next.js build (type-checks the frontend)
+#   - gateway/ changed   -> docker build the gateway image + py_compile bridge.py
 #   - only docs/logs     -> nothing runs, fast pass.
 # (FastAPI Cloud also deploys on this push; run the full suite locally before merging.)
+# The gateway deploys separately: fast-forward `gateway-production` from `production`
+# and push it — Railway watches that branch and (wait-for-CI) gates on this same
+# commit's gateway check, since the ff carries the identical SHA.
 on:
   push:
     branches: [production]
@@ -24,6 +28,7 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       web: ${{ steps.filter.outputs.web }}
       db: ${{ steps.filter.outputs.db }}
+      gateway: ${{ steps.filter.outputs.gateway }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -39,14 +44,16 @@ jobs:
           fi
           files=$(git diff --name-only "$base" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD)
           echo "changed files:"; echo "$files"
-          api=false; web=false; db=false
+          api=false; web=false; db=false; gateway=false
           if echo "$files" | grep -qE '^(src/|main\.py$|pyproject\.toml$|uv\.lock$|tests/)'; then api=true; fi
           if echo "$files" | grep -qE '^(supabase/migrations/|src/glitch_signal/db/)'; then db=true; fi
           if echo "$files" | grep -qE '^web/'; then web=true; fi
+          if echo "$files" | grep -qE '^gateway/'; then gateway=true; fi
           echo "api=$api" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
           echo "db=$db" >> "$GITHUB_OUTPUT"
-          echo "=> api=$api db=$db web=$web"
+          echo "gateway=$gateway" >> "$GITHUB_OUTPUT"
+          echo "=> api=$api db=$db web=$web gateway=$gateway"
 
   api:
     needs: changes
@@ -123,3 +130,15 @@ jobs:
         run: npm ci
       - name: Build (type-checks the frontend)
         run: npm run build
+
+  gateway:
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Syntax-check the bridge (docker build only runs it at container start)
+        run: python3 -m py_compile gateway/bridge.py
+      - name: Build the gateway image (exactly what Railway builds from gateway/Dockerfile)
+        run: docker build -t meshpilot-gateway ./gateway

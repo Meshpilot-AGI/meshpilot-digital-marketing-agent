@@ -3,6 +3,13 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### CI-GATEWAY — drift-gated gateway build check + `gateway-production` deploy branch          [IN PROGRESS]
+Owner: Claude (Opus)        Opened: 2026-08-30
+Goal: (1) CI validates the gateway Docker image on `gateway/` drift (`docker build` + `py_compile bridge.py`), skipping when unchanged like api/web/db; (2) new `gateway-production` deploy branch (peer of `web-production`) so Railway deploys the gateway on-demand (ff from `production`) instead of on every production push, with Railway's wait-for-CI gating on the build check.
+Reading: .github/workflows/ci.yml, gateway/{Dockerfile,bridge.py,railway.json}, CLAUDE.md (branches)
+Acceptance: ci.yml gains a drift-gated `gateway` job (`docker build` + `py_compile`) that runs on `gateway/` drift, skips otherwise; CI stays production-only (gateway-production is a ff of production → same SHA → same check suite, which Railway's wait-for-CI gates on); `gateway-production` branch exists (ff from production); docs updated. Operator sets Railway deploy branch = gateway-production in the dashboard.
+Write-back: CLAUDE.md, gateway/README.md, control-plane/ENGINEERING_SUPERVISOR.md
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
