@@ -433,9 +433,10 @@ async def _run_agent_bg(run_id: str, brand: str, goal: str, max_steps: int, scop
 async def internal_agent_run(request: Request) -> dict:
     """Start an agent-loop run for a goal (auth: x-jobs-token).
 
-    Body: {goal, brand?, max_steps?}. The loop runs in the BACKGROUND (LLM round-trips exceed
-    the edge request timeout), recalling memory, planning, and calling capability-tools — but
-    publishing is DISABLED (AGENT-POLICY). Returns a `run_id`; poll GET /internal/agent/run/{id}.
+    Body: {goal, brand?, max_steps?, scope?}. The loop runs in the BACKGROUND (LLM round-trips
+    exceed the edge request timeout), recalling memory, planning, and calling capability-tools —
+    but publishing is DISABLED (AGENT-POLICY). `scope` (default `agent_default_scope`) bounds the
+    offered toolset (SCOPE). Returns `{ok, run_id, status, scope}`; poll GET /internal/agent/run/{id}.
     Run state is persisted to Postgres (agent_runs) so it is pollable across workers. Every run
     also writes an episode to the brand's memory.
     """
@@ -458,7 +459,10 @@ async def internal_agent_run(request: Request) -> dict:
     # SCOPE: bound the run's toolset (default `chat` = safe read+plan). A pipeline/operator run
     # passes a broader scope (e.g. discovery/content/full).
     from glitch_signal.config import settings as _settings
-    scope = body.get("scope") or getattr(_settings(), "agent_default_scope", "chat")
+    raw_scope = body.get("scope")
+    if raw_scope is not None and not isinstance(raw_scope, str):  # reject synchronously, not in the bg task
+        raise HTTPException(status_code=400, detail="scope must be a string")
+    scope = raw_scope or getattr(_settings(), "agent_default_scope", "chat")
 
     run_id = _uuid.uuid4().hex
     await run_store.create_run(run_id, brand, goal)  # row exists before we return

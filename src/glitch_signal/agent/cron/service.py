@@ -103,7 +103,8 @@ async def _run_agent_turn(brand: str, payload: dict) -> dict:
     if not goal:
         raise ValueError("agentTurn payload requires a goal")
     max_steps = int(payload.get("max_steps", 5))
-    scope = str(payload.get("scope") or "chat")   # SCOPE: the job's toolset (clamped at create time)
+    from glitch_signal.config import settings as _settings
+    scope = str(payload.get("scope") or _settings().agent_default_scope)  # SCOPE: job toolset (clamped at create)
     agent_run_id = _uuid.uuid4().hex
     await run_store.create_run(agent_run_id, brand, goal)
     try:

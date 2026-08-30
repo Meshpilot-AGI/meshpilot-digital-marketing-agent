@@ -173,7 +173,7 @@ class _FakeMCP:
 async def test_loop_calls_benign_mcp_tool():
     llm = _LLM([_use("mcp__heygen__list_avatars", {}), _done("listed")])
     mcp = _FakeMCP({"mcp__heygen__list_avatars": "list", "mcp__heygen__delete_avatar": "del"})
-    res = await run("glitch_executor", "list avatars", llm=llm, execute=_Exec(), mcp=mcp)
+    res = await run("glitch_executor", "list avatars", llm=llm, execute=_Exec(), mcp=mcp, scope="full")
     assert res["final"] == "listed"
     assert mcp.calls and mcp.calls[0][0] == "mcp__heygen__list_avatars"
 
@@ -181,6 +181,6 @@ async def test_loop_calls_benign_mcp_tool():
 async def test_loop_denies_side_effect_mcp_tool():
     llm = _LLM([_use("mcp__heygen__delete_avatar", {}), _done("stopped")])
     mcp = _FakeMCP({"mcp__heygen__delete_avatar": "del"})
-    res = await run("glitch_executor", "delete it", llm=llm, execute=_Exec(), mcp=mcp)
+    res = await run("glitch_executor", "delete it", llm=llm, execute=_Exec(), mcp=mcp, scope="full")
     assert res["transcript"][0]["observation"].startswith("DENIED")
     assert not mcp.calls                                    # never executed
