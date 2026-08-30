@@ -66,6 +66,8 @@ def _content_to_anthropic(content):
                                "source": {"type": "base64", "media_type": media_type, "data": data}})
             elif url:
                 blocks.append({"type": "image", "source": {"type": "url", "url": url}})
+        elif t in ("document", "image") and "source" in b:
+            blocks.append(b)  # already an Anthropic-native block (e.g. Files API document) — pass through
         else:
             blocks.append({"type": "text", "text": str(b)})
     return blocks
