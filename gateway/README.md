@@ -38,5 +38,22 @@ anyone who can post there is authorized.
 
 ## Deploy (Railway)
 
-Builds from the `Dockerfile`. From this dir: `railway up`. Set the env vars above in the service.
+Builds from the `Dockerfile` (Railway root dir = `gateway`). Set the env vars above in the service.
 No inbound port (it's a websocket client), so it needs no public domain or healthcheck.
+
+**Branch-triggered deploy.** Railway watches the **`gateway-production`** branch and deploys on
+push to it — the gateway ships on-demand, not on every `production` push. To ship:
+
+```bash
+git switch gateway-production
+git merge --ff-only production      # this is the ship step
+git push
+git switch production
+```
+
+`gateway-production` is fast-forwarded from `production`, **never developed on** (a commit authored
+directly on it forks it off `production` and breaks the ff path — the ~/dev commit-guard blocks it).
+Railway has **wait-for-CI** on: because the ff carries the identical commit SHA, it gates on the
+`gateway` build check (`docker build` + `py_compile`) that already ran on the `production` push —
+so a broken Dockerfile or `requirements.txt` never reaches a deploy. (`railway up` from this dir
+still works for a manual one-off, but the branch push is the normal path.)
