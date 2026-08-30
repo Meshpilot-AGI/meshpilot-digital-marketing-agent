@@ -86,6 +86,16 @@ async def test_effort_env_override(monkeypatch):
     assert c.posted["output_config"] == {"effort": "high"}
 
 
+async def test_effort_skipped_for_haiku(monkeypatch):
+    # Haiku 4.5 rejects output_config.effort (400) — it must never be sent for Haiku models.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
+    monkeypatch.setenv("AGENT_LLM_EFFORT", "low")
+    c = _Client(_ok())
+    await loop_llm.complete_messages([{"role": "user", "content": "U"}],
+                                     model="claude-haiku-4-5-20251001", client=c)
+    assert "output_config" not in c.posted
+
+
 async def test_effort_default_skips_output_config(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
     monkeypatch.delenv("AGENT_LLM_EFFORT", raising=False)
@@ -133,37 +143,27 @@ async def test_multiple_system_messages_joined(monkeypatch):
     ]
 
 
-def test_model_for_defaults_and_env_override(monkeypatch):
-    monkeypatch.delenv("AGENT_CONTENT_TEXT_MODEL", raising=False)
-    monkeypatch.delenv("AGENT_CONTENT_TEXT_MODEL_SMART", raising=False)
-    monkeypatch.setattr(agent_llm, "_DEFAULT_TEXT_MODEL", "gemini-3-5-flash")
-    assert agent_llm.model_for("cheap") == "gemini-3-5-flash"
-    monkeypatch.setenv("AGENT_CONTENT_TEXT_MODEL_SMART", "deepseek-v3")
-    assert agent_llm.model_for("smart") == "deepseek-v3"      # per-tier env wins
+def test_model_for_claude_defaults_and_env_override(monkeypatch):
+    for k in ("AGENT_CONTENT_TEXT_MODEL_CHEAP", "AGENT_CONTENT_TEXT_MODEL_SMART",
+              "AGENT_CONTENT_MODEL_CHEAP", "AGENT_CONTENT_MODEL_SMART"):
+        monkeypatch.delenv(k, raising=False)
+    assert agent_llm.model_for("cheap") == "claude-haiku-4-5-20251001"
+    assert agent_llm.model_for("smart") == "claude-sonnet-5"
+    monkeypatch.setenv("AGENT_CONTENT_MODEL_SMART", "claude-opus-5")
+    assert agent_llm.model_for("smart") == "claude-opus-5"    # env override wins
 
 
-class _FakeEngine:
-    def __init__(self, text="generated"):
-        self.text = text
-        self.called = None
-
-    async def generate(self, model, prompt, *, images=None, params=None, timeout_s=360):
-        self.called = {"model": model, "prompt": prompt, "images": images, "params": params}
-        return self.text
-
-
-async def test_chat_routes_to_muapi_text(monkeypatch):
-    monkeypatch.setattr(agent_llm, "_DEFAULT_TEXT_MODEL", "gemini-3-5-flash")
-    eng = _FakeEngine("a caption")
+async def test_chat_routes_to_claude(monkeypatch):
+    """Content-pipeline chat() now goes through Claude (complete_messages), not MUapi."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
+    c = _Client(_ok())
     out = await agent_llm.chat(
         [{"role": "system", "content": "S"}, {"role": "user", "content": "write X"}],
-        tier="cheap", engine=eng,
+        tier="smart", client=c,
     )
-    assert out == "a caption"
-    assert eng.called["model"] == "gemini-3-5-flash"          # MUapi text slug, not Claude
-    assert eng.called["prompt"] == "write X"
-    assert eng.called["params"] == {"system_prompt": "S"}     # system → MUapi system_prompt
-    assert eng.called["images"] is None
+    assert out == "hi"                                        # _ok() text block
+    assert c.posted["model"] == "claude-sonnet-5"            # smart tier → Sonnet 5
+    assert c.posted["messages"][0] == {"role": "user", "content": "write X"}  # system lifted out
 
 
 async def test_complete_with_fallback_returns_sentinel_on_error(monkeypatch):

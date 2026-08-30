@@ -15,6 +15,11 @@ re-verify against the docs before relying on a number here.
   `stop_reason`); `runner.py` loops it (tool_use → policy gate → tool_result) until `end_turn`.
   `complete()` / `complete_messages()` remain for the content pipeline (one user turn → text;
   the latter converts OpenAI-style multimodal `image_url` blocks).
+- **Content pipeline (CONTENT-CLAUDE 2026-08-30) — also on Claude.** `agent/llm.py::chat()` (used by
+  caption_writer, scout, script_writer, text_writer, storyboard, carousel_gen, quote_card,
+  content_router, influencer) now routes to `complete_messages`. `tier` → model: **cheap = Haiku 4.5,
+  smart = Sonnet 5** (env `AGENT_CONTENT_MODEL_CHEAP`/`_SMART`). **MUapi stays the image/video path
+  only** (`media/generation/`). caption_writer grounds captions in the brand's uploaded docs.
 - **Model:** env **`AGENT_LLM_MODEL`** (default in code). **`AGENT_LLM_BASE`** overrides the
   API base. Effort: **`AGENT_LLM_EFFORT`** (default `low`).
 - **Cost metering:** every call is attributed to the active brand via `_meter` →
@@ -47,6 +52,9 @@ now the permanent price (the scheduled $3/$15 increase was cancelled).
 3. **`thinking.budget_tokens` is gone** — models use **adaptive thinking**
    (`thinking:{type:"adaptive"}`, on by default on Sonnet 5/Opus 5) with depth controlled by
    **`output_config:{effort: low|medium|high|xhigh|max}`** (default `high`).
+   - ⚠️ **Haiku 4.5 REJECTS `output_config.effort` (400)** — effort is a Claude-5-family param.
+     `_apply_effort` skips it for any `haiku` model (our content `cheap` tier), so cheap-tier
+     calls work. Sonnet 5 / Opus 5 support it.
    - Verified: `effort:"low"` is accepted on `anthropic-version: 2023-06-01` and **suppresses
      the thinking block entirely** → the loop gets clean JSON only, ~half the output tokens.
      We run the loop at `effort:"low"`.

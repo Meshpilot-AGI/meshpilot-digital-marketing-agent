@@ -270,6 +270,7 @@ async def _generate_caption(
     elif mode == "rules_based":
         data = await _generate_via_rules_based(
             signal=signal,
+            brand_id=brand_id,
             system_prompt=system_prompt,
             user_context=user_context,
             catalog_path=cw_cfg.get("product_catalog_path"),
@@ -277,7 +278,7 @@ async def _generate_caption(
 
     if not data:
         data = await _generate_via_filename(
-            system_prompt=system_prompt, user_context=user_context
+            brand_id=brand_id, system_prompt=system_prompt, user_context=user_context
         )
 
     title = str(data.get("title", "")).strip()[:100] or display_name
@@ -299,9 +300,32 @@ async def _generate_caption(
     return title, caption, hashtags
 
 
+async def _caption_llm(system_prompt: str, user_text: str, brand_id: str) -> str:
+    """Generate a caption on Claude, grounded in the brand's uploaded documents (Files API).
+
+    The uploaded style guide (if any) is attached as `document` block(s) so the caption follows the
+    real brand voice, on top of the `voice_prompt_path` {voice} rules already in the system prompt.
+    Doc grounding is best-effort — a doc-store hiccup or no docs still yields a caption.
+    """
+    from glitch_signal.agent import documents
+    try:
+        docs = await documents.list_for_brand(brand_id)
+    except Exception:  # noqa: BLE001 — grounding must never block captioning
+        docs = []
+    user_content: list[dict] = [
+        {"type": "document", "source": {"type": "file", "file_id": d["file_id"]}} for d in docs
+    ]
+    user_content.append({"type": "text", "text": user_text})
+    return await agent_llm.chat(
+        [{"role": "system", "content": system_prompt},
+         {"role": "user", "content": user_content}],
+        tier="smart", max_tokens=4096) or ""
+
+
 async def _generate_via_rules_based(
     *,
     signal: Signal,
+    brand_id: str,
     system_prompt: str,
     user_context: str,
     catalog_path: str | None,
@@ -349,14 +373,7 @@ async def _generate_via_rules_based(
 
     raw_content = ""
     try:
-        raw_content = await agent_llm.chat(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": full_user},
-            ],
-            tier="cheap",
-            max_tokens=4096,
-        ) or ""
+        raw_content = await _caption_llm(system_prompt, full_user, brand_id)
         return _parse_caption_json(raw_content)
     except Exception as exc:
         log.warning(
@@ -368,8 +385,8 @@ async def _generate_via_rules_based(
         return {}
 
 
-async def _generate_via_filename(*, system_prompt: str, user_context: str) -> dict:
-    """Filename-only caption path — cheap, text-only, default."""
+async def _generate_via_filename(*, brand_id: str, system_prompt: str, user_context: str) -> dict:
+    """Filename-only caption path — text-only, default (now on Claude, grounded in brand docs)."""
     # DISPATCH_MODE gates PUBLISH actions (posting to TikTok, sending emails,
     # etc.), NOT every LLM call. Caption generation is cheap, text-only,
     # and exactly what the operator needs to review during dry-run —
@@ -377,18 +394,7 @@ async def _generate_via_filename(*, system_prompt: str, user_context: str) -> di
     # don't reflect the real system behaviour.
     raw_content = ""
     try:
-        # Gemini 2.5 Flash counts reasoning ("thinking") tokens against
-        # max_tokens and will silently truncate the visible output when
-        # the ceiling is tight. 4096 comfortably covers a 2000-char
-        # caption plus whatever thinking the model wants to do.
-        raw_content = await agent_llm.chat(
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_context},
-            ],
-            tier="cheap",
-            max_tokens=4096,
-        ) or ""
+        raw_content = await _caption_llm(system_prompt, user_context, brand_id)
         return _parse_caption_json(raw_content)
     except Exception as exc:
         log.warning(

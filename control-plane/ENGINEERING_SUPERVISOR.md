@@ -580,3 +580,18 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** agent self-ingest tool (`ingest_brand_doc(url)`), auto-inject the brand doc into the caption pipeline, images via Files API, orphan-file cleanup sweep, optional citations. Operator upload example: `curl -H "x-jobs-token: …" -F file=@brandguide.pdf -F kind=style_guide https://api.meshpilot.app/internal/brand/glitch_executor/documents`.
 
 ---
+### CONTENT-CLAUDE — content-pipeline text generation on Claude — CLOSED 2026-08-30
+**Owner:** Claude (Opus)
+
+**Read:** `agent/llm.py` (the MUapi `chat()` shim + all ~10 callers), `agent/nodes/caption_writer.py`, `agent/loop/llm.py` (complete_messages/_apply_effort), `agent/documents.py`, `tests/test_{llm_messages,caption_writer_rules_based,caption_writer_vision,drive_footage_pipeline}.py`. Design: `docs/plans/2026-08-30-caption-claude.md`.
+
+**Changed:** operator directive — MUapi only for image/video, all TEXT to Claude.
+- `agent/llm.py`: `chat()` rewritten to route to `complete_messages` (Claude); dropped the `MuapiEngine` text path + `_flatten`. `model_for(tier)`: cheap→`claude-haiku-4-5-20251001`, smart→`claude-sonnet-5` (env `AGENT_CONTENT_MODEL_CHEAP/_SMART`, legacy `AGENT_CONTENT_TEXT_MODEL_<TIER>`). `complete_with_fallback` unchanged. One change moves every text caller (caption_writer, scout, script_writer, text_writer, storyboard, carousel_gen, quote_card, content_router, influencer). **MUapi image/video (`media/generation/`) untouched.**
+- `agent/nodes/caption_writer.py`: new `_caption_llm(system, user_text, brand_id)` seam both caption paths call — prepends the brand's uploaded `document` blocks (`documents.list_for_brand`, best-effort) then `chat(tier="smart")` (Sonnet 5). Grounds captions in the real style guide on top of `voice_prompt_path`.
+- `agent/loop/llm.py::_apply_effort`: **skip `output_config.effort` for Haiku** — Haiku 4.5 400s on it (a Claude-5-family param). This was breaking every cheap-tier content call.
+
+**Verified:** suite **462 pass** (Claude-routing + Haiku-effort-skip tests; caption tests repointed to the `_caption_llm` seam with the new signature + brand_id). **Live (real API):** `chat([...], tier="cheap")` → Haiku 4.5 returned text; `_caption_llm` (Sonnet 5) with a real uploaded brand guide returned a caption that honored it (avoided the forbidden word "unlock").
+
+**Remains:** structured outputs (`output_config.format`) for guaranteed caption JSON; citations; per-node tier tuning (some nodes may want cheap=Haiku to control cost); consider moving script/text_writer doc-grounding too. Watch content cost (Gemini-flash → Haiku/Sonnet) via the per-brand budget.
+
+---
