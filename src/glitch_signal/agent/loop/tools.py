@@ -125,7 +125,8 @@ async def _t_publish(args: dict, brand_id: str) -> str:
     from glitch_signal.config import settings as _settings
     if bool(getattr(_settings(), "agent_conscience_enabled", False)):
         from glitch_signal.agent.loop import conscience
-        verdict = await conscience.review(f"publish a post to {platform}", text)
+        facts = await conscience.brand_facts(brand_id)   # verified ground truth for the pre-publish gate
+        verdict = await conscience.review(f"publish a post to {platform}", text, facts=facts)
         if verdict.get("verdict") == "escalate":
             return (f"BLOCKED by conscience (escalate): {str(verdict.get('notes', ''))[:200]} — "
                     "not published; a human must approve this post.")

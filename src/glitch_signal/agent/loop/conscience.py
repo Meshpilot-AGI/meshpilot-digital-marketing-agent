@@ -72,17 +72,43 @@ def _parse_obj(raw: str) -> dict:
     return {}
 
 
-async def review(goal: str, output: str | None, *, complete: CompleteFn | None = None,
-                 model: str | None = None) -> dict:
-    """Independently review the run's outward-intended output. {} if no constitution / empty output."""
+async def brand_facts(brand_id: str, *, limit: int = 8) -> str:
+    """Recall the brand's VERIFIED facts (kind=fact) as ground truth to hand the critic. '' on failure.
+
+    Feeding the critic verified facts does NOT compromise its independence — independence is about not
+    seeing the AUTHOR's reasoning/transcript, not about withholding ground truth. Facts let it confirm
+    real claims (and stop escalating a genuine brand it happens to be unfamiliar with)."""
+    try:
+        from glitch_signal.agent.memory.store import recall as mem_recall
+        mems = await mem_recall(brand_id, "brand identity product features audience pricing",
+                                k=limit, kinds=["fact"])
+        return "\n".join(f"- {m.content}" for m in mems)[:2500]
+    except Exception as exc:  # noqa: BLE001 — no facts → the critic just reviews without ground truth
+        log.warning("agent.conscience.brand_facts_failed", error=str(exc)[:200])
+        return ""
+
+
+async def review(goal: str, output: str | None, *, facts: str = "",
+                 complete: CompleteFn | None = None, model: str | None = None) -> dict:
+    """Independently review the run's outward-intended output. {} if no constitution / empty output.
+
+    `facts` (verified brand ground truth) is authoritative: the critic must defer to it over its own
+    priors — so it stops escalating a real brand it's simply unfamiliar with (e.g. a name collision)."""
     complete = complete or agent_llm.complete
     con = constitution()
     text = (output or "").strip()
     if not con or not text:
         return {}
     system = _SYS_PREFIX + con[:4000]
-    prompt = (f"Run goal (context only): {goal}\n\nProposed output to review:\n{text[:3000]}\n\n"
-              "Your verdict JSON:")
+    facts_block = ""
+    if facts.strip():
+        facts_block = (
+            "\n\n--- VERIFIED BRAND FACTS (authoritative ground truth) ---\n" + facts[:2500] +
+            "\nTreat these facts as TRUE. A claim consistent with them is acceptable even if the brand "
+            "seems unfamiliar or shares a name with something else; only flag claims that CONTRADICT or "
+            "go BEYOND these facts.")
+    prompt = (f"Run goal (context only): {goal}\n\nProposed output to review:\n{text[:3000]}"
+              f"{facts_block}\n\nYour verdict JSON:")
     try:
         raw = await complete(prompt, system=system, model=model or _model(), timeout_s=40)
     except Exception as exc:  # noqa: BLE001 — deliberation must never fail the run
