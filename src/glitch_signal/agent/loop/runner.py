@@ -80,7 +80,9 @@ async def run(
         await mcp.__aenter__()
         own_mcp = True
 
-    tool_defs = tools.tool_defs() + (mcp.tool_defs() if mcp is not None else [])
+    # Built-in client tools + Anthropic server tools (web_search/web_fetch) + this brand's MCP tools.
+    tool_defs = (tools.tool_defs() + tools.server_tool_defs()
+                 + (mcp.tool_defs() if mcp is not None else []))
     sys = system_prompt()
 
     async def dispatch(tool_name: str, args: dict, bid: str) -> str:
@@ -98,10 +100,17 @@ async def run(
             resp = await llm(messages, tools=tool_defs, system=sys)
             content = resp.get("content", []) or []
             messages.append({"role": "assistant", "content": content})
+            stop = resp.get("stop_reason")
+
+            # A long server-tool turn (web_search/web_fetch) can pause; re-send to resume rather
+            # than treating it as the final answer. Bounded by max_steps.
+            if stop == "pause_turn":
+                continue
+
             tool_uses = [b for b in content
                          if isinstance(b, dict) and b.get("type") == "tool_use"]
 
-            if resp.get("stop_reason") != "tool_use" or not tool_uses:
+            if stop != "tool_use" or not tool_uses:
                 final = _final_text(content)
                 await _write_episode(brand_id, goal, transcript, final, base_execute)
                 return {"final": final, "transcript": transcript, "steps": step + 1}

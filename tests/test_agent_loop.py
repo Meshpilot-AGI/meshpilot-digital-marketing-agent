@@ -110,6 +110,36 @@ async def test_loop_stops_at_max_steps():
     assert ex.calls[-1][0] == "remember"  # episode still written on timeout
 
 
+async def test_loop_resumes_on_pause_turn():
+    # A paused server-tool turn is re-sent (resumed), not treated as the final answer.
+    llm = ScriptedLLM([
+        {"stop_reason": "pause_turn", "content": [{"type": "text", "text": "searching…"}]},
+        _done("found it"),
+    ])
+    ex = FakeExec()
+    res = await run("b", "g", llm=llm, execute=ex)
+    assert res["final"] == "found it" and res["steps"] == 2
+
+
+def test_server_tool_defs_gating(monkeypatch):
+    from glitch_signal.agent.loop import tools
+    for k in ("AGENT_WEB_SEARCH_ENABLED", "AGENT_WEB_FETCH_ENABLED", "AGENT_WEB_SEARCH_MAX_USES",
+              "AGENT_WEB_BLOCKED_DOMAINS", "AGENT_WEB_SEARCH_TAG"):
+        monkeypatch.delenv(k, raising=False)
+    defs = tools.server_tool_defs()                        # search on, fetch off by default (HIPAA)
+    assert {t["name"] for t in defs} == {"web_search"}
+    ws = defs[0]
+    assert ws["type"] == "web_search_20250305" and ws["max_uses"] == 3  # basic HIPAA-safe tag
+    monkeypatch.setenv("AGENT_WEB_FETCH_ENABLED", "true")  # opt fetch in (when ZDR is enabled)
+    assert {t["name"] for t in tools.server_tool_defs()} == {"web_search", "web_fetch"}
+    monkeypatch.setenv("AGENT_WEB_SEARCH_ENABLED", "false")  # gate search off
+    assert {t["name"] for t in tools.server_tool_defs()} == {"web_fetch"}
+    monkeypatch.setenv("AGENT_WEB_SEARCH_ENABLED", "true")
+    monkeypatch.setenv("AGENT_WEB_BLOCKED_DOMAINS", "evil.com, spam.io")
+    ws = next(t for t in tools.server_tool_defs() if t["name"] == "web_search")
+    assert ws["blocked_domains"] == ["evil.com", "spam.io"]
+
+
 # ── NVIDIA chat llm.complete (injected fake httpx client, no network) ──
 class _FakeResp:
     def __init__(self, status_code, payload):

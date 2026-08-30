@@ -3,14 +3,6 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### WEB-TOOLS — web_search + web_fetch (built-in server tools)          [DESIGN]
-Owner: Claude (Opus)        Opened: 2026-08-30
-Goal: give the agent live-web ability via Anthropic's server-side web_search (`web_search_20260318`) + web_fetch (`web_fetch_20260318`) — probe-confirmed to resolve inline (server_tool_use→web_search_tool_result→text, stop_reason=end_turn). Operator decision: ON, capped (max_uses=3, metered into the per-brand budget). ~3 files: tools.py server_tool_defs(), runner.py (append defs + pause_turn handling), pricing.py (web_search $0.01/req from usage.server_tool_use).
-Design: docs/plans/2026-08-30-web-tools.md  ← awaiting operator go before build
-Reading: agent/loop/{tools,runner}.py, analytics/cost/pricing.py, config.py
-Acceptance: server tools offered (config-gated, capped); pause_turn resumes; web_search metered; suite green; live Sonnet 5 run shows a real search + a metered web_search_request.
-Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
@@ -21,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **WEB-TOOLS — web_search + web_fetch (server tools)** (2026-08-30) — gave the agent live-web ability via Anthropic server tools. `tools.py::server_tool_defs()` (config-gated, capped); `runner.py` appends them + handles `pause_turn` (resume long search turns); `pricing.py` bills web_search $0.01/req from `usage.server_tool_use.web_search_requests` → flows into the per-brand budget. **Discovery during build:** our Anthropic org is **HIPAA-regulated without ZDR**, which 400s `web_fetch` + `code_execution` (and the dynamic-filtering `web_search_20260318` which auto-provisions code_execution) — so web_search defaults to the **basic `web_search_20250305`** tag and **web_fetch defaults OFF** (flag ready for when ZDR lands; tags overridable via AGENT_WEB_SEARCH_TAG/AGENT_WEB_FETCH_TAG). **Verified live on Sonnet 5**: the agent ran a real web_search (current BTC price), metered ~$0.01, encrypted result round-trip clean; suite **452 pass**. Design: docs/plans/2026-08-30-web-tools.md. → supervisor
 
 - **CLAUDE-TOOLS — native tool use (replace JSON-in-text ReAct)** (2026-08-30) — migrated the agent loop to Anthropic **native tool use**. `tools.py`: every built-in tool gained a JSON-Schema `input_schema` + `tool_defs()` (with `strict:true` on the closed-schema ones); `mcp/client.py` now captures the `inputSchema` it used to discard + exposes `tool_defs()`. `llm.py`: new **`complete_tools()`** transport (shared `_send`; cache breakpoint on the last tool def) returning `{content, stop_reason, usage}`. `runner.py`: rewritten to the native cycle (tool_use → `policy.allow` → `tool_result`, parallel-safe, loop to `end_turn`); `parse_action` deleted. `prompt.py`: dropped the "respond with JSON" protocol. **Verified live on Sonnet 5**: a native `tool_use`→`tool_result`→`end_turn` round-trip AND the full `run()` loop returning a coherent answer; suite **449 pass**. Design: docs/plans/2026-08-30-claude-tools-native-tool-use.md. Follow-ons: built-in server tools (web_search/web_fetch/code_exec), Files API, context editing. → supervisor
 

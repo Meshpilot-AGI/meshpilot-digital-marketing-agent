@@ -536,3 +536,20 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** built-in **server tools** (web_search/web_fetch/code_execution — web_fetch free, code_exec free when bundled), **Files API** (brand PDFs, workspace-scoped → keep brand→file_id map), **context editing** (`clear_tool_uses_20250919`) for long runs. Optional: `output_config.format` structured outputs for the content nodes; a 2nd MCP cache breakpoint if MCP tool sets grow large.
 
 ---
+### WEB-TOOLS — web_search + web_fetch (server tools) — CLOSED 2026-08-30
+**Owner:** Claude (Opus)
+
+**Read:** `agent/loop/{tools,runner}.py`, `analytics/cost/pricing.py`, `tests/test_{agent_loop,cost_meter}.py`. Design: `docs/plans/2026-08-30-web-tools.md`.
+
+**Changed:** added Anthropic **server-side** web tools to the native-tool-use loop.
+- `tools.py::server_tool_defs()` — config-gated web_search/web_fetch defs (NOT in the TOOLS registry; Anthropic executes them, so they never hit `execute()`/`policy.allow`). web_search default ON, `max_uses=3`; web_fetch default OFF.
+- `runner.py` — `tool_defs = tool_defs() + server_tool_defs() + mcp.tool_defs()`; new **`pause_turn`** branch (a long server-tool turn is re-sent to resume, not treated as final). Server `server_tool_use` blocks aren't dispatched (the existing tool_use filter ignores them); response content is appended verbatim so the `encrypted_content` round-trips.
+- `pricing.py` — `anthropic_cost` adds `usage.server_tool_use.web_search_requests × $0.01` (env `COST_ANTHROPIC_WEB_SEARCH_USD`); web_fetch is free. Cost flows into `budget.check` (INC-3).
+
+**Discovery (important):** our Anthropic org is **HIPAA-regulated without Zero Data Retention** → `web_fetch` + `code_execution` return `400 (not available … without Zero Data Retention)`, and the dynamic-filtering `web_search_20260318` auto-provisions code_execution so it's blocked too. **Basic `web_search_20250305` works.** So web_search defaults to that tag and web_fetch defaults OFF (tags overridable via `AGENT_WEB_SEARCH_TAG`/`AGENT_WEB_FETCH_TAG`; flip `AGENT_WEB_FETCH_ENABLED=true` once ZDR is enabled).
+
+**Verified:** suite **452 pass** (server_tool_defs gating for the HIPAA-safe defaults, pause_turn resume, web_search pricing). **Live (real Sonnet 5, local key):** a direct `complete_tools` call ran a real web_search (`server_tool_use`→`web_search_tool_result`→text, `end_turn`), `web_search_requests≥1`, `anthropic_cost≥$0.01`; the full `run()` loop returned a current BTC price; no HIPAA 400 with the basic tag; encrypted round-trip clean.
+
+**Remains:** flip web_fetch (+ code_execution, Files API) on once ZDR is enabled on the org — or move the agent to a non-HIPAA workspace. Consider `response_inclusion` (web_search_20260318) under ZDR for fresher filtering. Files API + context editing are the next capability lanes.
+
+---
