@@ -4,11 +4,11 @@ Called by the scheduler tick in scheduler/queue.py. Idempotency comes from
 the sheet's id column: every call flips the row to posted|failed so the
 next tick won't re-fire it.
 
-Routing (VENDOR-1, 2026-08-29): Upload-Post and native LinkedIn are gone.
-Every row's legacy `platform` value (upload_post_x, upload_post_linkedin, …)
-is normalized to a bare target (x, linkedin, tiktok, facebook, instagram,
-youtube) and resolved via `config.resolve_publish_platform` to the surviving
-publisher — Buffer (x / linkedin / tiktok) or Meta (facebook / instagram).
+Routing: every row's `platform` value (with any publisher prefix, e.g.
+buffer_x, meta_facebook, or a bare target) is normalized to a bare target
+(x, linkedin, tiktok, facebook, instagram, youtube) and resolved via
+`config.resolve_publish_platform` to a publisher — Buffer (x / linkedin /
+tiktok) or Meta (facebook / instagram).
 YouTube is video-file only and isn't reachable from this text/image sheet
 path, so it's marked unsupported.
 """
@@ -25,7 +25,11 @@ from glitch_signal.db.session import _session_factory
 from glitch_signal.integrations.google_sheets import update_row_by_key
 from glitch_signal.platforms import buffer, facebook, instagram
 from glitch_signal.sheet_posting.quote_card import generate_quote_card
-from glitch_signal.sheet_posting.reader import SHEET_COLUMNS, QueuedPost
+from glitch_signal.sheet_posting.reader import (
+    SHEET_COLUMNS,
+    QueuedPost,
+    strip_publisher_prefix,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -38,7 +42,7 @@ async def post_one(row: QueuedPost) -> tuple[bool, str]:
     in notes.
     """
     cfg = brand_config(row.brand_id)
-    target = row.platform.replace("upload_post_", "").strip().lower()
+    target = strip_publisher_prefix(row.platform)
 
     if settings().is_dry_run:
         log.info(

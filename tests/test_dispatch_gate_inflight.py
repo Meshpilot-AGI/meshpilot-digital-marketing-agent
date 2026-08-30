@@ -2,7 +2,7 @@
 
 Regression test for the 2026-04-18 Namhya over-fire: 11 posts fired
 inside a single 15-min slot when the daily_cap was 3, because the
-gate counted `PublishedPost` only and Upload-Post's webhook-async
+gate counted `PublishedPost` only and the async publisher's fire-then-poll
 flow doesn't write that row until ~10 minutes after dispatch.
 """
 from __future__ import annotations
@@ -67,7 +67,7 @@ async def _seed_sp(
 
     asset_id = str(uuid.uuid4())
     sp_id = str(uuid.uuid4())
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
 
     async with factory() as session:
         if asset_required:
@@ -77,7 +77,7 @@ async def _seed_sp(
             ))
         session.add(ScheduledPost(
             id=sp_id, brand_id=brand_id, asset_id=asset_id,
-            platform="upload_post_tiktok", scheduled_for=now,
+            platform="buffer_tiktok", scheduled_for=now,
             status=status, last_attempt_at=last_attempt_at,
         ))
         await session.commit()
@@ -93,7 +93,7 @@ class TestCountPostsTodayIncludesInflight:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             # Two posts dispatched recently, neither finalised yet.
             await _seed_sp(factory, brand_id="b", status="awaiting_webhook",
                            last_attempt_at=now - timedelta(minutes=2))
@@ -111,7 +111,7 @@ class TestCountPostsTodayIncludesInflight:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             await _seed_sp(factory, brand_id="b", status="done",
                            last_attempt_at=now - timedelta(hours=1))
             await _seed_sp(factory, brand_id="b", status="awaiting_webhook",
@@ -130,7 +130,7 @@ class TestCountPostsTodayIncludesInflight:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             await _seed_sp(factory, brand_id="b", status="queued",
                            last_attempt_at=None)
             await _seed_sp(factory, brand_id="b", status="pending_veto",
@@ -147,7 +147,7 @@ class TestCountPostsTodayIncludesInflight:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             await _seed_sp(factory, brand_id="b", status="done",
                            last_attempt_at=now - timedelta(days=1, hours=5))
             await _seed_sp(factory, brand_id="b", status="awaiting_webhook",
@@ -164,7 +164,7 @@ class TestCountPostsTodayIncludesInflight:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             await _seed_sp(factory, brand_id="b", status="done",
                            last_attempt_at=now - timedelta(hours=1))
             await _seed_sp(factory, brand_id="other", status="done",
@@ -186,7 +186,7 @@ class TestMinIntervalUsesInflightTimestamp:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             await _seed_sp(factory, brand_id="b", status="awaiting_webhook",
                            last_attempt_at=now - timedelta(minutes=5))
             # No PublishedPost row exists — the old bug would have this
@@ -203,7 +203,7 @@ class TestMinIntervalUsesInflightTimestamp:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             mins = await _minutes_since_last_post("b", now)
             assert mins is None
         finally:
@@ -217,7 +217,7 @@ class TestMinIntervalUsesInflightTimestamp:
 
         factory, originals = await _build_test_db()
         try:
-            now = datetime.now(UTC).replace(tzinfo=None)
+            now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0, tzinfo=None)
             await _seed_sp(factory, brand_id="b", status="queued",
                            last_attempt_at=None)
             mins = await _minutes_since_last_post("b", now)

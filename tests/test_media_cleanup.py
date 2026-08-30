@@ -97,13 +97,13 @@ async def _seed_published(
         ))
         session.add(ScheduledPost(
             id=sp_id, brand_id="b", asset_id=asset_id,
-            platform="upload_post_tiktok",
+            platform="buffer_tiktok",
             scheduled_for=now - timedelta(minutes=published_min_ago),
             status="done",
         ))
         session.add(PublishedPost(
             id=pp_id, brand_id="b", scheduled_post_id=sp_id,
-            platform="upload_post_tiktok",
+            platform="buffer_tiktok",
             platform_post_id="TT-1", platform_url="https://tt/x",
             published_at=now - timedelta(minutes=published_min_ago),
         ))

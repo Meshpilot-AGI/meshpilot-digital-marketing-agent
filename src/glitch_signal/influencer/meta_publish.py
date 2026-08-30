@@ -3,7 +3,8 @@
 For personas whose bible carries an `accounts.meta` block (FB Page + IG
 Business account under the operator's Business Manager), we post DIRECTLY
 to Instagram — no third-party reseller. This is the most "real to the
-platform" path and avoids Upload-Post/Zernio entirely.
+platform" path and publishes directly via the Meta Graph API, avoiding
+any reseller.
 
 Two-step IG Content Publishing:
   1. POST /{ig_user_id}/media         -> creation_id  (container)

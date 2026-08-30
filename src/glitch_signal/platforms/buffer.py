@@ -1,28 +1,30 @@
 """Buffer publisher — GraphQL-backed TikTok publishing.
 
-Why a third vendor on top of Upload-Post and Zernio:
+Why a third vendor on top of the prior TikTok publisher and Zernio:
 
-  Upload-Post's TikTok pipeline silently triggers TikTok's synthetic-media
-  audio mute for AI-generated voice content. The same files post cleanly
-  on Upload-Post → Instagram and on Buffer → TikTok. Direct-to-origin
-  evidence: diagnostic posts on 2026-04-19 where the same byte-identical
-  file had muted audio via Upload-Post and full audio via Buffer to the
-  same `@glitchexec` TikTok channel.
+  The prior TikTok publisher's pipeline silently triggers TikTok's
+  synthetic-media audio mute for AI-generated voice content. The same
+  files post cleanly through that publisher to Instagram and through
+  Buffer to TikTok. Direct-to-origin evidence: diagnostic posts on
+  2026-04-19 where the same byte-identical file had muted audio via
+  the prior publisher and full audio via Buffer to the same
+  `@glitchexec` TikTok channel.
 
   Buffer's server forwards our file URL to TikTok's Content Posting API
-  *without* server-side re-muxing. The `video_was_transcoded: false`
-  on Upload-Post combined with the mute asymmetry points to their
-  remux pipeline as the trigger; Buffer avoids this by staying hands-off.
+  *without* server-side re-muxing. The prior publisher reporting
+  `video_was_transcoded: false` combined with the mute asymmetry points
+  to its remux pipeline as the trigger; Buffer avoids this by staying
+  hands-off.
 
 Scope:
   Today this publisher is TikTok-only. Buffer supports Instagram / YouTube
   / LinkedIn / X etc., but their IG path passes files straight through
   (no normalization), which means our 20 Mbps / 100+ MB reels exceed
-  Instagram Graph API native limits — Upload-Post's re-encoding is
+  Instagram Graph API native limits — re-encoding on the way in is
   actually useful there. Add per-platform coverage later if we hit
   similar issues on non-TikTok targets.
 
-Platform-key convention mirrors zernio_* and upload_post_*:
+Platform-key convention: buffer_<target>, e.g.
   buffer_tiktok, buffer_instagram, buffer_youtube, …
 
 Per-brand config lives under platforms.buffer_<target>:
@@ -74,10 +76,10 @@ _GRAPHQL_URL = "https://api.buffer.com"
 # ceiling.
 _MEDIA_URL_TTL_S = 60 * 60
 
-# Sentinel prefix shared with upload_post.py. publisher.py treats both
-# vendors' pending posts uniformly — it stashes the post id in
-# scheduled_post.vendor_request_id and flips status to awaiting_webhook.
-# The reconcile sweep then routes by sp.platform prefix to the right vendor.
+# Sentinel prefix used for this vendor's webhook-pending handoff.
+# publisher.py stashes the post id in scheduled_post.vendor_request_id
+# and flips status to awaiting_webhook. The reconcile sweep then routes
+# by sp.platform prefix to the right vendor.
 _WEBHOOK_PENDING_PREFIX = "webhook_pending:"
 
 # Short timeout for the submission call. Buffer accepts createPost in
@@ -440,9 +442,9 @@ async def poll_status_for_post(
 async def _read_caption(script_id: str | None) -> str:
     """Return the caption body for the post, or empty string if not found.
 
-    Mirrors upload_post._read_caption but returns just the caption — Buffer
-    only has one text field on createPost (no title/description split),
-    so hashtag extraction + title derivation aren't needed here.
+    Returns just the caption — Buffer only has one text field on createPost
+    (no title/description split), so hashtag extraction + title derivation
+    aren't needed here.
     """
     if not script_id:
         return ""
@@ -453,7 +455,7 @@ async def _read_caption(script_id: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Signed media URL (shares scheme with upload_post.py / zernio.py)
+# Signed media URL
 # ---------------------------------------------------------------------------
 
 def _build_signed_media_url(local_path: pathlib.Path) -> str:

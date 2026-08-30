@@ -2,7 +2,7 @@
 
 Primary use: LinkedIn image posts (and later Twitter/Instagram) for text brands
 that want visual pairing. Generates a PNG from a prompt and returns the local
-path; the publisher uploads via upload_post.upload_photos().
+path; the publisher uploads the image.
 
 Default model is `fal-ai/flux/schnell` — fast (~1-2s) and cheap
 (~$0.003/image). Swap via FAL_IMAGE_MODEL in .env. All calls go through a

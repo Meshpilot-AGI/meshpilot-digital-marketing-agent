@@ -7,7 +7,7 @@ and safe to run on a timer; the plan-row status is the state machine.
   discovery_tick : top up the plan with fresh idea rows (status=idea)
   generation_tick: lease an approved row, generate the persona-consistent
                    asset, write asset_url, status -> ready
-  posting_tick   : take a due ready row, publish via Upload-Post,
+  posting_tick   : take a due ready row, publish via the Meta Graph API,
                    write post_url/platform_post_id, status -> posted
   engagement_tick: plan owned-surface replies (sanctioned only)
 
@@ -20,11 +20,10 @@ from __future__ import annotations
 import datetime as _dt
 import os
 from dataclasses import dataclass
-from typing import Any
 
 import structlog
 
-from glitch_signal.influencer import content_plan, discovery, generate, posting
+from glitch_signal.influencer import content_plan, discovery, generate
 from glitch_signal.influencer.persona import load_persona
 
 log = structlog.get_logger(__name__)
@@ -75,7 +74,7 @@ async def generation_tick(brand_id: str, *, persona_id: str | None = None) -> Ti
 async def posting_tick(brand_id: str, *, persona_id: str | None = None,
                        now: _dt.datetime | None = None) -> TickResult:
     """Publish the next due 'ready' row (scheduled_for <= now, or unscheduled)."""
-    now = now or _dt.datetime.now(_dt.timezone.utc)
+    now = now or _dt.datetime.now(_dt.UTC)
     rows = await content_plan.fetch_rows(brand_id, status="ready", persona=persona_id)
     due = [
         r for r in rows
@@ -100,7 +99,7 @@ async def posting_tick(brand_id: str, *, persona_id: str | None = None,
         caption = await caption_mod.final_caption(persona, row.data)
 
         # ── Meta-native path (Instagram + Facebook) ──────────────────────────
-        # We publish DIRECTLY via Graph API. No Upload-Post reseller for
+        # We publish DIRECTLY via Graph API. No reseller for
         # Instagram or Facebook — if the persona lacks credentials we fail
         # loud so the operator knows to connect the account.
         meta = (persona.raw.get("accounts") or {}).get("meta") or {}
@@ -167,19 +166,15 @@ async def posting_tick(brand_id: str, *, persona_id: str | None = None,
             log.info("influencer.pipeline.posted", plan_id=row.id, platform="facebook_native", dry=fb.dry_run)
             return TickResult("posting", row.persona_id, row.id, "posted", fb.post_id)
 
-        # ── Non-Meta platforms: Upload-Post reseller path ────────────────────
-        res = posting.post_asset(
-            brand_id=brand_id, platform=platform,
-            asset_url=asset_url, caption=caption, kind=kind,
+        # ── Non-Meta platforms: no publisher ─────────────────────────────────
+        # The influencer pipeline publishes to Instagram / Facebook via the
+        # Graph API only. Other platforms have no publisher here — fail loud so
+        # the operator removes them from the persona's posting_cadence.
+        raise RuntimeError(
+            f"persona {row.persona_id}: platform {platform!r} has no publisher — "
+            f"the influencer pipeline posts to Instagram/Facebook only. Remove "
+            f"{platform!r} from posting_cadence.platforms."
         )
-        await content_plan.write_back(row.id, {
-            "status": "posted",
-            "caption": caption,
-            "platform_post_id": res.request_id,
-            "notes": f"posted via upload_post/{res.platform}{' (dry_run)' if res.dry_run else ''}",
-        })
-        log.info("influencer.pipeline.posted", plan_id=row.id, platform=res.platform, dry=res.dry_run)
-        return TickResult("posting", row.persona_id, row.id, "posted", res.request_id)
     except Exception as e:  # noqa: BLE001
         await content_plan.write_back(row.id, {"status": "failed", "notes": f"post_error: {str(e)[:240]}"})
         log.error("influencer.pipeline.post_failed", plan_id=row.id, error=str(e)[:240])

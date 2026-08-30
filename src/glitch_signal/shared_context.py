@@ -276,8 +276,8 @@ async def resolve_publish_platform_hub_first(
       - Meta account implies facebook target.
 
     Returns None when the hub has no matching connection, signalling the
-    caller to fall back to local brand config (which may use vendor
-    accounts like Upload-Post that do not need a brand-specific OAuth).
+    caller to fall back to local brand config (which may use shared
+    vendor accounts that do not need a brand-specific OAuth).
     """
     from glitch_signal.config import _PUBLISH_PRIORITY, brand_config
 

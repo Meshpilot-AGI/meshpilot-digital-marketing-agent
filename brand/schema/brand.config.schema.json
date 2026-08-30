@@ -127,15 +127,15 @@
             "default_tags": {"type": "array", "items": {"type": "string"}}
           }
         },
-        "upload_post_tiktok": {
+        "buffer_tiktok": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Post to TikTok via Upload-Post (audited partner app). Cheaper than Zernio at real volume. 'user' is the Upload-Post managed-user profile name, not the TikTok handle.",
+          "description": "Post to TikTok via Buffer. 'channel' is the Buffer channel id for the connected TikTok account.",
           "properties": {
             "enabled": {"type": "boolean"},
-            "user": {
+            "channel": {
               "type": ["string", "null"],
-              "description": "Upload-Post managed-user profile username (from list_users())."
+              "description": "Buffer channel id for the connected TikTok account."
             },
             "daily_cap": {"type": "integer", "minimum": 0},
             "default_privacy_level": {
@@ -151,23 +151,23 @@
             "default_tags": {"type": "array", "items": {"type": "string"}}
           }
         },
-        "upload_post_instagram": {
+        "meta_instagram": {
           "type": "object",
           "additionalProperties": true,
+          "description": "Post to Instagram directly via the Meta Graph API.",
           "properties": {
             "enabled": {"type": "boolean"},
-            "user": {"type": ["string", "null"]},
             "media_type": {"type": "string", "enum": ["REELS", "STORIES"]},
             "share_to_feed": {"type": "boolean"},
             "default_tags": {"type": "array", "items": {"type": "string"}}
           }
         },
-        "upload_post_youtube": {
+        "youtube_shorts": {
           "type": "object",
           "additionalProperties": true,
+          "description": "Post to YouTube Shorts directly via the YouTube Data API.",
           "properties": {
             "enabled": {"type": "boolean"},
-            "user": {"type": ["string", "null"]},
             "privacy_status": {"type": "string", "enum": ["public", "unlisted", "private"]},
             "category_id": {"type": "string"},
             "default_tags": {"type": "array", "items": {"type": "string"}}
@@ -177,7 +177,7 @@
     },
     "media_pipeline": {
       "type": "object",
-      "description": "Per-platform pre-publish ffmpeg transforms. Keys are canonical platform names (tiktok, instagram, youtube, etc. — same enum as Upload-Post). Values are ordered lists of transform names from src/glitch_signal/media/ffmpeg.py::registered_transforms(). Example: {\"tiktok\": [\"strip_audio\"]} to drop the audio track before TikTok publish (fixes the web-player mute on licensed-music Content ID matches).",
+      "description": "Per-platform pre-publish ffmpeg transforms. Keys are canonical platform names (tiktok, instagram, youtube, etc. — the bare targets). Values are ordered lists of transform names from src/glitch_signal/media/ffmpeg.py::registered_transforms(). Example: {\"tiktok\": [\"strip_audio\"]} to drop the audio track before TikTok publish (fixes the web-player mute on licensed-music Content ID matches).",
       "additionalProperties": {
         "type": "array",
         "items": {

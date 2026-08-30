@@ -39,10 +39,10 @@ def _write_brand(configs_dir: pathlib.Path, brand_id: str, media_pipeline: dict 
 
 
 class TestCanonicalPlatform:
-    def test_upload_post_prefix_stripped(self):
+    def test_buffer_prefix_stripped(self):
         from glitch_signal.media.ffmpeg import canonical_platform
-        assert canonical_platform("upload_post_tiktok") == "tiktok"
-        assert canonical_platform("upload_post_instagram") == "instagram"
+        assert canonical_platform("buffer_tiktok") == "tiktok"
+        assert canonical_platform("meta_instagram") == "instagram"
 
     def test_zernio_prefix_stripped(self):
         from glitch_signal.media.ffmpeg import canonical_platform
@@ -63,7 +63,7 @@ class TestApplyTransformsNoOp:
         from glitch_signal.media.ffmpeg import apply_transforms
         vid = tmp_path / "clip.mp4"
         vid.write_bytes(b"x")
-        out = await apply_transforms(str(vid), "does_not_exist", "upload_post_tiktok")
+        out = await apply_transforms(str(vid), "does_not_exist", "buffer_tiktok")
         assert out == str(vid)
 
     @pytest.mark.asyncio
@@ -81,7 +81,7 @@ class TestApplyTransformsNoOp:
 
         vid = tmp_path / "clip.mp4"
         vid.write_bytes(b"x")
-        out = await apply_transforms(str(vid), "brand_a", "upload_post_tiktok")
+        out = await apply_transforms(str(vid), "brand_a", "buffer_tiktok")
         assert out == str(vid)
 
     @pytest.mark.asyncio
@@ -100,7 +100,7 @@ class TestApplyTransformsNoOp:
         vid = tmp_path / "clip.mp4"
         vid.write_bytes(b"x")
         # Brand wants strip_audio only for instagram; TikTok publish leaves input alone.
-        out = await apply_transforms(str(vid), "brand_b", "upload_post_tiktok")
+        out = await apply_transforms(str(vid), "brand_b", "buffer_tiktok")
         assert out == str(vid)
 
     @pytest.mark.asyncio
@@ -108,7 +108,7 @@ class TestApplyTransformsNoOp:
         from glitch_signal.media.ffmpeg import apply_transforms
         vid = tmp_path / "clip.mp4"
         vid.write_bytes(b"x")
-        out = await apply_transforms(str(vid), "", "upload_post_tiktok")
+        out = await apply_transforms(str(vid), "", "buffer_tiktok")
         assert out == str(vid)
 
 
@@ -237,7 +237,7 @@ class TestApplyTransformsReplaceAudio:
             pathlib.Path(argv[-1]).write_bytes(b"o")
         monkeypatch.setattr(mod, "_run_ffmpeg", fake_run)
 
-        out = await mod.apply_transforms(str(vid), "brand_ra", "upload_post_tiktok")
+        out = await mod.apply_transforms(str(vid), "brand_ra", "buffer_tiktok")
         assert out.endswith(".replace_audio.mp4")
         assert len(calls) == 1
         assert str(audio) in calls[0]
@@ -270,7 +270,7 @@ class TestApplyTransformsRuns:
             out.write_bytes(b"stripped")
         monkeypatch.setattr(mod, "_run_ffmpeg", fake_run)
 
-        result = await mod.apply_transforms(str(vid), "brand_c", "upload_post_tiktok")
+        result = await mod.apply_transforms(str(vid), "brand_c", "buffer_tiktok")
         expected_out = tmp_path / "clip.strip_audio.mp4"
         assert result == str(expected_out)
         assert expected_out.exists()
@@ -304,7 +304,7 @@ class TestApplyTransformsRuns:
             raise AssertionError("_run_ffmpeg should not be called on cache hit")
         monkeypatch.setattr(mod, "_run_ffmpeg", must_not_run)
 
-        out = await mod.apply_transforms(str(vid), "brand_d", "upload_post_tiktok")
+        out = await mod.apply_transforms(str(vid), "brand_d", "buffer_tiktok")
         assert out == str(cached)
 
     @pytest.mark.asyncio
@@ -322,7 +322,7 @@ class TestApplyTransformsRuns:
 
         with pytest.raises(FileNotFoundError):
             await mod.apply_transforms(
-                str(tmp_path / "missing.mp4"), "brand_e", "upload_post_tiktok"
+                str(tmp_path / "missing.mp4"), "brand_e", "buffer_tiktok"
             )
 
     @pytest.mark.asyncio
@@ -342,12 +342,12 @@ class TestApplyTransformsRuns:
         vid.write_bytes(b"x")
 
         with pytest.raises(ValueError, match="unknown transform"):
-            await mod.apply_transforms(str(vid), "brand_f", "upload_post_tiktok")
+            await mod.apply_transforms(str(vid), "brand_f", "buffer_tiktok")
 
 
 class TestCanonicalRouting:
     """All three publisher key families route to the same canonical platform,
-    so `tiktok` config applies whether the brand posts via upload_post_tiktok,
+    so `tiktok` config applies whether the brand posts via buffer_tiktok,
     zernio_tiktok, or direct tiktok."""
 
     @pytest.mark.asyncio

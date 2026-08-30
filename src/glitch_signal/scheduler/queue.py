@@ -647,10 +647,10 @@ def _in_any_slot(local_now: datetime, slots: list[str], *, tolerance_minutes: in
 async def _count_posts_today(brand_id: str, now: datetime) -> int:
     """Count posts already fired today — both finalised AND in-flight.
 
-    Upload-Post is webhook-async: a dispatch claims a ScheduledPost and
-    marks it `awaiting_webhook`, but the matching PublishedPost row isn't
-    written until the webhook (or the 10-min reconciliation fallback)
-    finalises. A naive count of just `PublishedPost` makes the daily_cap
+    The async publisher (Buffer) is fire-then-poll: a dispatch claims a
+    ScheduledPost and marks it `awaiting_webhook`, but the matching
+    PublishedPost row isn't written until the reconcile sweep polls the
+    publisher and finalises. A naive count of just `PublishedPost` makes the daily_cap
     gate blind during that window and the dispatcher re-fires every 30s
     tick until the slot closes — observed 2026-04-18 as 11 posts fired
     inside a single 15-min slot when cap was 3.
@@ -770,9 +770,9 @@ async def _sweep_stuck() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 7. reconcile_awaiting_webhook — fallback for Upload-Post webhooks that
-# don't arrive within the reconcile window. Polls get_status once and
-# finalizes the ScheduledPost if the vendor has published.
+# 7. reconcile_awaiting_webhook — fallback for async publisher (Buffer)
+# posts that don't finalize within the reconcile window. Polls the
+# publisher's status once and finalizes the ScheduledPost if it has published.
 # ---------------------------------------------------------------------------
 
 async def _reconcile_awaiting_webhook() -> None:
@@ -781,7 +781,7 @@ async def _reconcile_awaiting_webhook() -> None:
     from glitch_signal.db.models import PublishedPost
 
     s = settings()
-    window_s = s.upload_post_webhook_reconcile_after_s  # reconcile window (setting kept for compat)
+    window_s = s.webhook_reconcile_after_s  # how long to wait before polling
     if window_s <= 0:
         return
 
@@ -802,10 +802,9 @@ async def _reconcile_awaiting_webhook() -> None:
             continue
 
         # Dispatch to the right vendor poll based on platform prefix.
-        # Buffer and Upload-Post share the `awaiting_webhook` status and
-        # the `vendor_request_id` column (Buffer stores a post id there,
-        # Upload-Post a request id). The ScheduledPost.platform tells
-        # us which vendor to ask.
+        # Buffer uses the `awaiting_webhook` status and the
+        # `vendor_request_id` column (Buffer stores a post id there).
+        # The ScheduledPost.platform tells us which publisher to poll.
         try:
             if sp.platform.startswith("buffer_"):
                 from glitch_signal.config import brand_config

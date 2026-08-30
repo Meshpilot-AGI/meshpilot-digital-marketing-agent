@@ -109,7 +109,7 @@ class ScheduledPost(SQLModel, table=True):
     attempts: int = 0
     last_attempt_at: datetime | None = None
     last_error: str | None = None
-    # Vendor-side request identifier (Upload-Post request_id, Zernio post.id).
+    # Vendor-side request identifier (e.g. the Buffer post id).
     # Populated when a publisher hands control off to an asynchronous vendor
     # pipeline. Used by the webhook handler and the reconciliation sweep to
     # correlate vendor callbacks back to the ScheduledPost row.
@@ -243,7 +243,7 @@ class OrmResponse(SQLModel, table=True):
 class CommentReply(SQLModel, table=True):
     """One row per incoming comment on one of our published posts.
 
-    The sweeper discovers these via Upload-Post get_post_comments, triages
+    The sweeper discovers these via the platform's comments API, triages
     them, drafts a reply in brand voice, and posts via reply_to_comment
     after Telegram approval.
     """
