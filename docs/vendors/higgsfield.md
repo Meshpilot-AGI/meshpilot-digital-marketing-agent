@@ -1,6 +1,31 @@
 # Higgsfield — third media provider (image / video / 3D / audio)
 
 Behind the same `Engine` protocol as MUapi and HeyGen, via the official `higgsfield-client` SDK.
+**Plus** an agent **MCP integration** (84 tools, OAuth) — see below.
+
+## MCP integration (agent tool surface — 84 tools, OAuth)  ·  added 2026-08-30
+
+The agent connects to Higgsfield's **remote MCP** at `https://mcp.higgsfield.ai/mcp` and exposes its
+**84 tools** to the ReAct loop as `mcp__higgsfield__*` (image/video/audio/**3D** generation, **Marketing
+Studio**, **Shorts Studio**, personal clipper, media upload/import, presets, jobs, balance). Far richer
+than the 8-model SDK path — this is the full Higgsfield product surface.
+
+- **Auth = OAuth (authorization_code + PKCE)**, same machinery as HeyGen. Discovery:
+  `/.well-known/oauth-authorization-server` (authorize `…/oauth2/authorize`, token `…/oauth2/token`,
+  register `…/oauth2/register`; scopes `openid email offline_access`, S256). A **public client** was
+  dynamically registered (`client_id a5y2lobMyIvL2fnz`); the operator did the web auth, the code was
+  exchanged for a bearer + **rotating refresh token**.
+- **Token store:** `oauth_tokens` row `provider='higgsfield'` (`client_id`, `token_endpoint`,
+  `resource=https://mcp.higgsfield.ai/mcp`). `agent/mcp/oauth.py::get_bearer('higgsfield')` returns a
+  valid access token, refreshing rotation-safely (`grant_type=refresh_token`). Stored in the plaintext
+  columns initially (like the heygen row); prod re-encrypts on the first refresh.
+- **Wiring:** `AGENT_MCP_SERVERS` (global env) carries
+  `{"name":"higgsfield","url":"https://mcp.higgsfield.ai/mcp","oauth":"higgsfield"}`.
+  `manager_for_brand` resolves the bearer at connect time. Verified live: 84 tools discovered, each
+  with an `input_schema` (works with the native-tool-use loop).
+- **Re-auth if the refresh ever fails:** re-run the authorization-code+PKCE flow (register a client
+  → build `…/oauth2/authorize?…&code_challenge=…` → exchange the code at `…/oauth2/token`) and upsert
+  the `oauth_tokens` row. There is also a `device_code` flow at `fnf-device-auth.higgsfield.ai`.
 
 ## What we can do today
 
