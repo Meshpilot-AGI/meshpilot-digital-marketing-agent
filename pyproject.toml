@@ -79,6 +79,7 @@ dependencies = [
   # img2pdf — lossless PNG→PDF for LinkedIn carousel document posts.
   "img2pdf>=0.5",
   "croniter>=6.2.4",
+  "resend>=2.42.0",
 ]
 
 [project.optional-dependencies]

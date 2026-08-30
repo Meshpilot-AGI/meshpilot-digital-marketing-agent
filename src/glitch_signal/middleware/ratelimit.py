@@ -127,8 +127,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Any, call_next: Any) -> Any:
         path = request.url.path
-        # /healthz = platform probes; /webhooks/* = provider callbacks (HMAC-verified, retried).
-        if path == "/healthz" or path.startswith("/webhooks"):
+        # /healthz = platform probes; /webhooks/* + /resend/webhook = provider callbacks
+        # (signature-verified, retried on failure — must not be rate-limited).
+        if path == "/healthz" or path.startswith("/webhooks") or path == "/resend/webhook":
             return await call_next(request)
         allowed, retry = await self._check(client_ip(request))
         if not allowed:

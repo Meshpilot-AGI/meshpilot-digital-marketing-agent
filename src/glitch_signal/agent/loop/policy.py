@@ -22,6 +22,9 @@ from typing import Mapping
 # Tools that perform an outward-facing publish.
 PUBLISH_TOOLS = frozenset({"publish", "post", "publish_facebook", "publish_instagram", "buffer_post"})
 
+# Tools that send email (EMAIL-1) — gated by their own kill-switch, separate from publishing.
+EMAIL_TOOLS = frozenset({"send_email"})
+
 # External MCP tools default-DENY (#93): we can't know an arbitrary MCP tool's blast radius, so a
 # tool is allowed only if it is explicitly allowlisted per brand, has a read-only verb prefix, or
 # publishing is deliberately enabled. A denylist of "bad" verbs is leaky (misses create/update/run/
@@ -41,7 +44,9 @@ class Decision:
 @dataclass(frozen=True)
 class Policy:
     publish_enabled: bool = False
+    email_enabled: bool = False
     max_media_per_run: int = 3
+    max_emails_per_run: int = 5
     brand_denied: Mapping[str, frozenset[str]] = field(default_factory=dict)
     mcp_allow: Mapping[str, frozenset[str]] = field(default_factory=dict)  # brand -> allowed mcp__ tools
 
@@ -70,6 +75,13 @@ class Policy:
         # 3. publish kill-switch
         if tool_name in PUBLISH_TOOLS and not self.publish_enabled:
             return Decision(False, "posting is disabled (agent_publish_enabled is off)")
+
+        # 3b. email kill-switch + per-run send cap (EMAIL-1) — sending stays off until enabled
+        if tool_name in EMAIL_TOOLS:
+            if not self.email_enabled:
+                return Decision(False, "email sending is disabled (agent_email_enabled is off)")
+            if counts.get(tool_name, 0) >= self.max_emails_per_run:
+                return Decision(False, f"email budget exhausted ({self.max_emails_per_run} per run)")
 
         # 4. per-run media budget (cost control)
         if tool_name == "generate_media" and counts.get("generate_media", 0) >= self.max_media_per_run:
@@ -103,7 +115,9 @@ def from_config() -> Policy:
             mcp_allow[brand] = frozenset(str(x) for x in names)
     return Policy(
         publish_enabled=bool(getattr(s, "agent_publish_enabled", False)),
+        email_enabled=bool(getattr(s, "agent_email_enabled", False)),
         max_media_per_run=int(getattr(s, "agent_max_media_per_run", 3)),
+        max_emails_per_run=int(getattr(s, "agent_max_emails_per_run", 5)),
         mcp_allow=mcp_allow,
     )
 

@@ -109,6 +109,25 @@ async def _t_publish(args: dict, brand_id: str) -> str:  # never reached — pol
     return "publish executed"
 
 
+async def _t_send_email(args: dict, brand_id: str) -> str:
+    """Send an email for the brand via Resend. Gated: the policy denies this unless
+    agent_email_enabled is on, so it only runs when email sending is deliberately enabled."""
+    from glitch_signal.comms import email
+
+    to = args.get("to")
+    if not to:
+        return "ERROR: send_email requires 'to'"
+    rid = await email.send_email(
+        brand_id=brand_id,
+        to=to,
+        subject=str(args.get("subject", "")),
+        html=args.get("html"),
+        text=args.get("text"),
+        from_addr=args.get("from"),
+    )
+    return f"email sent (message_id={rid})"
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "recall": {"fn": _t_recall,
                "description": "Search the brand's memory. args: {query, k?}"},
@@ -123,6 +142,10 @@ TOOLS: dict[str, dict[str, Any]] = {
                                   "text overlay/format) and return a stored URL. args: {image_url, ops:[{op:resize|fit|text|format, ...}]}"},
     "publish": {"fn": _t_publish,
                 "description": "Publish content to a platform. args: {platform, ...}. NOTE: currently DISABLED."},
+    "send_email": {"fn": _t_send_email,
+                   "description": "Send an email for this brand via Resend. args: {to, subject, html?, text?, from?}. "
+                                  "Provide an html or text body; it is run through the content policy. "
+                                  "NOTE: gated — denied unless email sending is enabled for the agent."},
     "polish_copy": {"fn": _t_polish_copy,
                     "description": "MANDATORY before finalizing ANY content (caption, post, blog, etc.): "
                                    "run your draft through the content policy. Returns {clean, violations} — "

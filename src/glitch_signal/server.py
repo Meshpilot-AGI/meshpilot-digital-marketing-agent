@@ -693,6 +693,68 @@ async def heygen_webhook(request: Request):
     return Response(status_code=200)
 
 
+@app.post("/resend/webhook")
+async def resend_webhook(request: Request):
+    """Receive Resend email events (delivered / bounced / complained / opened / clicked).
+
+    Public (Resend calls it) but Svix-signed: verified with RESEND_WEBHOOK_SECRET
+    (`whsec_…`) via the Svix scheme — HMAC-SHA256 over `{svix-id}.{svix-timestamp}.{body}`,
+    key = base64-decoded secret, signature header = space-separated `v1,<b64>` entries.
+    We reject unverified/stale deliveries, dedup on svix-id (fleet-wide, #98), then ack fast.
+    Exempt from origin-auth (not /internal|/jobs) and from the rate limiter (see middleware).
+    """
+    import base64
+    import hashlib
+    import hmac
+    import json as _json
+    import time as _time
+
+    from fastapi import Response
+
+    secret = (settings().resend_webhook_secret or "").strip()
+    raw = await request.body()
+    svix_id = request.headers.get("svix-id", "")
+    svix_ts = request.headers.get("svix-timestamp", "")
+    svix_sig = request.headers.get("svix-signature", "")
+
+    if not secret:  # fail closed — never trust an unverified event
+        log.warning("resend.webhook.no_secret")
+        return Response(status_code=503)
+    if not (svix_id and svix_ts and svix_sig):
+        return Response("missing signature headers", status_code=400)
+    try:
+        if abs(_time.time() - int(svix_ts)) > 300:  # ~5 min replay window
+            return Response("stale timestamp", status_code=400)
+    except ValueError:
+        return Response("bad timestamp", status_code=400)
+
+    try:
+        key = base64.b64decode(secret[len("whsec_"):] if secret.startswith("whsec_") else secret)
+    except Exception:
+        log.warning("resend.webhook.bad_secret")
+        return Response(status_code=503)
+    signed = f"{svix_id}.{svix_ts}.".encode() + raw
+    expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
+    provided = [p.split(",", 1)[1] for p in svix_sig.split() if "," in p]
+    if not any(hmac.compare_digest(expected, p) for p in provided):
+        return Response("bad signature", status_code=401)
+
+    # idempotency: Resend/Svix redeliver on retry — dedup fleet-wide via Postgres (#98)
+    from glitch_signal.middleware.shared_state import webhook_seen
+    if await webhook_seen("resend", svix_id):
+        return Response(status_code=200)
+
+    try:
+        event = _json.loads(raw or b"{}")
+    except Exception:
+        event = {}
+    data = event.get("data") or {}
+    log.info("resend.webhook", event_type=event.get("type"), svix_id=svix_id,
+             email_id=data.get("email_id"), to=data.get("to"))
+    # Verified + logged. Bounce/complaint → suppression-list + agent-memory feedback is EMAIL-2.
+    return Response(status_code=200)
+
+
 @app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
 async def job_scout(request: Request) -> dict:
     """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
