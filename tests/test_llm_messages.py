@@ -63,7 +63,7 @@ async def test_default_model_normalized_to_openrouter_slug(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-x")
     c = _Client(_ok())
     await loop_llm.complete_messages([{"role": "user", "content": "U"}], client=c)
-    assert c.posted["model"] == "anthropic/claude-sonnet-5" and c.posted["max_tokens"] == 2048
+    assert c.posted["models"] == ["anthropic/claude-sonnet-5"] and c.posted["max_tokens"] == 2048
 
 
 def test_model_normalization():
@@ -97,7 +97,9 @@ async def test_complete_tools_translates_defs_and_response(monkeypatch):
     assert c.posted["tools"][0] == {"type": "function",
                                     "function": {"name": "a", "description": "A",
                                                  "parameters": {"type": "object", "properties": {}}}}
-    assert c.posted["messages"][0] == {"role": "system", "content": "S"}
+    assert c.posted["models"] == ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "moonshotai/kimi-k3"]  # complex tier
+    assert c.posted["messages"][0] == {"role": "system",
+        "content": [{"type": "text", "text": "S", "cache_control": {"type": "ephemeral"}}]}  # loop prefix cached
     assert "output_config" not in c.posted
 
 
@@ -141,7 +143,7 @@ async def test_chat_routes_through_openrouter(monkeypatch):
         [{"role": "system", "content": "S"}, {"role": "user", "content": "write X"}],
         tier="smart", client=c)
     assert out == "hi"
-    assert c.posted["model"] == "anthropic/claude-sonnet-5"   # smart tier → Sonnet 5, normalized
+    assert c.posted["models"] == ["anthropic/claude-sonnet-5"]   # smart tier → Sonnet 5, normalized
     assert c.posted["messages"] == [{"role": "system", "content": "S"}, {"role": "user", "content": "write X"}]
 
 

@@ -493,6 +493,14 @@ async def internal_agent_run(request: Request) -> dict:
     return {"ok": True, "run_id": run_id, "status": "running", "scope": scope}
 
 
+@app.get("/internal/agent/routing/metrics", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_routing_metrics() -> dict:
+    """Per-model routing metrics for THIS worker (calls, errors, error_rate, EWMA latency) + the tier
+    table (ROUTER). In-process, so per-worker — durable per-model spend lives in usage_events."""
+    from glitch_signal.agent.loop import routing
+    return {"ok": True, **routing.metrics()}
+
+
 @app.get("/internal/agent/run/{run_id}", dependencies=[Depends(_require_jobs_auth)])
 async def internal_agent_run_status(run_id: str) -> dict:
     """Poll an agent run started via POST /internal/agent/run (reads the shared agent_runs table)."""
