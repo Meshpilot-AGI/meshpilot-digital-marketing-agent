@@ -512,13 +512,15 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 ### CI-GATEWAY — drift-gated gateway build check + `gateway-production` deploy branch — CLOSED 2026-08-30
 **Owner:** Claude (Opus)
 
+> ⚠️ **SUPERSEDED 2026-08-30 (#169):** the `gateway-production` deploy branch described below was **retired** the same day. Railway now deploys the gateway straight from **`production`** via watch paths `gateway/**` — no ff, no separate branch. The drift-gated `gateway` CI job is unchanged and still current; only the deploy-branch/ship-path parts of this entry are obsolete. Do NOT run the "git switch gateway-production…" ship path in **Remains** below.
+
 **Read:** `.github/workflows/ci.yml` (the `changes` drift-filter + api/db/web job pattern), `gateway/{Dockerfile,bridge.py,requirements.txt,railway.json}`, `CLAUDE.md` (branches & promotion), the GATEWAY-1 close on this doc.
 
 **Changed:** `ci.yml` — new `gateway` output on the `changes` job (`^gateway/`), and a drift-gated `gateway` job: `python3 -m py_compile gateway/bridge.py` (catches syntax errors the Dockerfile won't, since it only *runs* bridge.py at container start) + `docker build -t meshpilot-gateway ./gateway` (exactly what Railway builds). CI kept **production-only** on purpose — no second trigger on `gateway-production`. New **`gateway-production`** deploy branch (peer of `web-production`), fast-forwarded from `production`, pushed at the same SHA. Docs: `CLAUDE.md` (Three deploy branches + the CI-runs line + a gateway ship step), `gateway/README.md` (branch-triggered deploy section), lane board.
 
 **Verified:** the PR #148 merge push touched `gateway/README.md`, so it exercised the new job on a real push — CI run 33293681846: `changes` success with `gateway=true`; `api`/`db`/`web` **skipped**; `gateway` **success** (the `docker build` ran green on GitHub's runner); overall **success**. `gateway-production` created and pushed; `git rev-parse` confirms it == `production` (eb5ebc6). Rationale for production-only CI holds: a `gateway-production` ff carries the identical SHA, so Railway's wait-for-CI gates on this same commit's already-green gateway check.
 
-**Remains:** operator sets the Railway service's **deploy branch = `gateway-production`** in the dashboard (wait-for-CI already enabled; Root Directory already = `gateway`). Until then the service still auto-deploys its previously-configured branch. Ship path going forward: `git switch gateway-production && git merge --ff-only production && git push`.
+**Remains:** ~~operator sets the Railway service's deploy branch = `gateway-production`; ship path `git switch gateway-production && git merge --ff-only production && git push`~~ — **OBSOLETE (see SUPERSEDED note above).** Actual current state: Railway deploys the gateway from **`production`** (watch paths `gateway/**`, wait-for-CI on, Root Directory `gateway`); ship a gateway change by merging it into `production` — nothing else.
 
 ---
 ### CLAUDE-PLATFORM — Claude best practices in the agent loop — CLOSED 2026-08-30
