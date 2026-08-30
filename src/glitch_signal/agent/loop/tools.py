@@ -106,8 +106,36 @@ async def _t_edit_image(args: dict, brand_id: str) -> str:
     return f"edited image ({len(ops)} op(s)): {new_url}"
 
 
-async def _t_publish(args: dict, brand_id: str) -> str:  # never reached — policy denies
-    return "publish executed"
+async def _t_publish(args: dict, brand_id: str) -> str:
+    """Publish a post to a platform via Buffer (x/twitter/linkedin/tiktok…): `text` plus an optional
+    `media_url`. GATED — the policy denies this unless `agent_publish_enabled`. As the pre-commit
+    safety check for this irreversible outward action, the independent CONSCIENCE critic reviews the
+    text first when conscience is enabled: an `escalate` verdict BLOCKS the post for a human."""
+    from glitch_signal.platforms import buffer
+
+    platform = str(args.get("platform", "")).strip().lower()
+    text = str(args.get("text", "")).strip()
+    if not platform:
+        return "ERROR: publish requires 'platform'"
+    if not text:
+        return "ERROR: publish requires 'text'"
+
+    # Pre-commit conscience gate on the irreversible action (deliberation design: conscience gates
+    # publish). Advisory 'concerns' still posts; only 'escalate' blocks for a human.
+    from glitch_signal.config import settings as _settings
+    if bool(getattr(_settings(), "agent_conscience_enabled", False)):
+        from glitch_signal.agent.loop import conscience
+        verdict = await conscience.review(f"publish a post to {platform}", text)
+        if verdict.get("verdict") == "escalate":
+            return (f"BLOCKED by conscience (escalate): {str(verdict.get('notes', ''))[:200]} — "
+                    "not published; a human must approve this post.")
+
+    try:
+        post_id, status = await buffer.create_post(brand_id, platform, text=text,
+                                                   media_url=args.get("media_url"), mode="shareNow")
+    except Exception as exc:  # noqa: BLE001 — surface to the agent, never crash the loop
+        return f"ERROR: publish to {platform} failed: {str(exc)[:200]}"
+    return f"PUBLISHED to {platform}: buffer_post_id={post_id} status={status}"
 
 
 async def _t_send_email(args: dict, brand_id: str) -> str:
@@ -231,9 +259,12 @@ TOOLS: dict[str, dict[str, Any]] = {
                                          "ops": {"type": "array", "items": {"type": "object"}}},
                                         ["image_url"], closed=False)},
     "publish": {"fn": _t_publish, "strict": True,
-                "description": "Publish content to a platform. NOTE: currently DISABLED (denied by policy).",
+                "description": "Publish a post to a platform (x/twitter/linkedin/tiktok) via Buffer — "
+                               "`text` plus an optional `media_url`. GATED: denied unless publishing is "
+                               "enabled; even then an 'escalate' conscience verdict blocks it.",
                 "input_schema": _obj({"platform": {"type": "string"},
-                                      "text": {"type": "string"}}, ["platform"])},
+                                      "text": {"type": "string"},
+                                      "media_url": {"type": "string"}}, ["platform", "text"])},
     "send_email": {"fn": _t_send_email, "strict": True,
                    "description": "Send an email for this brand via Resend (html or text body; run through "
                                   "the content policy). NOTE: gated — denied unless email sending is enabled.",
