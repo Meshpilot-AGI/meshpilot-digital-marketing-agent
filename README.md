@@ -57,8 +57,9 @@ when you ask. No cockpit, no six-agent mesh, no dashboard to babysit.
 
 ## Why this repo exists (and why we ditched the last one)
 
-The predecessor — the **Mesh Pilot monorepo** (`meshpilot-digital-marketing-stack`,
-our reference "bible") — tried to be everything at once: **six specialist agents**
+The predecessor — the **Mesh Pilot monorepo**
+([`meshpilot-digital-marketing-stack`](https://github.com/Meshpilot-AGI/meshpilot-digital-marketing-stack),
+now a **public archive** — our reference "bible") — tried to be everything at once: **six specialist agents**
 (Ads, Sales, Social, Voice, SEO, UGC) wired into a mesh, sitting underneath a full
 **SaaS product** — an operator cockpit, approval/audit control plane, a data
 warehouse, a BYO-MCP acquisition funnel, plan tiers and billing.

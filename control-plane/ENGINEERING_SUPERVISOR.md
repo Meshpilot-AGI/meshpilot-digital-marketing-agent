@@ -2,6 +2,21 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### LINK-V1-ARCHIVE — hyperlink the v1 monorepo archive — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Context:** The v1 monorepo (`meshpilot-digital-marketing-stack`) is now a public archive but was named in the docs without a link.
+
+**Changed:** `README.md` (§"Why this repo exists") and `ARCHITECTURE.md` (§"The rebuild") — the `meshpilot-digital-marketing-stack` mention is now a markdown link to `https://github.com/Meshpilot-AGI/meshpilot-digital-marketing-stack`, noted as a public archive.
+
+**Verified:** `gh repo view` confirms the target is `visibility: PUBLIC`, `isArchived: true` — link is live, not dead.
+
+**Docs:** this entry; `README.md`; `ARCHITECTURE.md`; `control-plane/ACTIVE_LANE_BOARD.md` (lane CLOSED).
+
+**Remains:** none.
+
+---
+
 ### ARCH-REFRESH — rewrite ARCHITECTURE.md for the current agent — CLOSED 2026-08-30
 **Owner:** Claude
 

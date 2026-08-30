@@ -44,7 +44,9 @@
 ## The rebuild — from a mesh to one agent
 
 MeshPilot is the **standalone extraction and correction** of an earlier attempt —
-the Mesh Pilot monorepo (`meshpilot-digital-marketing-stack`), which tried to run
+the Mesh Pilot monorepo
+([`meshpilot-digital-marketing-stack`](https://github.com/Meshpilot-AGI/meshpilot-digital-marketing-stack),
+now a public archive), which tried to run
 **six specialist agents** in a mesh underneath a full SaaS product (operator
 cockpit, approval control plane, warehouse, billing). The complexity multiplied
 faster than the value. This repo threw out the mesh and the SaaS scaffolding and
