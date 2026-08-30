@@ -129,6 +129,30 @@ async def _t_send_email(args: dict, brand_id: str) -> str:
     return f"email sent (message_id={rid})"
 
 
+async def _t_read_brand_doc(args: dict, brand_id: str) -> str:
+    """Answer a question grounded ONLY in THIS brand's uploaded documents (Files API).
+
+    Isolation: file_ids come from the brand's own `brand_document` store (scoped by brand_id) —
+    never from the tool input — so the agent can only ever read its own brand's files.
+    """
+    from glitch_signal.agent import documents
+    from glitch_signal.agent.loop.llm import complete_messages
+
+    docs = await documents.list_for_brand(brand_id)
+    if not docs:
+        return "No brand documents have been uploaded for this brand yet."
+    query = str(args.get("query", "")).strip() or "Summarize this brand's documents."
+    content: list[dict] = [{"type": "document", "source": {"type": "file", "file_id": d["file_id"]}}
+                           for d in docs]
+    content.append({"type": "text", "text": query})
+    msgs = [
+        {"role": "system", "content": "Answer using ONLY the attached brand document(s). "
+                                      "If the answer is not in them, say so plainly."},
+        {"role": "user", "content": content},
+    ]
+    return await complete_messages(msgs, max_tokens=800)
+
+
 def _obj(properties: dict, required: list[str], *, closed: bool = True) -> dict:
     """A JSON-Schema object. `closed` sets additionalProperties:false (needed for strict)."""
     s: dict[str, Any] = {"type": "object", "properties": properties, "required": required}
@@ -187,6 +211,11 @@ TOOLS: dict[str, dict[str, Any]] = {
     "read_playbook": {"fn": _t_read_playbook, "strict": True,
                       "description": "Read a handbook's full guidance by slug (from list_playbooks).",
                       "input_schema": _obj({"slug": {"type": "string"}}, ["slug"])},
+    "read_brand_doc": {"fn": _t_read_brand_doc, "strict": True,
+                       "description": "Consult THIS brand's uploaded documents (style guide / brief / "
+                                      "deck) to answer a question or ground content in the real brand "
+                                      "guidelines. Returns an answer drawn only from those documents.",
+                       "input_schema": _obj({"query": {"type": "string"}}, ["query"])},
     "schedule": {"fn": _t_schedule,
                  "description": "Schedule your OWN future work (self-cron). action=create|list|cancel|next_check. "
                                 "create: {name, schedule_kind:at|every|cron, schedule:{at|every_ms|cron_expr,tz?}, "

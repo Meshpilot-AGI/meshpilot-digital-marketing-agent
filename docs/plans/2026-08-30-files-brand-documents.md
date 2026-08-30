@@ -1,6 +1,6 @@
 # FILES — brand documents via the Anthropic Files API
 
-**Status:** design (awaiting build)  ·  **Opened:** 2026-08-30  ·  **Owner:** Claude
+**Status:** SHIPPED 2026-08-30 (verified live on Sonnet 5)  ·  **Owner:** Claude
 **Follows:** WEB-TOOLS + the standard-org move (Files API is unblocked on the standard org).
 See `docs/vendors/anthropic.md`.
 

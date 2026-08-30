@@ -563,3 +563,20 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Verified:** the new key live-accepts web_fetch + code_execution (no HIPAA 400); dynamic web_search + web_fetch both returned real results. Suite green. **Remains:** the merge auto-deploys prod onto the new key + web_fetch on — verify a live Discord run post-deploy. Now-unblocked lanes: **Files API** (brand PDFs), **code_execution** (data crunching).
 
 ---
+### FILES — brand documents via the Files API — CLOSED 2026-08-30
+**Owner:** Claude (Opus)
+
+**Read:** `agent/loop/{tools,llm}.py`, `agent/memory/store.py` + `loop/runs.py` (raw-SQL/`_engine` store pattern), `server.py` (`_require_jobs_auth`, `brand_ids`), `supabase/migrations/` (table+RLS pattern), `tests/test_agent_memory.py` (FakeEngine). Design: `docs/plans/2026-08-30-files-brand-documents.md`.
+
+**Changed:** Anthropic Files API wired for per-brand documents.
+- `agent/files.py` — thin httpx client: `upload_file(bytes, filename, mime)` (multipart → file record), `delete_file(id)`. GA, no beta header.
+- `brand_document` table (migration `20260830180000_brand_document.sql`: brand_id, file_id, filename, mime, size, kind; brand index + file_id unique; RLS enabled) + `agent/documents.py` store (`add`/`list_for_brand`/`delete`, **every query `WHERE brand_id`** — the tenant-isolation guard, since Files API ids are workspace-scoped).
+- `server.py` — `POST/GET/DELETE /internal/brand/{brand_id}/documents` (jobs-auth; upload validates brand + PDF/text + ≤25MB → Files API → store row; delete drops the row and the Anthropic file). Added `File`/`Form`/`UploadFile` imports.
+- `agent/loop/tools.py` — new **`read_brand_doc(query)`** tool (strict): `documents.list_for_brand(brand)` → document blocks → one bounded `complete_messages()` grounded ONLY in the docs. file_ids come only from the brand's store, never tool input.
+- `agent/loop/llm.py::_content_to_anthropic` — pass native `document`/`image` blocks through (was stringifying them).
+
+**Verified:** suite **461 pass** (9 new: files client, store brand-scoping ×3, tool no-docs + block-building, document passthrough). **Live (real Sonnet 5, standard org):** real upload → the REAL `read_brand_doc` path (document block + real `complete_messages`) returned a grounded answer ("forbidden word: unlock; tone: sharp, confident, no hype") → delete. The `brand_document` migration is exercised by CI's from-scratch DB job on push.
+
+**Remains:** agent self-ingest tool (`ingest_brand_doc(url)`), auto-inject the brand doc into the caption pipeline, images via Files API, orphan-file cleanup sweep, optional citations. Operator upload example: `curl -H "x-jobs-token: …" -F file=@brandguide.pdf -F kind=style_guide https://api.meshpilot.app/internal/brand/glitch_executor/documents`.
+
+---

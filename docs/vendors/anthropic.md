@@ -120,16 +120,22 @@ system-prompt overhead (~354 tok on Sonnet 5). Structured outputs
   the request 400s (our loop appends response content verbatim, so this holds). A long server-tool
   turn can `pause_turn` — the runner re-sends to resume.
 
-## Working with files (for brand PDFs / creatives)
+## Working with files — brand documents (ADOPTED, FILES lane 2026-08-30)
 
 - **Files API** (GA, no beta header): upload once → reference by `file_id` across calls:
   `{"type":"document","source":{"type":"file","file_id":"file_…"}}` (PDF/text) or
-  `{"type":"image","source":{"type":"file","file_id":"file_…"}}`. Cache the document block for
-  repeat analysis. **PDFs**: 32MB/request, ≤600 pages, vision+text.
-- ⚠️ **Files are workspace-scoped, NOT tenant-scoped.** In this multi-brand repo, **never let
-  a `file_id` cross brands** — keep our own brand→file_id map server-side.
-- **Citations** (`"citations":{"enabled":true}` on document blocks) ground copy claims in a
-  source doc — but are **mutually exclusive with structured outputs** (400 if combined).
+  `{"type":"image","source":{"type":"file","file_id":"file_…"}}`. **PDFs**: 32MB/request,
+  ≤600 pages, vision+text. (Available on the standard org; was blocked on the old HIPAA org.)
+- **Our wiring:** `agent/files.py` (thin upload/delete client) + `brand_document` table +
+  `agent/documents.py` store + admin endpoints `POST/GET/DELETE /internal/brand/{brand}/documents`
+  (jobs-auth, multipart, PDF/text ≤25MB) + the **`read_brand_doc(query)`** loop tool (looks up the
+  brand's file_ids → a bounded `complete_messages()` with document blocks → grounded answer).
+  `complete_messages` now passes native `document`/`image` blocks through.
+- ⚠️ **Files are workspace-scoped, NOT tenant-scoped.** Isolation is enforced in `documents.py`:
+  every query is `WHERE brand_id = …`, and `read_brand_doc` only ever takes a file_id from the
+  brand's own store — never from tool input.
+- **Citations** (`"citations":{"enabled":true}` on document blocks) can ground copy claims in a
+  source doc — but are **mutually exclusive with structured outputs** (400 if combined). Not on yet.
 
 ## Context management (long runs)
 

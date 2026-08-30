@@ -3,14 +3,6 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### FILES — brand documents via the Files API          [DESIGN]
-Owner: Claude (Opus)        Opened: 2026-08-30
-Goal: ground the agent in a brand's real docs (style guide/brief/deck). Upload once via an admin endpoint → reference by file_id in Messages document blocks. Probe-confirmed live on the standard org (upload/reference/delete, no beta header). Scope (operator): admin-endpoint ingestion only. ~4 pieces: agent/files.py (thin Files API client), brand_document table + store (brand-scoped isolation), POST/GET/DELETE /internal/brand/{brand}/documents (jobs-auth), read_brand_doc loop tool.
-Design: docs/plans/2026-08-30-files-brand-documents.md  ← awaiting operator go before build
-Reading: agent/loop/{tools,llm}.py, server.py (_require_jobs_auth), db/models.py, supabase/migrations/
-Acceptance: upload endpoint stores a brand_document row (isolated); read_brand_doc answers from the doc; suite green; live Sonnet 5 upload→loop-reads→delete verified.
-Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
@@ -21,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **FILES — brand documents via the Files API** (2026-08-30) — the agent can now ground its work in a brand's real docs. `agent/files.py` (thin Files API upload/delete client) + **`brand_document`** table (migration `20260830180000`) + `agent/documents.py` store (**brand-scoped isolation** — every query `WHERE brand_id`) + admin endpoints **`POST/GET/DELETE /internal/brand/{brand}/documents`** (jobs-auth, multipart, PDF/text ≤25MB) + the **`read_brand_doc(query)`** loop tool (looks up the brand's file_ids → bounded `complete_messages` with document blocks → grounded answer). `complete_messages` now passes native document/image blocks through. Scope (operator): admin-endpoint ingestion only. **Verified live on Sonnet 5**: real upload → `read_brand_doc` returned a grounded answer ("forbidden word: unlock; tone: sharp, confident, no hype") → delete; suite **461 pass**. Design: docs/plans/2026-08-30-files-brand-documents.md. Follow-ons: agent self-ingest tool, caption-pipeline injection, orphan-file sweep. → supervisor
 
 - **WEB-TOOLS — web_search + web_fetch (server tools)** (2026-08-30) — gave the agent live-web ability via Anthropic server tools. `tools.py::server_tool_defs()` (config-gated, capped); `runner.py` appends them + handles `pause_turn` (resume long search turns); `pricing.py` bills web_search $0.01/req from `usage.server_tool_use.web_search_requests` → flows into the per-brand budget. **Discovery during build:** our Anthropic org is **HIPAA-regulated without ZDR**, which 400s `web_fetch` + `code_execution` (and the dynamic-filtering `web_search_20260318` which auto-provisions code_execution) — so web_search defaults to the **basic `web_search_20250305`** tag and **web_fetch defaults OFF** (flag ready for when ZDR lands; tags overridable via AGENT_WEB_SEARCH_TAG/AGENT_WEB_FETCH_TAG). **Verified live on Sonnet 5**: the agent ran a real web_search (current BTC price), metered ~$0.01, encrypted result round-trip clean; suite **452 pass**. Design: docs/plans/2026-08-30-web-tools.md. → supervisor
 
