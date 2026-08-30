@@ -85,6 +85,11 @@ jobs:
     env:
       # Throwaway local Postgres — validates the Supabase migrations, never the real DB.
       PGURL: postgresql://postgres:postgres@localhost:5432/signal
+      # Mirror the prod `postgres` role's search_path so unqualified opclasses
+      # (e.g. pgvector's `halfvec_cosine_ops`) still resolve after the extension
+      # is relocated to `extensions` by the supa_harden migration. Without this,
+      # the agent_memory HNSW-index migration fails its idempotency re-apply.
+      PGOPTIONS: "-c search_path=public,extensions"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Apply Supabase migrations from scratch (hard gate)
