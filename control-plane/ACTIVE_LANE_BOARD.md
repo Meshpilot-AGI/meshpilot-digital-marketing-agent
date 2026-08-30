@@ -3,6 +3,14 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### CLAUDE-TOOLS — native tool use (replace JSON-in-text ReAct)          [DESIGN]
+Owner: Claude (Opus)        Opened: 2026-08-30
+Goal: migrate the agent loop from JSON-in-text ReAct (runner.py regex parse) to Anthropic native tool use — `tools`/`tool_use`/`tool_result`, `strict` schemas, parallel calls, `stop_reason` loop. Full scope: 11 built-in tools + MCP tools (capture their inputSchema). Biggest remaining reliability upgrade from CLAUDE-PLATFORM.
+Design: docs/plans/2026-08-30-claude-tools-native-tool-use.md  ← awaiting operator go before build
+Reading: agent/loop/{runner,tools,prompt,llm,policy}.py, agent/mcp/client.py, tests/test_agent_loop.py
+Acceptance: native tool_use loop; tool_defs() with input_schema (strict on built-ins); complete_tools() transport (+2nd cache breakpoint on last tool def); MCP tools offered natively; parse_action deleted; suite green; live Sonnet 5 tool_use round-trip + Discord run verified.
+Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
