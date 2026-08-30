@@ -58,3 +58,6 @@ alembic/versions/*.pyc
 .claude/
 brand/personas/
 brand/influencer.json
+
+# CodeGraph — local per-machine index, not for committing
+.codegraph/

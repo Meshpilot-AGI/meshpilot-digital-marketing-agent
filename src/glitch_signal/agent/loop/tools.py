@@ -239,42 +239,96 @@ async def _t_web_search(args: dict, brand_id: str) -> str:
     return json.dumps({"answer": answer[:3000], "sources": sources[:8]})
 
 
-def _web_url_ok(url: str) -> tuple[bool, str]:
-    """SSRF guard for a model-supplied URL: http(s) only, not a blocked domain, and does NOT resolve
-    to a private / loopback / link-local / reserved / metadata address."""
+_WEB_FETCH_MAX_BYTES = 500_000   # hard cap on retained response bytes (memory / bandwidth bound)
+
+
+def _canonical_host(host: str) -> str:
+    """Canonicalize a hostname for comparison: lowercase, drop a terminal DNS-root dot, and IDNA-encode
+    so equivalent forms compare equal (closes the FQDN-trailing-dot and unicode-vs-punycode bypasses of
+    blocked-domain matching). Falls back to the lowercased value for non-IDNA / already-ascii input."""
+    h = (host or "").strip().rstrip(".").lower()
+    if not h:
+        return ""
+    try:
+        return h.encode("idna").decode("ascii")
+    except Exception:  # noqa: BLE001 — literal IPs, already-ascii, or malformed hosts: compare as-is
+        return h
+
+
+def _ip_is_public(ip_str: str) -> bool:
+    """True iff `ip_str` is a routable public address (not private/loopback/link-local/reserved/etc.)."""
     import ipaddress
-    import socket
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return not (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+                or addr.is_multicast or addr.is_unspecified)
+
+
+def _web_url_precheck(url: str) -> tuple[bool, str, str, int]:
+    """Synchronous SSRF pre-check (no DNS): http(s) scheme, canonical host, not a blocked domain, and —
+    for a literal-IP host — the IP is public. Returns (ok, why, canonical_host, port)."""
+    import ipaddress
     from urllib.parse import urlsplit
 
     p = urlsplit(url)
     if p.scheme not in ("http", "https"):
-        return False, f"scheme {p.scheme!r} not allowed"
-    host = (p.hostname or "").lower()
+        return False, f"scheme {p.scheme!r} not allowed", "", 0
+    host = _canonical_host(p.hostname or "")
     if not host:
-        return False, "no host"
-    blocked = [d.strip().lower() for d in (os.environ.get("AGENT_WEB_BLOCKED_DOMAINS") or "").split(",")
+        return False, "no host", "", 0
+    blocked = [_canonical_host(d) for d in (os.environ.get("AGENT_WEB_BLOCKED_DOMAINS") or "").split(",")
                if d.strip()]
-    if any(host == b or host.endswith("." + b) for b in blocked):
-        return False, "domain is blocked (AGENT_WEB_BLOCKED_DOMAINS)"
+    if any(host == b or host.endswith("." + b) for b in blocked if b):
+        return False, "domain is blocked (AGENT_WEB_BLOCKED_DOMAINS)", "", 0
     try:
-        infos = socket.getaddrinfo(host, None)
+        ipaddress.ip_address(host)       # literal IP → validate now (no DNS involved)
+        if not _ip_is_public(host):
+            return False, "host is a non-public address", "", 0
+    except ValueError:
+        pass                             # a hostname: IP validation happens after resolution
+    port = p.port or (443 if p.scheme == "https" else 80)
+    return True, "", host, port
+
+
+async def _web_url_resolve(url: str) -> tuple[bool, str, str, str, int]:
+    """SSRF guard + validated-address binding. Runs the sync pre-check, then resolves the host with the
+    event loop's async getaddrinfo (never blocking the loop) and requires EVERY resolved address to be
+    public. Returns (ok, why, host, validated_ip, port). The caller connects to `validated_ip` directly,
+    so the address the guard approved is the exact address used — no second lookup, no DNS-rebinding
+    window between validation and connection."""
+    import asyncio
+    import ipaddress
+    import socket
+
+    ok, why, host, port = _web_url_precheck(url)
+    if not ok:
+        return False, why, "", "", 0
+    try:
+        ipaddress.ip_address(host)       # already a literal IP (validated in the pre-check)
+        return True, "", host, host, port
+    except ValueError:
+        pass
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except Exception:  # noqa: BLE001
-        return False, "DNS resolution failed"
-    for info in infos:
-        try:
-            addr = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            continue
-        if (addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
-                or addr.is_multicast or addr.is_unspecified):
-            return False, f"host resolves to a non-public address ({addr})"
-    return True, ""
+        return False, "DNS resolution failed", "", "", 0
+    ips = [info[4][0] for info in infos if info[4] and info[4][0]]
+    if not ips:
+        return False, "DNS resolution returned no addresses", "", "", 0
+    for ip in ips:                        # refuse if ANY resolved address is non-public
+        if not _ip_is_public(ip):
+            return False, f"host resolves to a non-public address ({ip})", "", "", 0
+    return True, "", host, ips[0], port
 
 
 async def _t_web_fetch(args: dict, brand_id: str) -> str:
-    """Fetch a URL and return its readable text. Guarded: gated by AGENT_WEB_FETCH_ENABLED, http(s)
-    only, no SSRF to private/metadata IPs, redirects NOT followed, response bounded to 500KB."""
+    """Fetch a URL and return its readable text. Guarded: gated by AGENT_WEB_FETCH_ENABLED, http(s) only,
+    SSRF-checked with the connection PINNED to a validated public IP (original Host header + TLS SNI/cert
+    hostname preserved), OS/env proxies disabled, redirects NOT followed, response hard-bounded to 500KB."""
     import re as _re
+    from urllib.parse import urlsplit, urlunsplit
 
     import httpx as _httpx
     if not _env_bool("AGENT_WEB_FETCH_ENABLED", True):
@@ -282,21 +336,35 @@ async def _t_web_fetch(args: dict, brand_id: str) -> str:
     url = str(args.get("url", "")).strip()
     if not url:
         return "ERROR: web_fetch requires 'url'"
-    ok, why = _web_url_ok(url)
+    ok, why, host, ip, _port = await _web_url_resolve(url)
     if not ok:
         return f"ERROR: web_fetch refused: {why}"
+    # Pin the connection to the validated IP: the URL host becomes the IP literal, so httpx connects
+    # exactly there with NO second DNS lookup that could rebind to a private address. The original Host
+    # header and the sni_hostname extension keep TLS SNI + certificate verification bound to the real
+    # hostname. trust_env=False stops HTTP(S)_PROXY / NO_PROXY from moving resolution or the destination
+    # outside this guard.
+    p = urlsplit(url)
+    ip_netloc = f"[{ip}]" if ":" in ip else ip
+    if p.port:
+        ip_netloc += f":{p.port}"
+    pinned = urlunsplit((p.scheme, ip_netloc, p.path or "/", p.query, ""))
+    host_header = f"{host}:{p.port}" if p.port else host
     try:
-        async with _httpx.AsyncClient(timeout=30, follow_redirects=False) as c:
-            async with c.stream("GET", url, headers={"user-agent": "Mozilla/5.0"}) as r:
+        async with _httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False) as c:
+            async with c.stream("GET", pinned,
+                                headers={"host": host_header, "user-agent": "Mozilla/5.0"},
+                                extensions={"sni_hostname": host}) as r:
                 if 300 <= r.status_code < 400:
                     return f"ERROR: web_fetch got a redirect (HTTP {r.status_code}) — not followed"
                 if r.status_code >= 400:
                     return f"ERROR: web_fetch got HTTP {r.status_code}"
                 chunks, total = [], 0
                 async for chunk in r.aiter_bytes():
-                    chunks.append(chunk)
-                    total += len(chunk)
-                    if total >= 500_000:                 # bound bandwidth/memory, don't download the whole thing
+                    take = chunk[:_WEB_FETCH_MAX_BYTES - total]   # retain only the remaining allowance
+                    chunks.append(take)
+                    total += len(take)
+                    if total >= _WEB_FETCH_MAX_BYTES:             # hard memory/bandwidth bound — stop now
                         break
         raw = b"".join(chunks).decode("utf-8", "ignore")
         text = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw, flags=_re.S | _re.I)

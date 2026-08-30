@@ -185,3 +185,25 @@ async def test_recall_kind_filter():
     await store.recall("glitch_executor", "q", kinds=["fact", "bogus"], embed_fn=_fake_embed, engine=eng)
     sql, params = eng.calls[0]
     assert "string_to_array(:kinds_csv" in sql and params["kinds_csv"] == "fact"  # invalid kind filtered
+
+
+async def test_recall_verified_only_filters_in_query():
+    # The provenance filter must live in the SELECT so LIMIT applies to the *filtered* set (verified facts
+    # outside the top-N window aren't dropped by the row cap).
+    eng = FakeEngine()
+    eng.queue(_Result(rows=[]))
+    await store.recall("glitch_executor", "q", kinds=["fact"], verified_only=True,
+                       embed_fn=_fake_embed, engine=eng)
+    sql, params = eng.calls[0]
+    assert "metadata->>'verified'" in sql and "string_to_array(:vsrc_csv" in sql
+    assert params["vsrc_csv"] == "operator-verified,operator_verified"  # exact reserved sources, sorted
+
+
+def test_is_verified_provenance_is_exact_not_substring():
+    assert store.is_verified_provenance("operator_verified") is True
+    assert store.is_verified_provenance("OPERATOR-VERIFIED") is True            # case-insensitive
+    assert store.is_verified_provenance("x", {"verified": True}) is True        # typed metadata flag
+    assert store.is_verified_provenance("agent_loop") is False
+    assert store.is_verified_provenance("unverified") is False                  # negated substring rejected
+    assert store.is_verified_provenance("producthunt (verified)") is False      # arbitrary text rejected
+    assert store.is_verified_provenance(None) is False

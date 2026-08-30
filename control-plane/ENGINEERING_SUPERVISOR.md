@@ -2,6 +2,30 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### SEC-FOLLOWUP-179 — Qodo second-order findings on PR #179's security fixes — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Context:** After PR #179 landed the ROUTER-FIXES security work, Qodo re-reviewed and raised 8 findings *against those fixes*. A later PR reported "no issue" only because it was docs-only (the reviewer never re-scanned these files). Verified all 8 against `production` HEAD — **all true** — and fixed them on this lane.
+
+**Read:** `src/glitch_signal/agent/loop/tools.py` (web_fetch SSRF guard), `agent/memory/store.py` (recall), `agent/loop/conscience.py` (brand_facts), `agent/loop/audit.py` + `server.py:504` (routing audit), `docs/plans/2026-08-30-model-router.md`; httpcore 1.0.9 `_async/connection.py` (confirmed `sni_hostname` request extension drives both TLS SNI and cert-hostname verification, so an IP-literal URL + `sni_hostname` pins the connection while verifying the real host).
+
+**Changed:**
+- **SSRF DNS-rebinding (TOCTOU) + sync DNS in async path** — `tools.py` rewritten: `_web_url_resolve()` resolves the host once via the **event loop's async `getaddrinfo`** (no longer blocks the loop), validates **every** resolved address is public, and returns the validated IP; `_t_web_fetch` then **pins the connection to that IP** (IP-literal URL → httpx does no second lookup) while preserving the original **Host header + TLS SNI/cert hostname** via `extensions={"sni_hostname": host}`. No validate-then-reconnect window remains.
+- **Env-proxy escape** — the fetch `httpx.AsyncClient(..., trust_env=False)` so `HTTP(S)_PROXY`/`NO_PROXY` can't move resolution or the destination outside the guard.
+- **FQDN trailing-dot / IDNA blocked-domain bypass** — `_canonical_host()` lowercases, strips the terminal DNS root dot, and IDNA-encodes both configured blocked domains and the parsed host before exact/subdomain comparison.
+- **Response-size not a hard bound** — the stream loop now retains only the **remaining allowance** (`chunk[:MAX-total]`) and stops at the cap (`_WEB_FETCH_MAX_BYTES`), instead of appending a whole oversized chunk before checking.
+- **Substring "verified" provenance** — `store.VERIFIED_SOURCES` (exact reserved tokens) + `is_verified_provenance(source, metadata)`: trust comes from typed `metadata.verified` or an **exact** source, never substring (`unverified`/`self-verified`/free text rejected). Agent tools write `source=agent_loop`/`curator` → can never pass as verified.
+- **DB limit applied before the provenance filter** — `recall(..., verified_only=True)` pushes the provenance predicate **into the SELECT**, so `LIMIT` bounds the filtered set; `conscience.brand_facts` now recalls `k=limit` (was `limit*2` guess) and re-checks in Python (defense in depth).
+- **Stale routing-audit docs** — `docs/plans/2026-08-30-model-router.md` + `audit.py` module docstring updated `primary_not_serving` → informational `primary_idle` (renamed fields/severity, override-aware tier list) and now document the enforced `days` 1–30 / `baseline_days` 1–90 ranges + HTTP 400 on invalid values. (The endpoint/audit code already emitted `primary_idle` with validation — this was a docs-only drift.)
+
+**Verified:** full suite `uv run pytest -q` → **558 passed, 1 skipped** (+6 tests: precheck scheme/literal-IP/trailing-dot, async resolve rebinding-reject + validated-IP-bind, hard byte cap, exact-provenance, `verified_only` in-query filter). **Live probe** (real network): `localhost`→refused (`::1` non-public); real HTTPS `https://example.com` fetched successfully through the pinned-IP + SNI path (proves TLS cert verifies against the hostname, not the IP); `http://169.254.169.254/...` refused. Ruff: **0 new debt** (one introduced `I001` auto-fixed; remaining `UP035` are pre-existing).
+
+**Docs:** this entry; `docs/plans/2026-08-30-model-router.md` (audit contract); `docs/plans/2026-08-29-agent-brain.md` (operator-verified provenance contract + `recall(verified_only=)`); `control-plane/ACTIVE_LANE_BOARD.md` (lane CLOSED).
+
+**Remains:** operators marking a fact verified must now use `metadata={"verified": true}` or `source=operator_verified` (supersedes PR-179's "source contains verified"); any existing prod facts using the old free-text convention silently lose verified status (fail-safe: the critic just gets fewer ground-truth facts, never a false trust). Belt-and-suspenders peer-IP re-check after connect was unnecessary given IP-pinning, so not added.
+
+---
+
 ### SEC-BFLA — brand-scoped authz on the rest of the internal surface — CLOSED 2026-08-30
 **Owner:** Claude
 
