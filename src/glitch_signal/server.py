@@ -481,6 +481,83 @@ async def internal_agent_run_status(run_id: str) -> dict:
     return {"ok": True, **rec}
 
 
+@app.post("/internal/agent/pipeline/{name}", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_pipeline(name: str, request: Request) -> dict:
+    """Kick off a PIPELINE run now (auth: x-jobs-token) — a deliberate, scoped agent run.
+
+    Body: {brand?}. Resolves the named pipeline (discovery/content/orm) to its fixed scope + goal,
+    checks its required kill-switches (409 if any are off), and starts a BACKGROUND run. This is the
+    only place a capability turns on for real — the scope bounds the toolset, and publishing stays
+    disabled regardless. Returns {ok, run_id, pipeline, scope, status}; poll GET /internal/agent/run/{id}.
+    """
+    import uuid as _uuid
+
+    from glitch_signal.agent.loop import pipelines
+    from glitch_signal.agent.loop import runs as run_store
+
+    p = pipelines.resolve(name)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"unknown pipeline {name!r}; options: {pipelines.names()}")
+
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+
+    missing = p.missing_requirements()
+    if missing:
+        raise HTTPException(status_code=409, detail=f"pipeline {p.name!r} requires: {', '.join(missing)}")
+
+    goal = p.render_goal(brand)
+    run_id = _uuid.uuid4().hex
+    await run_store.create_run(run_id, brand, goal)
+    asyncio.create_task(_run_agent_bg(run_id, brand, goal, p.max_steps, p.scope))
+    return {"ok": True, "run_id": run_id, "pipeline": p.name, "scope": p.scope, "status": "running"}
+
+
+@app.post("/internal/agent/pipeline/{name}/schedule", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_pipeline_schedule(name: str, request: Request) -> dict:
+    """Seed a pipeline's recurring schedule as a cron job (auth: x-jobs-token).
+
+    Body: {brand?}. Creates a `payload_kind=agentTurn` cron job (owner `pipeline:<brand>`) at the
+    pipeline's cadence, carrying its goal + scope. The scheduler fires it only when
+    `agent_cron_enabled` is on (409 while off), so scheduling ships inert. Returns {ok, job_id, ...}.
+    """
+    from datetime import datetime, timezone
+
+    from glitch_signal.agent.cron import store as cron_store
+    from glitch_signal.agent.loop import pipelines
+
+    p = pipelines.resolve(name)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"unknown pipeline {name!r}; options: {pipelines.names()}")
+    from glitch_signal.config import settings as _settings
+    if not getattr(_settings(), "agent_cron_enabled", False):
+        raise HTTPException(status_code=409, detail="scheduling is disabled (agent_cron_enabled is off)")
+
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = body.get("brand", "glitch_executor")
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+
+    job_id = await cron_store.create_job(
+        brand_id=brand, name=f"pipeline:{p.name}", owner=f"pipeline:{brand}",
+        schedule_kind=p.schedule_kind, schedule=p.schedule,
+        payload_kind="agentTurn",
+        payload={"goal": p.render_goal(brand), "scope": p.scope, "max_steps": p.max_steps},
+        now=datetime.now(timezone.utc))
+    return {"ok": True, "job_id": job_id, "pipeline": p.name, "scope": p.scope,
+            "schedule_kind": p.schedule_kind, "schedule": p.schedule}
+
+
 @app.post("/internal/agent/curate", dependencies=[Depends(_require_jobs_auth)])
 async def internal_agent_curate(request: Request) -> dict:
     """Distill a brand's recent episodes into durable lessons (AGENT-LEARN; auth: x-jobs-token).

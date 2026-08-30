@@ -30,6 +30,7 @@ CAPABILITIES: dict[str, frozenset[str]] = {
 SCOPES: dict[str, frozenset[str]] = {
     "chat": frozenset({"memory", "knowledge", "quality"}),                       # safe default
     "discovery": frozenset({"memory", "knowledge", "discovery", "web"}),
+    "content_draft": frozenset({"memory", "knowledge", "quality"}),              # caption-first content (no media)
     "content": frozenset({"memory", "knowledge", "quality", "media", "mcp:higgsfield"}),
     "orm": frozenset({"memory", "knowledge", "quality", "web"}),
     "full": frozenset(CAPABILITIES),                                             # everything
