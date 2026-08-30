@@ -31,6 +31,13 @@ video → **HeyGen**. Higgsfield Soul/DoP → **Higgsfield**. Exact edits → **
 | **Meta** | Facebook, Instagram (MeshPilot default app + per-brand) | [meta.md](meta.md) |
 | **YouTube** | direct upload | — |
 
+## Discovery (trending signals — ⚠️ gated OFF: `agent_discovery_enabled=False`)
+
+| Vendor | What the agent can do | How | Notes |
+|---|---|---|---|
+| **CaptAPI** ([captapi.md](captapi.md)) | **Trending** reels (IG) / feed / hashtags / songs / creators (TikTok) as inspiration signals | the `discover_trending` loop tool → CaptAPI REST | Direct trending endpoints, clean JSON, free 24h cache. **Gated off** until enabled (ability ships inert). |
+| **Apify / Bright Data** | (not wired) general + enterprise scraping for signals CaptAPI doesn't cover | — | Keys held in local `.env`; future lanes. |
+
 ## Infrastructure
 
 | Vendor | Role | Doc |
