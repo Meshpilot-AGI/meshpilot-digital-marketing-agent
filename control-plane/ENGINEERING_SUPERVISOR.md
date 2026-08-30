@@ -675,4 +675,12 @@ Five valid findings on #164, all fixed:
 - **[MED/reliability] non-object JSON 500** — dropped body-parsing from the manual endpoint (brand now from query); schedule likewise reads no body.
 **Verified:** suite **494 pass** (+8: `_run_pipeline_turn` skip/re-resolve/unknown; TestClient body-brand-ignored, pipelineTurn name-only seed, idempotent re-seed→update, cron-off 409 — all DB-mocked). Design doc updated.
 
+### SEC-BFLA review-fixes (#166 Qodo) — 2026-08-30
+Four valid findings on #166 (the internal-surface BFLA sweep), all fixed here (coordinated with the peer session that owned #166 — it was done, not touching server.py):
+- **[HIGH/security] fb/ig publishing BFLA still open** — `/internal/{facebook,instagram}/test-post` take their target from body **`brand_id`** (a different key than the swept `brand`), so #166 missed them and a token for brand A could still publish as brand B. Now both derive the target from `_authorized_brand(request, {"brand": body.get("brand_id")})` → authorized `?brand=`, mismatched `brand_id` → 400.
+- **[HIGH/correctness] configured default brand rejected** — `_authorized_brand` defaulted to the literal `"glitch_executor"` while `_require_jobs_auth` authenticates against `settings().default_brand_id`; a non-`glitch_executor` deployment would 400 every authenticated no-`?brand=` call. Now uses `settings().default_brand_id`. Same literal in `internal_agent_pipeline{,_schedule}` fixed by routing them through `_authorized_brand` too.
+- **[HIGH/correctness] gateway regression** — the Discord bridge sent `MESHPILOT_BRAND` only in the body; with the new query-brand contract a non-default brand would 401/400. `gateway/bridge.py` now sends `params={"brand": BRAND}` on both the run POST and the poll GET.
+- **[MED/docs] stale docstrings** — 8 `/internal/*` Body: lines synced to the "brand via `?brand=`, body must match" contract.
+**Verified:** suite **505 pass** (+4 in test_internal_brand_auth: fb/ig body-`brand_id` can't override + publishes as authorized brand; `_authorized_brand` uses the configured default not a literal). Gateway `py_compile` OK.
+
 ---

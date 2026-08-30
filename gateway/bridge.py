@@ -47,9 +47,13 @@ async def run_agent(goal: str) -> str:
     """Start an agent run for `goal`, poll to completion, return the final text."""
     headers = {"x-jobs-token": JOBS_TOKEN, "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=30.0) as h:
+        # brand goes on the QUERY STRING: _require_jobs_auth validates the token against ?brand=, and
+        # the handler now derives its target brand from ?brand= (not the body). A non-default brand
+        # would otherwise 401/400. Keep it in the body too (must match) for backward compatibility.
         r = await h.post(
             f"{AGENT_URL}/internal/agent/run",
             headers=headers,
+            params={"brand": BRAND},
             json={"goal": goal, "brand": BRAND, "max_steps": MAX_STEPS},
         )
         r.raise_for_status()
@@ -59,7 +63,8 @@ async def run_agent(goal: str) -> str:
         deadline = loop.time() + POLL_TIMEOUT
         while loop.time() < deadline:
             await asyncio.sleep(POLL_INTERVAL)
-            g = await h.get(f"{AGENT_URL}/internal/agent/run/{run_id}", headers=headers)
+            g = await h.get(f"{AGENT_URL}/internal/agent/run/{run_id}",
+                            headers=headers, params={"brand": BRAND})
             g.raise_for_status()
             rec = g.json()
             status = rec.get("status")
