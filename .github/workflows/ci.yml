@@ -7,9 +7,10 @@ name: CI
 #   - gateway/ changed   -> docker build the gateway image + py_compile bridge.py
 #   - only docs/logs     -> nothing runs, fast pass.
 # (FastAPI Cloud also deploys on this push; run the full suite locally before merging.)
-# The gateway deploys separately: fast-forward `gateway-production` from `production`
-# and push it — Railway watches that branch and (wait-for-CI) gates on this same
-# commit's gateway check, since the ff carries the identical SHA.
+# The gateway auto-deploys from `production` too: Railway watches THIS branch with
+# watch paths = `gateway/**`, so it redeploys the gateway only when a push changed
+# `gateway/`, and (wait-for-CI) gates on this same commit's gateway check.
+# (The old `gateway-production` deploy branch was retired 2026-08-30.)
 on:
   push:
     branches: [production]

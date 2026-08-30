@@ -52,11 +52,21 @@ No inbound port (it's a websocket client), so it needs no public domain or healt
 so the Discord websocket doesn't reconnect for changes that don't concern it. **No manual step:**
 merging a `gateway/` change into `production` ships it.
 
-Railway does a **zero-downtime** rollout — the old bridge keeps serving until the new container is
-healthy — and has **wait-for-CI** on, gating on the `gateway` build check (`docker build` +
-`py_compile`) that runs on the `production` push whenever `gateway/**` drifts, so a broken
-`Dockerfile` or `requirements.txt` never reaches a deploy. (`railway up` from this dir still works
-for a manual one-off.)
+It has **wait-for-CI** on, gating on the `gateway` build check (`docker build` + `py_compile`) that
+runs on the `production` push whenever `gateway/**` drifts, so a broken `Dockerfile` or
+`requirements.txt` never reaches a deploy. (`railway up` from this dir still works for a manual one-off.)
+
+**Restart behavior — there is NO zero-downtime handoff.** This is a single-replica (`numReplicas: 1`,
+see `railway.json`) Discord **gateway client**: it holds an *outbound* websocket and has no inbound
+HTTP port, so there is no healthcheck configured and Railway has **no readiness gate** on cutover. On
+each gateway deploy Railway stops the old container and starts the new one; the bridge only becomes
+usable once its Discord `on_ready` fires (a few seconds after start). A Discord bot token permits only
+**one** gateway session at a time, so the old and new bridges *cannot* overlap — so expect a **brief
+reconnect gap** on every gateway deploy, during which a message posted to `#agent-chat` may be missed
+(resend it). This is why watch paths matter: the gateway redeploys only on real `gateway/` changes,
+keeping these gaps rare. It's a dumb relay, so a momentary gap is acceptable — and a Railway
+healthcheck would **not** fix it, since a second session on the same token just gets disconnected; the
+only real remedy (Discord session-resume / sharding) is overkill here.
 
 > Retired 2026-08-30: the gateway used to ship by fast-forwarding a separate `gateway-production`
 > branch. That manual dance is gone — Railway now deploys `production` directly via watch paths.
