@@ -3,6 +3,16 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### CLAUDE-PLATFORM — adopt Claude best practices in the agent loop          [IN PROGRESS]
+Owner: Claude (Opus)        Opened: 2026-08-30
+Goal: use the Claude Messages API well now that it's the agent's messaging brain. Three phases:
+  (1) DOC-ANTHROPIC — `docs/vendors/anthropic.md` reference (models, gotchas, caching, tools, files). ← in review
+  (2) CLAUDE-P0 — move the loop to `claude-sonnet-5`: drop sampling params (they 400 on current-gen), bump max_tokens, fix pricing.py (Sonnet 5 $2/$10 not $3/$15; Opus 5 $5/$25).
+  (3) CLAUDE-HARDEN — llm.py: effort=low (suppresses thinking, verified), prompt caching on the SOUL system block (~3k tok, caches on Sonnet 5), stop_reason/retry-after handling.
+Verified live against the real Sonnet 5 API (local key): temperature→400; effort:low→clean JSON no thinking; cache_control accepted on 2023-06-01. Native tool use = separate future CLAUDE-TOOLS lane.
+Reading: src/glitch_signal/agent/loop/{llm,runner,prompt}.py, analytics/cost/pricing.py, docs/vendors/anthropic.md
+Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
