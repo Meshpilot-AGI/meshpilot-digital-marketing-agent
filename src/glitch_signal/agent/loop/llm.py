@@ -94,8 +94,12 @@ def _model(model: str | None) -> str:
 
 
 def _apply_effort(payload: dict, effort: str | None) -> None:
-    # Adaptive-thinking depth. `low` suppresses the thinking block entirely (verified) → clean
-    # output, ~half the tokens. `default` skips the param (model default).
+    # Adaptive-thinking depth (`output_config.effort`). `low` suppresses the thinking block →
+    # clean output, ~half the tokens. `default` skips the param (model default).
+    # NB: effort is a Claude-5-family (adaptive-thinking) param — **Haiku 4.5 rejects it (400)**,
+    # so never send it for Haiku (the content pipeline's `cheap` tier).
+    if "haiku" in (payload.get("model") or "").lower():
+        return
     eff = (effort if effort is not None else os.environ.get("AGENT_LLM_EFFORT", "low")).strip()
     if eff and eff != "default":
         payload["output_config"] = {"effort": eff}

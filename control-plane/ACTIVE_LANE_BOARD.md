@@ -3,14 +3,6 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### CAPTION-CLAUDE — move caption generation to Claude + brand-doc grounding          [DESIGN]
-Owner: Claude (Opus)        Opened: 2026-08-30
-Goal: caption_writer generates via MUapi/Gemini today, so it can't use the Files API (Claude-only) to follow a brand's uploaded style guide. Move CAPTION generation to Claude (Sonnet 5) + ground it in the brand's uploaded docs. Scope: caption_writer only (rest of the content pipeline stays MUapi). One seam `_caption_llm(system,user,brand)` both caption paths call; provider switch AGENT_CAPTION_PROVIDER (claude default, muapi revert); doc blocks from documents.list_for_brand; complete_messages(Sonnet 5). COST-METER already covers it.
-Design: docs/plans/2026-08-30-caption-claude.md  ← awaiting operator go before build
-Reading: agent/nodes/caption_writer.py, agent/llm.py, agent/loop/llm.py, agent/documents.py, tests/test_caption_writer_*.py
-Acceptance: captions generate on Claude grounded in the brand doc; provider=muapi still works; suite green; live Sonnet 5 caption obeys an uploaded guide + parses JSON.
-Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
@@ -21,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **CONTENT-CLAUDE — content-pipeline text generation on Claude** (2026-08-30) — moved ALL content-pipeline **text** gen from MUapi/Gemini to **Claude** (operator: "MUapi only for image/video"). `agent/llm.py::chat()` rewritten to route to `complete_messages`; `tier`→model (**cheap=Haiku 4.5, smart=Sonnet 5**, env `AGENT_CONTENT_MODEL_CHEAP/_SMART`). One central change moves caption_writer/scout/script_writer/text_writer/storyboard/carousel_gen/quote_card/content_router/influencer; **MUapi stays the image/video path** (`media/generation/`, untouched). caption_writer gains a `_caption_llm` seam that **grounds captions in the brand's uploaded docs** (document blocks from `documents.list_for_brand`, tier=smart). **Bug found+fixed:** Haiku 4.5 rejects `output_config.effort` (400) → `_apply_effort` now skips effort for Haiku (was breaking every cheap-tier call). **Verified live:** `chat(cheap)`→Haiku returns text; caption on Sonnet 5 honored an uploaded guide (avoided the forbidden word). Suite **462 pass**. Design: docs/plans/2026-08-30-caption-claude.md. → supervisor
 
 - **FILES — brand documents via the Files API** (2026-08-30) — the agent can now ground its work in a brand's real docs. `agent/files.py` (thin Files API upload/delete client) + **`brand_document`** table (migration `20260830180000`) + `agent/documents.py` store (**brand-scoped isolation** — every query `WHERE brand_id`) + admin endpoints **`POST/GET/DELETE /internal/brand/{brand}/documents`** (jobs-auth, multipart, PDF/text ≤25MB) + the **`read_brand_doc(query)`** loop tool (looks up the brand's file_ids → bounded `complete_messages` with document blocks → grounded answer). `complete_messages` now passes native document/image blocks through. Scope (operator): admin-endpoint ingestion only. **Verified live on Sonnet 5**: real upload → `read_brand_doc` returned a grounded answer ("forbidden word: unlock; tone: sharp, confident, no hype") → delete; suite **461 pass**. Design: docs/plans/2026-08-30-files-brand-documents.md. Follow-ons: agent self-ingest tool, caption-pipeline injection, orphan-file sweep. → supervisor
 

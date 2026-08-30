@@ -75,7 +75,7 @@ class TestModeRouting:
         vid = tmp_path / "clip.mp4"
         vid.write_bytes(b"x")
 
-        async def fake_filename(*, system_prompt, user_context):
+        async def fake_filename(*, brand_id=None, system_prompt=None, user_context=None):
             return {"title": "T", "caption": "C #tag1", "hashtags": ["tag1"]}
 
         async def no_vision(**kwargs):
@@ -154,7 +154,7 @@ class TestModeRouting:
         async def no_vision(**kwargs):
             raise AssertionError("vision must not run when file is missing")
 
-        async def fake_filename(*, system_prompt, user_context):
+        async def fake_filename(*, brand_id=None, system_prompt=None, user_context=None):
             return {"title": "Fallback", "caption": "Fallback body", "hashtags": []}
 
         monkeypatch.setattr(cw, "_generate_via_vision", no_vision)
@@ -189,7 +189,7 @@ class TestVisionFallback:
         async def boom(**kwargs):
             raise RuntimeError("gemini quota exhausted")
 
-        async def fake_filename(*, system_prompt, user_context):
+        async def fake_filename(*, brand_id=None, system_prompt=None, user_context=None):
             return {"title": "T", "caption": "C", "hashtags": []}
 
         monkeypatch.setattr(cw, "_generate_via_vision", boom)

@@ -99,26 +99,25 @@ class TestRulesBasedPromptComposition:
         catalog = tmp_path / "cat.md"
         catalog.write_text("# catalog\n- Liver Cleanse Tea\n- never claim cure")
 
-        captured_messages = []
+        captured = {}
 
-        async def fake_chat(messages, **kwargs):
-            captured_messages.extend(messages)
+        async def fake_caption(system_prompt, user_text, brand_id):
+            captured["user"] = user_text
             return '{"title": "t", "caption": "c", "hashtags": ["x"]}'
 
         monkeypatch.setattr(
-            "glitch_signal.agent.nodes.caption_writer.agent_llm.chat",
-            fake_chat,
-        )
+            "glitch_signal.agent.nodes.caption_writer._caption_llm", fake_caption)
 
         data = await cw._generate_via_rules_based(
             signal=_FakeSignal("Liver_ad15_UK_h1_9.4.26.mp4"),
+            brand_id="drive_brand",
             system_prompt="SYSTEM",
             user_context="PLATFORM: tiktok",
             catalog_path=str(catalog),
         )
         assert data["title"] == "t"
-        # The user message must carry parsed fields + catalog text.
-        user_msg = next((m["content"] for m in captured_messages if m["role"] == "user"), "")
+        # The user text must carry parsed fields + catalog text.
+        user_msg = captured["user"]
         assert "product: liver" in user_msg.lower()
         assert "ad_num:  15" in user_msg or "ad_num: 15" in user_msg
         assert "geo:     uk" in user_msg.lower() or "geo: uk" in user_msg.lower()
@@ -130,16 +129,15 @@ class TestRulesBasedPromptComposition:
     async def test_missing_catalog_logs_but_does_not_raise(self, tmp_path, monkeypatch):
         from glitch_signal.agent.nodes import caption_writer as cw
 
-        async def fake_chat(messages, **kwargs):
+        async def fake_caption(system_prompt, user_text, brand_id):
             return '{"title":"t","caption":"c","hashtags":[]}'
 
         monkeypatch.setattr(
-            "glitch_signal.agent.nodes.caption_writer.agent_llm.chat",
-            fake_chat,
-        )
+            "glitch_signal.agent.nodes.caption_writer._caption_llm", fake_caption)
 
         data = await cw._generate_via_rules_based(
             signal=_FakeSignal("x.mp4"),
+            brand_id="drive_brand",
             system_prompt="S", user_context="U",
             catalog_path=str(tmp_path / "missing.md"),   # doesn't exist
         )
@@ -151,21 +149,20 @@ class TestRulesBasedPromptComposition:
         still be generated (with 'unparsed' signalled to the model)."""
         from glitch_signal.agent.nodes import caption_writer as cw
 
-        captured_messages = []
+        captured = {}
 
-        async def fake_chat(messages, **kwargs):
-            captured_messages.extend(messages)
+        async def fake_caption(system_prompt, user_text, brand_id):
+            captured["user"] = user_text
             return '{"title":"t","caption":"c","hashtags":[]}'
 
         monkeypatch.setattr(
-            "glitch_signal.agent.nodes.caption_writer.agent_llm.chat",
-            fake_chat,
-        )
+            "glitch_signal.agent.nodes.caption_writer._caption_llm", fake_caption)
 
         await cw._generate_via_rules_based(
             signal=_FakeSignal("random_clip_no_pattern.mp4"),
+            brand_id="drive_brand",
             system_prompt="S", user_context="U",
             catalog_path=None,
         )
-        user_msg = next((m["content"] for m in captured_messages if m["role"] == "user"), "")
+        user_msg = captured["user"]
         assert "unparsed" in user_msg.lower() or "generic" in user_msg.lower()

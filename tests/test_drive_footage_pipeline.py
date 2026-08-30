@@ -221,7 +221,7 @@ class TestCaptionWriterNode:
         mock_raw = '{"title": "Golden hour root", "caption": "A moment with the root.\\n\\n#tag1 #brand", "hashtags": ["tag1", "brand"]}'
 
         from glitch_signal.agent.nodes.caption_writer import caption_writer_node
-        with patch("glitch_signal.agent.nodes.caption_writer.agent_llm.chat", new=AsyncMock(return_value=mock_raw)):
+        with patch("glitch_signal.agent.nodes.caption_writer._caption_llm", new=AsyncMock(return_value=mock_raw)):
             state = await caption_writer_node({
                 "brand_id": "drive_brand",
                 "signal_id": sig_id,
