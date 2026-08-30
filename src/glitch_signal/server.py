@@ -485,10 +485,12 @@ async def internal_agent_run_status(run_id: str) -> dict:
 async def internal_agent_pipeline(name: str, request: Request) -> dict:
     """Kick off a PIPELINE run now (auth: x-jobs-token) — a deliberate, scoped agent run.
 
-    Body: {brand?}. Resolves the named pipeline (discovery/content/orm) to its fixed scope + goal,
-    checks its required kill-switches (409 if any are off), and starts a BACKGROUND run. This is the
-    only place a capability turns on for real — the scope bounds the toolset, and publishing stays
-    disabled regardless. Returns {ok, run_id, pipeline, scope, status}; poll GET /internal/agent/run/{id}.
+    Brand comes from the `?brand=` query param — the brand `_require_jobs_auth` validated the token
+    against — NOT the request body, so one brand's jobs token cannot target another (#95). Resolves
+    the named pipeline (discovery/content/orm) to its current scope + goal, checks its required
+    kill-switches (409 if any are off), and starts a BACKGROUND run. This is the only place a
+    capability turns on for real — the scope bounds the toolset, publishing stays disabled regardless.
+    Returns {ok, run_id, pipeline, scope, status}; poll GET /internal/agent/run/{id}.
     """
     import uuid as _uuid
 
@@ -499,12 +501,7 @@ async def internal_agent_pipeline(name: str, request: Request) -> dict:
     if p is None:
         raise HTTPException(status_code=404, detail=f"unknown pipeline {name!r}; options: {pipelines.names()}")
 
-    body: dict = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-    brand = body.get("brand", "glitch_executor")
+    brand = request.query_params.get("brand") or "glitch_executor"
     if brand not in brand_ids():
         raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
 
@@ -523,9 +520,13 @@ async def internal_agent_pipeline(name: str, request: Request) -> dict:
 async def internal_agent_pipeline_schedule(name: str, request: Request) -> dict:
     """Seed a pipeline's recurring schedule as a cron job (auth: x-jobs-token).
 
-    Body: {brand?}. Creates a `payload_kind=agentTurn` cron job (owner `pipeline:<brand>`) at the
-    pipeline's cadence, carrying its goal + scope. The scheduler fires it only when
-    `agent_cron_enabled` is on (409 while off), so scheduling ships inert. Returns {ok, job_id, ...}.
+    Brand comes from `?brand=` (the authorized brand), not the body (#95). Seeds a
+    `payload_kind=pipelineTurn` cron job (owner `pipeline:<brand>`, name `pipeline:<pipeline>`) at the
+    pipeline's cadence carrying ONLY the pipeline NAME — the run re-resolves the pipeline (scope, goal,
+    requirements) at each fire, so kill-switches and the content media opt-in are honored live, never
+    frozen at seed time. Idempotent per (brand, pipeline): a re-seed updates the existing job instead
+    of 500-ing on the unique index. The scheduler fires it only when `agent_cron_enabled` (409 while
+    off). Returns {ok, job_id, created, pipeline, scope, schedule}.
     """
     from datetime import datetime, timezone
 
@@ -539,22 +540,26 @@ async def internal_agent_pipeline_schedule(name: str, request: Request) -> dict:
     if not getattr(_settings(), "agent_cron_enabled", False):
         raise HTTPException(status_code=409, detail="scheduling is disabled (agent_cron_enabled is off)")
 
-    body: dict = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-    brand = body.get("brand", "glitch_executor")
+    brand = request.query_params.get("brand") or "glitch_executor"
     if brand not in brand_ids():
         raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
 
-    job_id = await cron_store.create_job(
-        brand_id=brand, name=f"pipeline:{p.name}", owner=f"pipeline:{brand}",
-        schedule_kind=p.schedule_kind, schedule=p.schedule,
-        payload_kind="agentTurn",
-        payload={"goal": p.render_goal(brand), "scope": p.scope, "max_steps": p.max_steps},
-        now=datetime.now(timezone.utc))
-    return {"ok": True, "job_id": job_id, "pipeline": p.name, "scope": p.scope,
+    owner, job_name = f"pipeline:{brand}", f"pipeline:{p.name}"
+    payload = {"pipeline": p.name}       # NAME only — resolved live at each fire (not a frozen snapshot)
+    now = datetime.now(timezone.utc)
+    existing = [j for j in await cron_store.list_jobs(brand, owner=owner) if j.get("name") == job_name]
+    if existing:                          # idempotent re-seed: update in place, don't collide on the unique index
+        job_id = str(existing[0]["id"])
+        await cron_store.update_job(job_id, {"schedule": p.schedule, "schedule_kind": p.schedule_kind,
+                                             "payload": payload, "enabled": True}, now=now, brand_id=brand)
+        created = False
+    else:
+        job_id = await cron_store.create_job(
+            brand_id=brand, name=job_name, owner=owner,
+            schedule_kind=p.schedule_kind, schedule=p.schedule,
+            payload_kind="pipelineTurn", payload=payload, now=now)
+        created = True
+    return {"ok": True, "job_id": job_id, "created": created, "pipeline": p.name, "scope": p.scope,
             "schedule_kind": p.schedule_kind, "schedule": p.schedule}
 
 

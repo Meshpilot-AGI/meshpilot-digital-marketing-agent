@@ -650,4 +650,12 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 
 **Remains:** live operator smoke of a real content run → review drafts; publish path is a separate, deliberate decision; per-brand cadence overrides; the review-fixes lane (#163) already closed the SCOPE dispatch-bypass + discovery Qodo findings.
 
+### PIPELINE review-fixes (#164 Qodo) — 2026-08-30
+Five valid findings on #164, all fixed:
+- **[HIGH/security] cross-brand auth** — both endpoints read `brand` from the body while `_require_jobs_auth` validates the *query* brand → default-brand token could target any brand. Now brand comes from `?brand=` (the authorized brand); body brand ignored. ⚠️ **Pre-existing:** the older `/internal/*` endpoints (`agent/run`, `curate`, `remember`, …) share this body-brand pattern — a separate hardening lane (task flagged).
+- **[HIGH/correctness] scheduled `requires` bypassed + [HIGH] media opt-out ineffective** — same root cause: the seed froze the resolved goal+scope into the cron payload. Now the payload carries **only the pipeline name**; new `cron.service._run_pipeline_turn` re-resolves the pipeline live each fire — checks `missing_requirements()` (SKIPs, recorded not executed, if unmet) and reads the current `agent_content_media_enabled`. New `payload_kind="pipelineTurn"`.
+- **[MED/reliability] re-seed 500** — `create_job` is insert-only vs the unique `(brand_id,owner,name)` index. Schedule is now idempotent: find existing job via `list_jobs` → `update_job` (enable+reschedule) or create; returns `created`.
+- **[MED/reliability] non-object JSON 500** — dropped body-parsing from the manual endpoint (brand now from query); schedule likewise reads no body.
+**Verified:** suite **494 pass** (+8: `_run_pipeline_turn` skip/re-resolve/unknown; TestClient body-brand-ignored, pipelineTurn name-only seed, idempotent re-seed→update, cron-off 409 — all DB-mocked). Design doc updated.
+
 ---

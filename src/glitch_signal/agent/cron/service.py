@@ -78,6 +78,8 @@ async def _dispatch(job: dict, *, engine=None) -> None:
     try:
         if job["payload_kind"] == "agentTurn":
             result = await _run_agent_turn(brand, job["payload"])
+        elif job["payload_kind"] == "pipelineTurn":
+            result = await _run_pipeline_turn(brand, job["payload"])
         elif job["payload_kind"] == "capability":
             result = await _run_capability(brand, job["payload"])
         else:
@@ -90,6 +92,26 @@ async def _dispatch(job: dict, *, engine=None) -> None:
         await store.finish_run(run_id, job_id, status="error", error=str(exc),
                                delete_after_run=bool(job.get("delete_after_run")),
                                max_failures=_max_failures(), engine=engine)
+
+
+async def _run_pipeline_turn(brand: str, payload: dict) -> dict:
+    """Run a scheduled PIPELINE occurrence by RE-RESOLVING the pipeline at fire time.
+
+    The cron job stores only the pipeline name, so scope/goal and the required kill-switches are read
+    live from the registry every occurrence — a discovery schedule stays inert while
+    `agent_discovery_enabled` is off, and content honors the current `agent_content_media_enabled`
+    (paid media on/off) instead of a value frozen at seed time. If a requirement is unmet the run is
+    SKIPPED (recorded, not executed), mirroring the manual endpoint's 409."""
+    from glitch_signal.agent.loop import pipelines
+
+    p = pipelines.resolve(str(payload.get("pipeline", "")))
+    if p is None:
+        raise ValueError(f"unknown pipeline {payload.get('pipeline')!r}")
+    missing = p.missing_requirements()
+    if missing:
+        return {"pipeline": p.name, "skipped": f"requires: {', '.join(missing)}"}
+    return await _run_agent_turn(
+        brand, {"goal": p.render_goal(brand), "scope": p.scope, "max_steps": p.max_steps})
 
 
 async def _run_agent_turn(brand: str, payload: dict) -> dict:
