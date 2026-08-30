@@ -1,21 +1,54 @@
-# Mesh Pilot — Autonomous Marketing Agent
+<div align="center">
 
-> **One digital worker, not a mesh of six.** A single cloud-hosted agent with
-> memory, judgment, its own tools, and a learning loop — built to run
-> **autonomously, 24/7, on the cloud**. It perceives its brands' state, decides
-> what to do, acts through its own capabilities, remembers what happened, and
-> gets *better on its own* as it runs. No cockpit, no six-agent mesh, no SaaS
-> surface. Just the worker.
+# 🛰️ MeshPilot
 
-**Open source (AGPL-3.0).** MeshPilot is open-core: *this agent is free and
-self-hostable* — read it, run it, extend it. A managed, multi-tenant **hosted
-platform** (run the agent for you, at scale) is the paid product, coming later.
-Same model as Supabase: open core, paid cloud.
+### The autonomous AI marketing agent — one cloud worker, not a mesh of six.
 
-Runs headless — the service *is* the agent: HTTP endpoints, an in-process
-scheduler, and a cognitive loop are how it acts (no frontend to the agent
-itself). The maintainers operate a live instance at **`api.meshpilot.app`**
-(FastAPI Cloud); you can run your own the same way.
+A single, **self-hostable AI agent** with memory, judgment, its own tools, and a
+learning loop — built to run **autonomously, 24/7, in the cloud**. It perceives
+each brand's state, decides what to do, acts through its own capabilities,
+remembers what happened, and gets *better on its own* as it runs.
+
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Built with FastAPI](https://img.shields.io/badge/built%20with-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
+[![Brain: Claude](https://img.shields.io/badge/brain-Claude-d4a373.svg)](https://www.anthropic.com/)
+[![CI](https://img.shields.io/github/actions/workflow/status/Meshpilot-AGI/meshpilot-digital-marketing-agent/ci.yml?branch=production&label=CI)](../../actions)
+[![Live API](https://img.shields.io/website?url=https%3A%2F%2Fapi.meshpilot.app%2Fhealthz&label=api.meshpilot.app&up_message=live)](https://api.meshpilot.app)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Stars](https://img.shields.io/github/stars/Meshpilot-AGI/meshpilot-digital-marketing-agent?style=social)](../../stargazers)
+
+**[Live API](https://api.meshpilot.app)** · **[Vision](docs/VISION.md)** · **[Architecture](#how-it-works-the-architecture)** · **[Quickstart](#quickstart)** · **[Ecosystem](#ecosystem)** · **[Contributing](CONTRIBUTING.md)**
+
+</div>
+
+---
+
+> **🟢 Open source · AGPL-3.0 · open-core.** This agent is free and self-hostable
+> — read it, run it, extend it. A managed, multi-tenant **hosted platform** (run
+> the agent for you, at scale) is the paid product. Same model as Supabase: open
+> core, paid cloud. The maintainers operate a live instance at
+> **[`api.meshpilot.app`](https://api.meshpilot.app)** (FastAPI Cloud) — you can
+> run your own the same way.
+
+Most "AI marketing" tools are a chat box bolted onto an API. **MeshPilot is the
+opposite: a standing autonomous worker** that runs headless, whether or not
+anyone is watching. The service *is* the agent — HTTP endpoints, an in-process
+scheduler, and a cognitive loop are how it acts. No cockpit, no six-agent mesh,
+no dashboard to babysit. Just the worker.
+
+## Contents
+
+- [Why this exists](#why-this-repo-exists-and-why-we-ditched-the-last-one)
+- [What it is (60 seconds)](#what-it-is-the-60-second-version)
+- [How it works — architecture](#how-it-works-the-architecture)
+- [Tech stack](#tech-stack)
+- [Projects × Capabilities](#projects--capabilities)
+- [What runs right now](#what-runs-right-now-live-state)
+- [Quickstart](#quickstart)
+- [Deploy](#deploy-fastapi-cloud)
+- [Ecosystem](#ecosystem)
+- [License](#license) · [Contributing](#contributing) · [Acknowledgements](#acknowledgements)
 
 ---
 
@@ -48,9 +81,6 @@ the simpler thing that keeps one agent autonomous wins.
 ---
 
 ## What it is (the 60-second version)
-
-Most "AI marketing" tools are a chat box bolted onto an API. This is the opposite:
-a **standing autonomous worker** that runs whether or not anyone is watching.
 
 - It holds **per-brand memory** (durable facts + episodes of what it did).
 - It runs a **reasoning loop** that recalls context, plans, and calls its
@@ -243,7 +273,7 @@ control-plane/              ACTIVE_LANE_BOARD.md · SESSION_COORDINATION.md · E
 
 ---
 
-## Build & run
+## Quickstart
 
 - **Python** ≥ 3.11, managed with `uv`.
 - **Database:** external PostgreSQL (Supabase). Connection via `SIGNAL_DB_URL`
@@ -293,17 +323,6 @@ uvx --from "fastapi[standard]" fastapi cloud deploy .
 
 ---
 
-## Git / hosting
-
-Mirrored to two orgs for redundancy: **GitHub** `Nuraveda-Labs/…` and **GitLab**
-`nuraveda-lab/…`. Push/fetch **SSH only** — never a token in a remote URL. Commits
-are authored as *Tejas Karan Agrawal* and **SSH-signed**. Work happens on a **lane**
-(`lane/*` off `production`), lands via **PR into `production`**, and the lane is
-pruned both sides when done. Never commit on `production` or a `*-production` deploy
-branch.
-
----
-
 ## Doc index (start points)
 
 This is a **doc-driven** repo (vibe-coding-kit method). Before code, read in order:
@@ -323,6 +342,15 @@ A lane isn't done until the contract docs are updated and evidence is appended t
 
 ---
 
+## Ecosystem
+
+MeshPilot is the flagship of [**Meshpilot-AGI**](https://github.com/Meshpilot-AGI)
+— an open ecosystem of composable, self-hostable marketing agents and MCP servers
+(SEO, ads, social, UGC, sales, voice, plus MCP servers like
+[linkedin-ads-mcp](https://github.com/Meshpilot-AGI/linkedin-ads-mcp)). The agent
+orchestrates; each piece can also run on its own. **See the
+[org profile](https://github.com/Meshpilot-AGI) for the full list.**
+
 ## License
 
 **GNU AGPL-3.0-or-later** — see [`LICENSE`](LICENSE). MeshPilot is **open-core**:
@@ -336,9 +364,11 @@ commercial license) is the path.
 ## Contributing
 
 Issues and PRs welcome. This is a doc-driven repo (see the doc index above and
-[`CONTRIBUTING.md`](CONTRIBUTING.md)): open a lane, keep the change small and
-tested (`uv run pytest -q`), and PR into `production`. Content the agent writes
-must pass the content policy (no AI footprints) — the same bar applies to docs.
+[`CONTRIBUTING.md`](CONTRIBUTING.md)): open a **lane** (`lane/*` off `production`),
+keep the change small and tested (`uv run pytest -q`), and **PR into `production`**.
+Commits are **SSH-signed**; never commit directly on `production` or a
+`*-production` deploy branch. Content the agent writes must pass the content
+policy (no AI footprints) — the same bar applies to docs.
 
 ## Acknowledgements
 
@@ -348,3 +378,15 @@ its trusted-gateway / untrusted-execution / deterministic-policy shape and self-
 draw on **[OpenClaw](https://github.com/openclaw/openclaw)**. We adapted those ideas
 to a cloud, multi-brand stack rather than wrapping either — with gratitude to both
 communities.
+
+---
+
+<div align="center">
+
+**If MeshPilot is useful to you, give it a ⭐ — it helps others find it.**
+
+Built in the open by [**Meshpilot-AGI**](https://github.com/Meshpilot-AGI) · [meshpilot.app](https://meshpilot.app)
+
+*Autonomous AI marketing agent · open-core · self-hostable · AGPL-3.0*
+
+</div>
