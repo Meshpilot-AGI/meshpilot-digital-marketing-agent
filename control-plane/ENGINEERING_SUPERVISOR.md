@@ -2,6 +2,23 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### SUPA-HARDEN — close the two Supabase security-advisor WARNs — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Read:** live security advisor (`get_advisors` security) for project `qkztphfjwgluwwlgeyys`; `pg_extension` / `pg_roles` search_paths / `pg_event_trigger` / column-type deps via `execute_sql`; `supabase/migrations/`.
+
+**Context (the actual finding):** the post-open-source review asked whether `supabase/` + `web/` being public is safe. It **is** — no secrets committed (all `env()` refs), `.next` git-ignored, and the live DB is **RLS deny-all on all 24 tables** (anon publishable key returns `200 []` on every table — correctly denied, not leaking). Publishing the schema exposes nothing exploitable. The advisor did flag two WARNs worth fixing as defence-in-depth.
+
+**Changed:** new migration `supabase/migrations/20260830010000_supa_harden.sql` (idempotent):
+- **`revoke execute on function public.rls_auto_enable() from public, anon, authenticated`** — closes advisor lints 0028/0029 (anon/authenticated could call this SECURITY DEFINER fn via `/rest/v1/rpc/rls_auto_enable`). It's wired to the `ensure_rls` EVENT TRIGGER, which fires on DDL independent of EXECUTE grants — so the auto-RLS behaviour is unaffected; only the public RPC surface is removed.
+- **`alter extension vector set schema extensions`** (guarded; `create schema if not exists extensions` first) — closes lint 0014 (extension in the API-exposed `public` schema). Safe here: the `extensions` schema pre-exists (Supabase default), the app connects as `postgres` whose search_path is `"$user", public, extensions` (so unqualified `halfvec` / `<=>` still resolve), and only one column depends on the type (`agent_memory.embedding halfvec(2048)`; its HNSW index follows via pg dependency tracking).
+
+**Verified:** transaction-rollback test on the LIVE DB — `begin; alter extension … set schema extensions; <unqualified halfvec <=> op>; rollback;` ran with **no error** (proves resolution survives the move as the app role), and a post-rollback check showed `vector` back in `public` (prod untouched). Migration applied via the Supabase↔GitHub integration on merge; advisor re-run afterwards is clean of both WARNs. Full pytest suite unaffected (no app code changed).
+
+**Remains:** the `rls_enabled_no_policy` INFO notices persist by design (RLS-on + no-policy = deny-all to anon; the app is service-role/`postgres`-only) — not a vuln, left as-is.
+
+---
+
 ### BOARD-TIDY — board hygiene + AGENT-BRAIN epic closed — CLOSED 2026-08-29
 **Owner:** Claude
 
