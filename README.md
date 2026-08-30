@@ -31,16 +31,19 @@ remembers what happened, and gets *better on its own* as it runs.
 > **[`api.meshpilot.app`](https://api.meshpilot.app)** (FastAPI Cloud) — you can
 > run your own the same way.
 
-Most "AI marketing" tools are a chat box bolted onto an API. **MeshPilot is the
-opposite: a standing autonomous worker** that runs headless, whether or not
-anyone is watching. The service *is* the agent — HTTP endpoints, an in-process
-scheduler, and a cognitive loop are how it acts. No cockpit, no six-agent mesh,
-no dashboard to babysit. Just the worker.
+Most "AI marketing" tools are a chat box bolted onto an API. **MeshPilot is a
+standing autonomous worker** that runs headless whether or not anyone is
+watching — *and* you can **talk to it from your own chat apps**. It's your own
+[OpenClaw](https://github.com/openclaw/openclaw), built for marketing and rebuilt
+on managed cloud instead of a self-hosted VM. Message it in **Discord** today
+(Telegram and WhatsApp next); it runs your marketing around the clock and answers
+when you ask. No cockpit, no six-agent mesh, no dashboard to babysit.
 
 ## Contents
 
 - [Why this exists](#why-this-repo-exists-and-why-we-ditched-the-last-one)
 - [What it is (60 seconds)](#what-it-is-the-60-second-version)
+- [Talk to it (chat control plane)](#talk-to-it-chat-control-plane)
 - [How it works — architecture](#how-it-works-the-architecture)
 - [Tech stack](#tech-stack)
 - [Projects × Capabilities](#projects--capabilities)
@@ -94,6 +97,24 @@ the simpler thing that keeps one agent autonomous wins.
 It is **multi-brand from day one** (Projects × Capabilities, below) and **cloud-only** —
 nothing runs from a developer's Mac; the Mac edits code, commits, and triggers
 deploys. The agent lives in the deployed service.
+
+---
+
+## Talk to it (chat control plane)
+
+MeshPilot isn't a dashboard you babysit — it's an agent you **message**. A thin
+**channel gateway** (a small always-on bridge, *not* a second agent) connects your
+chat apps to the agent: you type in a channel, MeshPilot runs a turn and replies.
+
+- **Discord** — live today. Talk to the agent in a private channel; it answers
+  in-thread. The bridge is [`gateway/`](gateway/) — ~90 lines of `discord.py`,
+  deployed as one always-on managed container.
+- **Telegram · WhatsApp** — next, as small adapters on the same pattern.
+
+This is the "our own OpenClaw" idea: one agent you reach across every channel — but
+the brain stays a managed-cloud service and the channel layer stays lean. The agent
+is always MeshPilot; the gateway is dumb plumbing (message in → `/internal/agent/run`
+→ reply out).
 
 ---
 
@@ -241,6 +262,9 @@ One deployable service on **FastAPI Cloud**, behind **Cloudflare**.
   Embeddings via NVIDIA NIM. **Publishing is OFF by default** (`agent_publish_enabled=False`).
 - **Scheduler:** in-process ~30s tick; the same dispatch is endpoint-reachable, so
   an external cron can drive it if the host scales to zero.
+- **Chat control plane:** a small Discord bridge ([`gateway/`](gateway/), one
+  always-on container on Railway) relays `#agent-chat` messages to
+  `/internal/agent/run` and posts the reply back — talk to the agent from Discord.
 
 ---
 
