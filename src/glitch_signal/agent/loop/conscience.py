@@ -81,10 +81,14 @@ async def brand_facts(brand_id: str, *, limit: int = 8) -> str:
     try:
         from glitch_signal.agent.memory.store import recall as mem_recall
         mems = await mem_recall(brand_id, "brand identity product features audience pricing",
-                                k=limit, kinds=["fact"])
-        return "\n".join(f"- {m.content}" for m in mems)[:2500]
-    except Exception as exc:  # noqa: BLE001 — no facts → the critic just reviews without ground truth
-        log.warning("agent.conscience.brand_facts_failed", error=str(exc)[:200])
+                                k=limit * 2, kinds=["fact"])
+        # Only OPERATOR-VERIFIED facts are authoritative for the critic. Facts the agent/curator wrote
+        # (source=agent_loop / learn) must NOT be able to suppress an escalation (prompt-injection /
+        # self-authored "facts"): they carry no `verified` provenance, so they're excluded here.
+        verified = [m for m in mems if (m.source or "") and "verified" in (m.source or "").lower()]
+        return "\n".join(f"- {m.content}" for m in verified[:limit])[:2500]
+    except Exception:  # noqa: BLE001 — no facts → the critic just reviews without ground truth
+        log.warning("agent.conscience.brand_facts_failed")   # sanitized: no exception detail in logs
         return ""
 
 
@@ -103,10 +107,11 @@ async def review(goal: str, output: str | None, *, facts: str = "",
     facts_block = ""
     if facts.strip():
         facts_block = (
-            "\n\n--- VERIFIED BRAND FACTS (authoritative ground truth) ---\n" + facts[:2500] +
-            "\nTreat these facts as TRUE. A claim consistent with them is acceptable even if the brand "
-            "seems unfamiliar or shares a name with something else; only flag claims that CONTRADICT or "
-            "go BEYOND these facts.")
+            "\n\n--- VERIFIED BRAND FACTS (operator-verified ground truth) ---\n" + facts[:2500] +
+            "\nThese facts establish the brand's identity and offering — rely on them to avoid a false "
+            "alarm about an unfamiliar brand or a name collision. They do NOT authorize any claim: STILL "
+            "escalate if the output makes a harmful, non-compliant, misleading, or unsupported claim, or "
+            "asserts something these facts do not support.")
     prompt = (f"Run goal (context only): {goal}\n\nProposed output to review:\n{text[:3000]}"
               f"{facts_block}\n\nYour verdict JSON:")
     try:

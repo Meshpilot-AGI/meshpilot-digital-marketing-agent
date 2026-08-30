@@ -508,7 +508,20 @@ async def internal_agent_routing_audit(request: Request) -> dict:
     runnable nightly via the `routing_audit` cron capability."""
     from glitch_signal.agent.loop.audit import routing_audit
     qp = request.query_params
-    res = await routing_audit(days=int(qp.get("days", 1)), baseline_days=int(qp.get("baseline_days", 7)))
+
+    def _pos_int(name: str, default: int, hi: int) -> int:
+        raw = qp.get(name)
+        if raw is None:
+            return default
+        try:
+            v = int(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{name} must be an integer")
+        if not 1 <= v <= hi:
+            raise HTTPException(status_code=400, detail=f"{name} must be between 1 and {hi}")
+        return v
+
+    res = await routing_audit(days=_pos_int("days", 1, 30), baseline_days=_pos_int("baseline_days", 7, 90))
     return {"ok": True, **res}
 
 

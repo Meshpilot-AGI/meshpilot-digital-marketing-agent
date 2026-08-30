@@ -77,4 +77,5 @@ def metrics() -> dict:
         out[model] = {"calls": int(m["calls"]), "errors": int(m["errors"]),
                       "error_rate": round(m["errors"] / calls, 4),
                       "latency_ms_ewma": round(m["latency_ms_ewma"], 1)}
-    return {"models": out, "tiers": {k: v for k, v in TIERS.items()}}
+    # report the EFFECTIVE tier lists (override-aware), not the static table
+    return {"models": out, "tiers": {k: resolve(k) for k in TIERS}}
