@@ -300,6 +300,10 @@ class Settings(BaseSettings):
     agent_default_scope: str = "chat"
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
+    # PIPELINE: when False, the `content` pipeline runs caption-first (scope `content_draft`, no paid
+    # media) — it drafts copy + a media brief. Flip True to have content runs also generate the media
+    # (scope `content`, MUapi/Higgsfield, bounded by agent_max_media_per_run).
+    agent_content_media_enabled: bool = False
     # Hard ceiling on agent-loop steps (COST-METER INC-3) — clamps any caller/payload max_steps so an
     # unbounded value can't drive recursive cost blow-up. Applied at the single runner choke point.
     agent_max_steps_ceiling: int = 12

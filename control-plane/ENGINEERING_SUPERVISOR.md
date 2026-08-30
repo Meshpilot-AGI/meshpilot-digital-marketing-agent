@@ -632,3 +632,22 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** per-channel Discord scope mapping; env/per-brand scope-registry override; then define the actual pipelines (discovery/content/orm scheduled runs) that use the broader scopes. Enablement is now enforceable: build tool (policy-gated off) → define pipeline+scope → enable the kill-switch.
 
 ---
+
+## PIPELINE — deliberate scoped/scheduled runs (2026-08-30)
+
+**Read:** the SCOPE "Remains" above (defines this lane); `scopes.py`, `runner._run_agent_bg`, `cron/{store,schedule,service}.py`, `policy.py`.
+**Changed:**
+- `agent/loop/pipelines.py` (new) — declarative registry (mirrors scopes.py). `Pipeline(name, scope, goal, max_steps, schedule_kind, schedule, requires)` + `render_goal(brand)` (templates `{brand}`) + `missing_requirements()` (required flags currently off). `registry()`/`resolve()`/`names()`. Three pipelines: **discovery** (scope=discovery, requires `agent_discovery_enabled`, daily 13:00Z), **content** (scope=`content_draft` caption-first, or `content` when `agent_content_media_enabled`, daily 14:30Z), **orm** (scope=orm, daily 15:00Z). Every goal ends with an explicit no-effect boundary.
+- `agent/loop/scopes.py` — new scope `content_draft` = memory+knowledge+quality (caption-first content, no paid media).
+- `config.py` — `agent_content_media_enabled=False` (content pipeline media opt-in).
+- `server.py` — `POST /internal/agent/pipeline/{name}` (resolve → 409 on missing `requires` → `_run_agent_bg` with the pipeline's scope+goal+max_steps) and `POST /internal/agent/pipeline/{name}/schedule` (seed a `payload_kind=agentTurn` cron job at the cadence; 409 while `agent_cron_enabled` off).
+
+**Invents no new gate** — composes SCOPE (offer+dispatch, enforced both since #163) + policy (publish/discovery default-off → drafts/notes only) + the self-schedule clamp (cron.tool, unchanged).
+
+**Verified:** suite **486 pass** (9 pipeline tests: registry/resolve, every scope resolves exactly, goals template + carry a boundary, schedules validate against the scheduler, discovery requires its flag, content caption-first vs media opt-in). Endpoint validation smoke via TestClient: unknown→**404**, discovery-while-gated→**409**, no-auth→**401** (the one `/schedule` 200 wrote a stray `pipeline:content` row to the shared DB — since this local `.env` has `AGENT_CRON_ENABLED=true` + a live Supabase URL — and was deleted; shipped default is `False`).
+
+**Ships inert:** manual endpoint operator-initiated; scheduled jobs need `agent_cron_enabled`; discovery needs `agent_discovery_enabled`; real content media needs `agent_content_media_enabled`. All default False.
+
+**Remains:** live operator smoke of a real content run → review drafts; publish path is a separate, deliberate decision; per-brand cadence overrides; the review-fixes lane (#163) already closed the SCOPE dispatch-bypass + discovery Qodo findings.
+
+---
