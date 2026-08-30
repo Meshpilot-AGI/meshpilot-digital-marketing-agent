@@ -63,6 +63,17 @@ def _model(model: str | None) -> str:
     return _normalize_model(model or os.environ.get("AGENT_LLM_MODEL") or _DEFAULT_MODEL)
 
 
+def _resolve_models(model: str | None, tier: str | None) -> list[str]:
+    """The OpenRouter `models` list (primary first) for a call: explicit model, else a routed tier,
+    else the default. A multi-entry list makes OpenRouter fail over across providers natively."""
+    if model:
+        return [_normalize_model(model)]
+    if tier:
+        from glitch_signal.agent.loop import routing
+        return [_normalize_model(m) for m in routing.resolve(tier)]
+    return [_model(None)]
+
+
 def _flatten_text(content) -> str:
     if isinstance(content, str):
         return content
@@ -109,11 +120,21 @@ def _oai_content(content):
     return out or ""
 
 
-def _to_openai_messages(messages: list[dict], system: str | None) -> list[dict]:
-    """Anthropic-shaped messages + system string → OpenAI messages (tool_calls / tool role)."""
+def _to_openai_messages(messages: list[dict], system: str | None,
+                        cache_system: bool = False) -> list[dict]:
+    """Anthropic-shaped messages + system string → OpenAI messages (tool_calls / tool role).
+
+    `cache_system` marks the (stable) system prompt with a `cache_control` breakpoint — OpenRouter
+    forwards it to providers that support prompt caching (Anthropic/Gemini), giving a large discount
+    on the repeated prefix; ignored by providers that don't."""
     oai: list[dict] = []
     if system:
-        oai.append({"role": "system", "content": system})
+        if cache_system:
+            oai.append({"role": "system",
+                        "content": [{"type": "text", "text": system,
+                                     "cache_control": {"type": "ephemeral"}}]})
+        else:
+            oai.append({"role": "system", "content": system})
     for m in messages:
         role = m.get("role", "user")
         content = m.get("content", "")
@@ -221,18 +242,32 @@ async def _meter(model: str, usage: dict, req_id: str | None) -> None:
 
 
 async def _chat(messages: list[dict], *, system: str | None, tools: list[dict] | None,
-                model: str | None, max_tokens: int, timeout_s: int,
-                client: httpx.AsyncClient | None, plugins: list[dict] | None = None) -> dict:
-    payload: dict = {"model": _model(model), "max_tokens": max_tokens,
-                     "messages": _to_openai_messages(messages, system),
+                model: str | None = None, tier: str | None = None, max_tokens: int, timeout_s: int,
+                client: httpx.AsyncClient | None, plugins: list[dict] | None = None,
+                cache_system: bool = False) -> dict:
+    import time as _time
+
+    from glitch_signal.agent.loop import routing
+    models = _resolve_models(model, tier)
+    payload: dict = {"models": models, "max_tokens": max_tokens,   # OpenRouter native fallback (first = primary)
+                     "messages": _to_openai_messages(messages, system, cache_system=cache_system),
                      "usage": {"include": True}}
     if tools:
         payload["tools"] = _to_openai_tools(tools)
     if plugins:
         payload["plugins"] = plugins
-    body = await _send(payload, timeout_s=timeout_s, client=client)
+    t0 = _time.monotonic()
+    ok = True
+    try:
+        body = await _send(payload, timeout_s=timeout_s, client=client)
+    except Exception:
+        ok = False
+        routing.record(models[0], latency_ms=(_time.monotonic() - t0) * 1000, ok=False)
+        raise
     resp = _from_openai_response(body)
-    await _meter(payload["model"], resp["usage"], resp.get("_id"))
+    used = body.get("model") or models[0]                 # the model OpenRouter actually served
+    routing.record(used, latency_ms=(_time.monotonic() - t0) * 1000, ok=ok)
+    await _meter(used, resp["usage"], resp.get("_id"))
     return resp
 
 
@@ -241,16 +276,16 @@ def _text(resp: dict) -> str:
 
 
 async def complete(prompt: str, *, system: str | None = None, model: str | None = None,
-                   timeout_s: int = 90, client: httpx.AsyncClient | None = None,
-                   effort: str | None = None) -> str:
-    """Single user turn → assistant text. `client` injectable for tests."""
+                   tier: str | None = None, timeout_s: int = 90,
+                   client: httpx.AsyncClient | None = None, effort: str | None = None) -> str:
+    """Single user turn → assistant text. `tier` routes to a model list (ROUTER); `model` overrides."""
     _ = effort
     resp = await _chat([{"role": "user", "content": prompt}], system=system, tools=None,
-                       model=model, max_tokens=2048, timeout_s=timeout_s, client=client)
+                       model=model, tier=tier, max_tokens=2048, timeout_s=timeout_s, client=client)
     return _text(resp)
 
 
-async def complete_messages(messages: list[dict], *, model: str | None = None,
+async def complete_messages(messages: list[dict], *, model: str | None = None, tier: str | None = None,
                             max_tokens: int = 2048, temperature: float = 0.2,
                             timeout_s: int = 90, client: httpx.AsyncClient | None = None,
                             effort: str | None = None) -> str:
@@ -263,22 +298,23 @@ async def complete_messages(messages: list[dict], *, model: str | None = None,
         else:
             conv.append({"role": m.get("role", "user"), "content": m.get("content", "")})
     system = "\n\n".join(p for p in system_parts if p) or None
-    resp = await _chat(conv, system=system, tools=None, model=model, max_tokens=max_tokens,
+    resp = await _chat(conv, system=system, tools=None, model=model, tier=tier, max_tokens=max_tokens,
                        timeout_s=timeout_s, client=client)
     return _text(resp)
 
 
 async def complete_tools(messages: list[dict], *, tools: list[dict], system: str | None = None,
-                         model: str | None = None, max_tokens: int = 2048, timeout_s: int = 120,
+                         model: str | None = None, tier: str | None = "complex",
+                         max_tokens: int = 2048, timeout_s: int = 120,
                          client: httpx.AsyncClient | None = None, effort: str | None = None) -> dict:
     """One native tool-use turn → assistant message {content, stop_reason, usage} (Anthropic shape).
 
-    `tools` are Anthropic tool defs (name/description/input_schema); the caller runs any returned
-    tool_use blocks and sends tool_results back next turn.
+    The main ReAct loop defaults to the **complex** tier (ROUTER — quality-first + native fallback);
+    an explicit `model` overrides. Caller runs the returned tool_use blocks, sends tool_results back.
     """
     _ = effort
-    resp = await _chat(messages, system=system, tools=tools, model=model, max_tokens=max_tokens,
-                       timeout_s=timeout_s, client=client)
+    resp = await _chat(messages, system=system, tools=tools, model=model, tier=tier,
+                       max_tokens=max_tokens, timeout_s=timeout_s, client=client, cache_system=True)
     return {"content": resp["content"], "stop_reason": resp["stop_reason"], "usage": resp["usage"]}
 
 
