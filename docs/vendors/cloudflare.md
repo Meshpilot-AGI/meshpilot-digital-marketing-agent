@@ -14,7 +14,10 @@ guide — validate against the Cloudflare dashboard/API when unsure.
 - Proxied (orange-cloud) records:
   - `api.meshpilot.app` → FastAPI Cloud edge (`…custom-d…`) — **proxied** (the API).
   - `meshpilot.app` → CF Pages (`…pages.dev`) — proxied (the web).
-  - `cdn.meshpilot.app` → R2 (`public.r2.dev`) — proxied.
+  <!-- cdn.meshpilot.app (R2 custom domain on bucket meshpilot-creatives) removed
+       2026-08-30 — pre-SaaS binding for serving MUapi-generated media from R2, no
+       longer used. Bucket + objects kept; only the custom-domain binding was unbound. -->
+
 - DNS-only (grey) records: mail (MX/privateemail), DKIM/SPF/DMARC TXT, docs (Mintlify),
   verification TXTs. Leave these grey.
 
