@@ -686,3 +686,17 @@ Four valid findings on #166 (the internal-surface BFLA sweep), all fixed here (c
 **Verified:** suite **505 pass** (+4 in test_internal_brand_auth: fb/ig body-`brand_id` can't override + publishes as authorized brand; `_authorized_brand` uses the configured default not a literal). Gateway `py_compile` OK.
 
 ---
+
+## DELIBERATION-P1P2 — Reckoning + Conscience (shipped gated-off) — 2026-08-30
+**Read:** docs/plans/2026-08-30-deliberation-and-conscience.md (approved design), `agent/loop/{runner,llm,curator}.py`, `agent/SOUL.md`.
+**Changed:**
+- `agent/loop/reckoning.py` (new) — `expectation(goal, seed)` (pre-act foresight, one Haiku call) + `reckon(goal, expectation, transcript, final)` → `{met, discrepancy, attribution, lesson, trust:"self-assessed"}`; tolerant JSON parse (mirrors the LEARN curator); every call fail-soft (returns "" / {}).
+- `agent/loop/conscience.py` (new) + `agent/CONSCIENCE.md` (new, 12 brand-agnostic principles beside SOUL.md) — `review(goal, output)`: an INDEPENDENT critic (system = prefix+constitution only; the output-under-review in the user prompt; it structurally cannot see the actor's transcript) → `{verdict: pass|concerns|escalate, notes}`; unknown verdict → `concerns` (cautious); empty output / missing constitution → `{}`.
+- `agent/loop/runner.py` — captures `expectation` after the seed recall (flag-gated), and a single `_finalize` used by BOTH exit points runs reckon + conscience, folds a compact summary into the episode (LEARN substrate), and returns them in the run dict. `_write_episode` gained a `deliberation=` kwarg + `_deliberation_summary`.
+- `config.py` — `agent_reckoning_enabled` / `agent_conscience_enabled`, both default False.
+
+**Design fidelity:** advisory-only (blocks nothing — publishing is drafts-only); gated by stakes+cadence (run boundary only, not per-step); independent critic (not self-grading); reckoning grounded only in the run's own evidence and tagged self-assessed (no confabulation-as-verified). No new DB table, no world model, no BDI engine — the "lean, nothing tested yet" bar.
+
+**Verified:** `uv run pytest -q` → **520 pass, 1 skipped** (+15: reckoning parse/fail-soft/normalize, conscience independence/verdict-normalization/fail-soft, runner attaches-when-on / silent-and-no-calls-when-off). Existing loop tests unaffected (flags default off).
+
+**Remains:** turn the flags on for a live pipeline run and eyeball real reckoning/conscience output on drafts; red-team the conscience critic (feed it things it SHOULD block) before it's ever wired as a hard gate; then Phase 3 (Foresight, paired with enabling publishing) + Phase 4 (typed Intent/beliefs store + two-tier learning). A/B agent behavior with the passes on/off to prove they change outcomes, not just add text.

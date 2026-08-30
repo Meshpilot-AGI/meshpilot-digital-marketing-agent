@@ -300,6 +300,12 @@ class Settings(BaseSettings):
     agent_default_scope: str = "chat"
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
+    # DELIBERATION (Phase 1/2) — advisory metacognition passes wrapped around a run, default OFF.
+    # Reckoning: record an expectation before acting, self-assess vs actual after (fault attribution).
+    # Conscience: an independent critic reviews the run's outward output against agent/CONSCIENCE.md.
+    # Both only annotate the episode + run result (they block nothing) and each is one cheap Haiku call.
+    agent_reckoning_enabled: bool = False
+    agent_conscience_enabled: bool = False
     # PIPELINE: when False, the `content` pipeline runs caption-first (scope `content_draft`, no paid
     # media) — it drafts copy + a media brief. Flip True to have content runs also generate the media
     # (scope `content`, MUapi/Higgsfield, bounded by agent_max_media_per_run).
