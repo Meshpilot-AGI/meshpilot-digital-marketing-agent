@@ -504,3 +504,18 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** operator sets the Railway service's **deploy branch = `gateway-production`** in the dashboard (wait-for-CI already enabled; Root Directory already = `gateway`). Until then the service still auto-deploys its previously-configured branch. Ship path going forward: `git switch gateway-production && git merge --ff-only production && git push`.
 
 ---
+### CLAUDE-PLATFORM — Claude best practices in the agent loop — CLOSED 2026-08-30
+**Owner:** Claude (Opus)
+
+**Read:** platform.claude.com docs (models, prompt-engineering, tool-use, context-mgmt, files) via 6 parallel research agents; `src/glitch_signal/agent/loop/{llm,runner,prompt}.py`, `analytics/cost/pricing.py`, `tests/test_{llm_messages,agent_loop,cost_meter}.py`. Confirmed the loop is JSON-in-text ReAct (`runner.py:30` regex), no native tool use / caching / streaming / stop_reason handling; system prompt (`system_prompt()`) is a stable ~4,260-token prefix (SOUL + protocol + tools + handbook index) with all per-step variables in the user message.
+
+**Changed:** (1) `docs/vendors/anthropic.md` — full runbook (+README index). (2) `llm.py`: default model `claude-haiku-4-5` → **`claude-sonnet-5`**; **stopped forwarding `temperature`** (current-gen 400s; kwarg kept for caption.py back-compat); `max_tokens` 800→2048; **`output_config.effort`** (env `AGENT_LLM_EFFORT`, default `low` — suppresses the thinking block); **prompt caching** — system sent as a `cache_control:{ephemeral}` block; **stop_reason** warnings (max_tokens/refusal/empty) + **Retry-After** honoring (`_retry_delay`). (3) `pricing.py`: Sonnet 5 $2/$10 (was stale $3/$15), Opus 5 $5/$25 (was $15/$75), +Fable 5.
+
+**Verified (live, real Sonnet 5 API w/ the local inference key — "verify against the real dependency"):**
+- Old payload with `temperature` → **HTTP 400** (`temperature is deprecated for this model`) — confirmed the latent blocker.
+- Real `complete()` path → clean parseable JSON action, no truncation.
+- Hardened payload on the **real** system prompt: call-1 `cache_creation_input_tokens=4260`, call-2 `cache_read_input_tokens=4260` (**cache hit**); both `blocks=['text']` (effort=low → no thinking). Suite **451 pass** (local, pre-merge).
+
+**Remains:** **CLAUDE-TOOLS** (biggest pending upgrade) — replace the JSON-in-text ReAct with native tool use (`tools`/`tool_use`/`tool_result`, `strict` schemas, parallel, `stop_reason` loop); then a 2nd cache breakpoint on the last tool def. Later: built-in server tools (web_search/web_fetch/code_exec), Files API for brand PDFs, context editing for long runs. Streaming deferred (small outputs). Also: `pricing.py` `cache_write` models the 5m (1.25×) TTL — if we adopt 1h TTL, that entry needs 2×.
+
+---
