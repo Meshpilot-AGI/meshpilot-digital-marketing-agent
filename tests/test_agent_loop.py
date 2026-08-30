@@ -126,12 +126,13 @@ def test_server_tool_defs_gating(monkeypatch):
     for k in ("AGENT_WEB_SEARCH_ENABLED", "AGENT_WEB_FETCH_ENABLED", "AGENT_WEB_SEARCH_MAX_USES",
               "AGENT_WEB_BLOCKED_DOMAINS", "AGENT_WEB_SEARCH_TAG"):
         monkeypatch.delenv(k, raising=False)
-    defs = tools.server_tool_defs()                        # search on, fetch off by default (HIPAA)
-    assert {t["name"] for t in defs} == {"web_search"}
-    ws = defs[0]
-    assert ws["type"] == "web_search_20250305" and ws["max_uses"] == 3  # basic HIPAA-safe tag
-    monkeypatch.setenv("AGENT_WEB_FETCH_ENABLED", "true")  # opt fetch in (when ZDR is enabled)
-    assert {t["name"] for t in tools.server_tool_defs()} == {"web_search", "web_fetch"}
+    defs = tools.server_tool_defs()                        # both on by default (standard org)
+    assert {t["name"] for t in defs} == {"web_search", "web_fetch"}
+    ws = next(t for t in defs if t["name"] == "web_search")
+    assert ws["type"] == "web_search_20250305" and ws["max_uses"] == 3  # basic tag (dynamic opt-in)
+    monkeypatch.setenv("AGENT_WEB_FETCH_ENABLED", "false")  # gate fetch off
+    assert {t["name"] for t in tools.server_tool_defs()} == {"web_search"}
+    monkeypatch.setenv("AGENT_WEB_FETCH_ENABLED", "true")
     monkeypatch.setenv("AGENT_WEB_SEARCH_ENABLED", "false")  # gate search off
     assert {t["name"] for t in tools.server_tool_defs()} == {"web_fetch"}
     monkeypatch.setenv("AGENT_WEB_SEARCH_ENABLED", "true")
