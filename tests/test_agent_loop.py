@@ -1,19 +1,31 @@
-"""AGENT-LOOP — ReAct loop mechanics with a scripted LLM + fake tools (no network)."""
+"""AGENT-LOOP — native tool-use loop mechanics with a scripted model + fake tools (no network)."""
 from __future__ import annotations
 
 import pytest
 
-from glitch_signal.agent.loop import parse_action, run
+from glitch_signal.agent.loop import run
+
+
+def _use(name, inp, tid="t1"):
+    """A scripted assistant turn that calls one tool."""
+    return {"stop_reason": "tool_use",
+            "content": [{"type": "tool_use", "id": tid, "name": name, "input": inp}]}
+
+
+def _done(text):
+    """A scripted assistant turn that finishes with plain text (no tool call)."""
+    return {"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}
 
 
 class ScriptedLLM:
+    """Injected in place of complete_tools: (messages, *, tools, system) -> response dict."""
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = []
 
-    async def __call__(self, prompt, *, system=None):
-        self.calls.append(prompt)
-        return self.responses.pop(0) if self.responses else '{"final":"(out of script)"}'
+    async def __call__(self, messages, *, tools=None, system=None):
+        self.calls.append(list(messages))   # snapshot: the loop mutates `messages` after the call
+        return self.responses.pop(0) if self.responses else _done("(out of script)")
 
 
 class FakeExec:
@@ -29,25 +41,11 @@ class FakeExec:
         }.get(tool, f"ran {tool}")
 
 
-# ── parse_action ──────────────────────────────────────────────────────
-def test_parse_action_clean():
-    assert parse_action('{"final":"x"}') == {"final": "x"}
-
-
-def test_parse_action_wrapped_in_prose():
-    raw = 'Sure!\n```json\n{"action":"recall","args":{"query":"who"}}\n```'
-    assert parse_action(raw) == {"action": "recall", "args": {"query": "who"}}
-
-
-def test_parse_action_none():
-    assert parse_action("no json here") is None
-
-
 # ── loop ──────────────────────────────────────────────────────────────
 async def test_loop_runs_actions_and_writes_episode():
     llm = ScriptedLLM([
-        '{"thought":"make it","action":"generate_media","args":{"recipe":"muapi-logo-creator","inputs":{}}}',
-        '{"thought":"done","final":"made a logo"}',
+        _use("generate_media", {"recipe": "muapi-logo-creator", "inputs": {}}),
+        _done("made a logo"),
     ])
     ex = FakeExec()
     res = await run("glitch_executor", "make a logo", llm=llm, execute=ex)
@@ -60,8 +58,8 @@ async def test_loop_runs_actions_and_writes_episode():
 
 async def test_loop_denies_publish():
     llm = ScriptedLLM([
-        '{"action":"publish","args":{"platform":"x","text":"hi"}}',
-        '{"final":"stopped — publishing is off"}',
+        _use("publish", {"platform": "x", "text": "hi"}),
+        _done("stopped — publishing is off"),
     ])
     ex = FakeExec()
     res = await run("glitch_executor", "post to X", llm=llm, execute=ex)
@@ -73,12 +71,9 @@ async def test_loop_enforces_media_budget(monkeypatch):
     # 3 media-gen attempts, then finish; policy caps at 2 → 3rd is DENIED, never executed.
     from glitch_signal.agent.loop import policy
     monkeypatch.setattr(policy, "from_config", lambda: policy.Policy(max_media_per_run=2))
-    llm = ScriptedLLM([
-        '{"action":"generate_media","args":{"recipe":"muapi-logo-creator","inputs":{}}}',
-        '{"action":"generate_media","args":{"recipe":"muapi-logo-creator","inputs":{}}}',
-        '{"action":"generate_media","args":{"recipe":"muapi-logo-creator","inputs":{}}}',
-        '{"final":"done"}',
-    ])
+    gm = {"recipe": "muapi-logo-creator", "inputs": {}}
+    llm = ScriptedLLM([_use("generate_media", gm, "a"), _use("generate_media", gm, "b"),
+                       _use("generate_media", gm, "c"), _done("done")])
     ex = FakeExec()
     res = await run("b", "make logos", llm=llm, execute=ex, max_steps=6)
     gen_calls = [c for c in ex.calls if c[0] == "generate_media"]
@@ -86,16 +81,29 @@ async def test_loop_enforces_media_budget(monkeypatch):
     assert res["transcript"][2]["observation"].startswith("DENIED")  # 3rd blocked by budget
 
 
-async def test_loop_tolerates_unparseable():
-    llm = ScriptedLLM(["not json at all", '{"final":"ok"}'])
+async def test_loop_handles_parallel_tool_uses_in_one_turn():
+    # The model returns two tool_use blocks at once → both run, both results returned together.
+    llm = ScriptedLLM([
+        {"stop_reason": "tool_use", "content": [
+            {"type": "tool_use", "id": "a", "name": "recall", "input": {"query": "x"}},
+            {"type": "tool_use", "id": "b", "name": "list_recipes", "input": {}},
+        ]},
+        _done("ok"),
+    ])
     ex = FakeExec()
     res = await run("b", "g", llm=llm, execute=ex)
     assert res["final"] == "ok"
-    assert any("error" in t for t in res["transcript"])
+    names = [c[0] for c in ex.calls]
+    assert "recall" in names and "list_recipes" in names
+    # the tool_results were sent back in ONE user message (parallel), matched by id
+    tool_result_msg = llm.calls[1][-1]
+    assert tool_result_msg["role"] == "user"
+    got = [b["tool_use_id"] for b in tool_result_msg["content"] if b["type"] == "tool_result"]
+    assert set(got) == {"a", "b"}
 
 
 async def test_loop_stops_at_max_steps():
-    llm = ScriptedLLM(['{"action":"recall","args":{}}'] * 10)  # never finishes
+    llm = ScriptedLLM([_use("recall", {"query": "x"}, f"t{i}") for i in range(10)])  # never finishes
     ex = FakeExec()
     res = await run("b", "g", llm=llm, execute=ex, max_steps=3)
     assert res["final"] is None and res["steps"] == 3
@@ -262,4 +270,4 @@ def test_system_prompt_carries_the_soul():
     assert "Digital Marketing AGI" in p            # identity
     assert "Glitch Executor (GE)" in p and "30 days" in p   # current single-brand scope
     assert "Publishing is gated OFF" in p          # live guardrail
-    assert "Available tools" in p                  # operating protocol still present
+    assert "Operating rules" in p                  # operating rules block present

@@ -103,6 +103,23 @@ def test_retry_delay_honors_retry_after():
     assert loop_llm._retry_delay(_R({}), 2) == 1.0                       # linear fallback 0.5*2
 
 
+async def test_complete_tools_payload_shape(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
+    monkeypatch.delenv("AGENT_LLM_EFFORT", raising=False)
+    c = _Client(_Resp(200, {"content": [{"type": "text", "text": "hi"}],
+                            "stop_reason": "end_turn", "usage": {}}))
+    tdefs = [{"name": "a", "description": "A", "input_schema": {"type": "object"}},
+             {"name": "b", "description": "B", "input_schema": {"type": "object"}}]
+    out = await loop_llm.complete_tools([{"role": "user", "content": "U"}],
+                                        tools=tdefs, system="S", client=c)
+    assert out["stop_reason"] == "end_turn"
+    # cache breakpoint only on the LAST tool def (tools cache ahead of system)
+    assert "cache_control" not in c.posted["tools"][0]
+    assert c.posted["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert c.posted["system"][0]["cache_control"] == {"type": "ephemeral"}   # system cached
+    assert c.posted["output_config"] == {"effort": "low"}                    # effort default
+
+
 async def test_multiple_system_messages_joined(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-x")
     c = _Client(_ok())

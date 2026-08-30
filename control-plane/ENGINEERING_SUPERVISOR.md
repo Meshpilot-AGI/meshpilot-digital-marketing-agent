@@ -519,3 +519,20 @@ Verified on the live DB (post-integration-apply): `migration_applied=true`, `vec
 **Remains:** **CLAUDE-TOOLS** (biggest pending upgrade) — replace the JSON-in-text ReAct with native tool use (`tools`/`tool_use`/`tool_result`, `strict` schemas, parallel, `stop_reason` loop); then a 2nd cache breakpoint on the last tool def. Later: built-in server tools (web_search/web_fetch/code_exec), Files API for brand PDFs, context editing for long runs. Streaming deferred (small outputs). Also: `pricing.py` `cache_write` models the 5m (1.25×) TTL — if we adopt 1h TTL, that entry needs 2×.
 
 ---
+### CLAUDE-TOOLS — native tool use for the agent loop — CLOSED 2026-08-30
+**Owner:** Claude (Opus)
+
+**Read:** `agent/loop/{runner,tools,prompt,llm,policy}.py`, `agent/mcp/client.py`, `tests/test_{agent_loop,agent_mcp,llm_messages,cost_budget,playbooks}.py`. Design: `docs/plans/2026-08-30-claude-tools-native-tool-use.md`.
+
+**Changed:** loop migrated from JSON-in-text ReAct to Anthropic **native tool use**.
+- `tools.py`: each of the 11 built-ins gained a JSON-Schema `input_schema`; new `tool_defs()` emits `{name, description, input_schema[, strict]}` (`strict:true` on the closed-schema tools; omitted on free-form ones — generate_media/edit_image/schedule). `tool_descriptions()` removed.
+- `mcp/client.py`: `_tools` tuple now carries the tool's `inputSchema` (previously discarded); new `tool_defs()` returns namespaced native defs (no `strict`).
+- `llm.py`: extracted shared `_send()` (headers + retry/Retry-After); new **`complete_tools(messages, tools, system, effort)`** → `{content, stop_reason, usage}`, with the cache breakpoint on the **last tool def** (tools cache ahead of system). `complete()`/`complete_messages()` unchanged for the content pipeline.
+- `runner.py`: rewritten to the native cycle — maintain a `messages` list, run each `tool_use` block through `policy.allow` → `dispatch` (built-in `execute` or `mcp.call`) → return all `tool_result`s in one user turn (parallel-safe; deny/ERROR → `is_error:true`), loop until `stop_reason != tool_use`; final = `end_turn` text. `parse_action` deleted; loop `__init__` export updated.
+- `prompt.py`: dropped the "respond with a SINGLE JSON object" protocol + in-prompt tool list; `system_prompt()` = SOUL + operating rules + handbook index; `build_prompt()` = first user turn.
+
+**Verified:** suite **449 pass** (loop/mcp/cost/playbooks/llm tests rewritten for the native shape). **Live (real Sonnet 5, local key):** (1) raw `complete_tools` — model emitted a `tool_use` block (`recall`, `stop_reason=tool_use`); returning a `tool_result` → `stop_reason=end_turn` text. (2) full `run()` loop with real `complete_tools` + fake `execute` → coherent 1-sentence answer. effort=low kept the turns thinking-free.
+
+**Remains:** built-in **server tools** (web_search/web_fetch/code_execution — web_fetch free, code_exec free when bundled), **Files API** (brand PDFs, workspace-scoped → keep brand→file_id map), **context editing** (`clear_tool_uses_20250919`) for long runs. Optional: `output_config.format` structured outputs for the content nodes; a 2nd MCP cache breakpoint if MCP tool sets grow large.
+
+---

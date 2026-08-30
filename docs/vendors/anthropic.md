@@ -8,13 +8,13 @@ re-verify against the docs before relying on a number here.
 
 ## How we use it
 
-- **Primary path — the agent loop.** `src/glitch_signal/agent/loop/llm.py` (`_post` →
+- **Primary path — the agent loop.** `src/glitch_signal/agent/loop/llm.py` (`_send` →
   `POST {AGENT_LLM_BASE}/v1/messages`, header `anthropic-version: 2023-06-01`,
-  `x-api-key` = an **inference** key `sk-ant-api…`, NOT an admin key). `complete()` is one
-  user turn → assistant text; `complete_messages()` accepts an OpenAI/LiteLLM-style message
-  list (multimodal `image_url` blocks converted to Anthropic `image` blocks). The ReAct loop
-  (`runner.py`) calls `complete(build_prompt(...), system=system_prompt())` each step and
-  parses a JSON action out of the **text** (`parse_action` → `re.search(r"\{.*\}")`).
+  `x-api-key` = an **inference** key `sk-ant-api…`, NOT an admin key). `complete_tools(messages,
+  tools, system)` runs one **native tool-use** turn → the assistant message (`content` blocks +
+  `stop_reason`); `runner.py` loops it (tool_use → policy gate → tool_result) until `end_turn`.
+  `complete()` / `complete_messages()` remain for the content pipeline (one user turn → text;
+  the latter converts OpenAI-style multimodal `image_url` blocks).
 - **Model:** env **`AGENT_LLM_MODEL`** (default in code). **`AGENT_LLM_BASE`** overrides the
   API base. Effort: **`AGENT_LLM_EFFORT`** (default `low`).
 - **Cost metering:** every call is attributed to the active brand via `_meter` →
@@ -81,19 +81,19 @@ doesn't disturb the prefix.
   cold call after each deploy, warm after. Context-editing (`clear_tool_uses`) invalidates the
   cache *after the clear point*; the system prefix stays cached.
 
-## Native tool use (NOT yet adopted — the biggest pending upgrade)
+## Native tool use (ADOPTED 2026-08-30, CLAUDE-TOOLS)
 
-We currently do **JSON-in-text ReAct** (`runner.py` regexes a `{…}` action out of the model's
-text). Anthropic's native tool use is more reliable and is the recommended path:
-`tools` (with `input_schema`; `strict:true` guarantees schema-valid inputs) → assistant
-`tool_use` block (`stop_reason:"tool_use"`) → return a `tool_result` block (must be **first**
-in the next user turn, immediately after the `tool_use`) → loop until
-`stop_reason != "tool_use"`. Parallel tool calls are default-on (return **all** `tool_result`s
-in one user message). Force/disable via `tool_choice` (`auto`/`any`/`tool`/`none`). Tool
-schemas cost a per-model system-prompt overhead (~354 tok on Sonnet 5). Structured outputs =
-`output_config:{format:{type:"json_schema",schema:{…}}}` (the old `output_format` param is
-removed; **incompatible with citations**). `token-efficient-tools` is **retired** — don't build
-on it. → tracked as the future **CLAUDE-TOOLS** lane.
+The loop uses Anthropic **native tool use** — `tools` (each with `input_schema`; `strict:true`
+on our own built-ins guarantees schema-valid inputs, omitted on MCP tools whose schemas vary) →
+assistant `tool_use` block (`stop_reason:"tool_use"`) → we run each through `policy.allow` and
+return a `tool_result` block (first in the next user turn, `is_error:true` on a deny/ERROR) →
+loop until `stop_reason != "tool_use"`; the final answer is the `end_turn` text. Parallel calls
+are handled (all `tool_result`s returned in one user message). `tools.tool_defs()` +
+`mcp.tool_defs()` supply the defs; `complete_tools()` sends them with a `cache_control`
+breakpoint on the **last tool def** (tools cache ahead of system). Tool schemas add a per-model
+system-prompt overhead (~354 tok on Sonnet 5). Structured outputs
+(`output_config:{format:{type:"json_schema",…}}`, **incompatible with citations**) and
+`token-efficient-tools` (**retired**) are not used.
 
 ## Built-in server tools (worth adopting later)
 
@@ -145,5 +145,5 @@ on it. → tracked as the future **CLAUDE-TOOLS** lane.
 - **Streaming** — genuinely low-value for us right now: the loop and content pipeline emit
   small outputs (JSON actions, captions), and streaming matters mainly for large (128K)
   outputs. Revisit if we adopt long-form generation.
-- **Native tool use** (CLAUDE-TOOLS) and **built-in server tools** — sequenced after the
-  Sonnet 5 move + hardening.
+- **Built-in server tools** (web_search / web_fetch / code_execution), **Files API**, and
+  **context editing** — the next capabilities to layer on now that native tool use is in.

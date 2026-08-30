@@ -87,34 +87,29 @@ def _retry_delay(r: httpx.Response, attempt: int) -> float:
     return 0.5 * attempt
 
 
-async def _post(messages: list[dict], *, system: str | None, model: str | None,
-                max_tokens: int, temperature: float, timeout_s: int,
-                client: httpx.AsyncClient | None, effort: str | None = None) -> str:
-    base = (os.environ.get("AGENT_LLM_BASE") or _DEFAULT_BASE).rstrip("/")
-    payload: dict = {
-        "model": model or os.environ.get("AGENT_LLM_MODEL", _DEFAULT_MODEL),
-        "max_tokens": max_tokens,
-        "messages": messages,
-    }
-    # NB: `temperature` (and top_p/top_k) are intentionally NOT sent — current-gen models
-    # (Sonnet 5 / Opus 5 / 4.7+) 400 on them. The kwarg is kept for caller back-compat only.
-    _ = temperature
-    # Adaptive-thinking depth. `low` suppresses the thinking block entirely (verified) → the
-    # loop gets clean JSON, ~half the output tokens. `default` skips the param (model default).
+def _model(model: str | None) -> str:
+    return model or os.environ.get("AGENT_LLM_MODEL", _DEFAULT_MODEL)
+
+
+def _apply_effort(payload: dict, effort: str | None) -> None:
+    # Adaptive-thinking depth. `low` suppresses the thinking block entirely (verified) → clean
+    # output, ~half the tokens. `default` skips the param (model default).
     eff = (effort if effort is not None else os.environ.get("AGENT_LLM_EFFORT", "low")).strip()
     if eff and eff != "default":
         payload["output_config"] = {"effort": eff}
-    if system:
-        # Cache the (stable) system prefix — our SOUL/tools prompt is byte-identical across
-        # every step/run/brand, so this is the biggest cost+latency lever. GA on 2023-06-01,
-        # no beta header. Caches on Sonnet 5 (min 1024 tok); a small system just won't cache.
-        payload["system"] = [{"type": "text", "text": system,
-                              "cache_control": {"type": "ephemeral"}}]
-    headers = {
-        "x-api-key": _key(),
-        "anthropic-version": _ANTHROPIC_VERSION,
-        "content-type": "application/json",
-    }
+
+
+def _cache_block(text: str) -> list[dict]:
+    # Cache the (stable) system prefix — biggest cost+latency lever. GA on 2023-06-01, no beta
+    # header. Caches on Sonnet 5 (min 1024 tok); a small system just won't cache.
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+
+async def _send(payload: dict, *, timeout_s: int, client: httpx.AsyncClient | None) -> dict:
+    """POST /v1/messages with retry (Retry-After aware); return the response body or raise."""
+    base = (os.environ.get("AGENT_LLM_BASE") or _DEFAULT_BASE).rstrip("/")
+    headers = {"x-api-key": _key(), "anthropic-version": _ANTHROPIC_VERSION,
+               "content-type": "application/json"}
     owns = client is None
     client = client or httpx.AsyncClient(timeout=timeout_s)
     try:
@@ -123,19 +118,30 @@ async def _post(messages: list[dict], *, system: str | None, model: str | None,
             r = await client.post(f"{base}/v1/messages", headers=headers, json=payload)
             if r.status_code not in _RETRYABLE or attempt == _MAX_ATTEMPTS:
                 break
-            await asyncio.sleep(_retry_delay(r, attempt))  # Retry-After, else linear backoff
+            await asyncio.sleep(_retry_delay(r, attempt))
     finally:
         if owns:
             await client.aclose()
     if r.status_code >= 400:
         raise RuntimeError(f"anthropic messages -> {r.status_code}: {r.text[:200]}")
-    body = r.json()
+    return r.json()
+
+
+async def _post(messages: list[dict], *, system: str | None, model: str | None,
+                max_tokens: int, temperature: float, timeout_s: int,
+                client: httpx.AsyncClient | None, effort: str | None = None) -> str:
+    # `temperature`/top_p/top_k are NOT sent — current-gen models 400 on them (kwarg kept for
+    # caller back-compat only).
+    _ = temperature
+    payload: dict = {"model": _model(model), "max_tokens": max_tokens, "messages": messages}
+    _apply_effort(payload, effort)
+    if system:
+        payload["system"] = _cache_block(system)
+    body = await _send(payload, timeout_s=timeout_s, client=client)
     await _meter(payload["model"], body)
     stop = body.get("stop_reason")
     blocks = body.get("content", [])
     text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
-    # Surface non-happy terminal states instead of silently returning "" (the ReAct loop
-    # would otherwise just log an unparseable step with no idea why).
     if stop == "max_tokens":
         log.warning("agent.llm.truncated", model=payload["model"], max_tokens=max_tokens)
     elif stop == "refusal":
@@ -191,3 +197,27 @@ async def complete_messages(messages: list[dict], *, model: str | None = None,
     system = "\n\n".join(p for p in system_parts if p) or None
     return await _post(conv, system=system, model=model, max_tokens=max_tokens,
                        temperature=temperature, timeout_s=timeout_s, client=client, effort=effort)
+
+
+async def complete_tools(messages: list[dict], *, tools: list[dict], system: str | None = None,
+                         model: str | None = None, max_tokens: int = 2048, timeout_s: int = 120,
+                         client: httpx.AsyncClient | None = None, effort: str | None = None) -> dict:
+    """One native tool-use turn. Returns the assistant message {content, stop_reason, usage}.
+
+    `tools` are Anthropic tool defs (name/description/input_schema[/strict]); the LAST tool gets
+    a cache_control breakpoint so the (stable) tool block caches ahead of the system block.
+    The caller runs any tool_use blocks and sends the tool_results back on the next turn.
+    """
+    payload: dict = {"model": _model(model), "max_tokens": max_tokens, "messages": messages}
+    _apply_effort(payload, effort)
+    if tools:
+        tt = [dict(t) for t in tools]
+        tt[-1] = {**tt[-1], "cache_control": {"type": "ephemeral"}}
+        payload["tools"] = tt
+    if system:
+        payload["system"] = _cache_block(system)
+    body = await _send(payload, timeout_s=timeout_s, client=client)
+    await _meter(payload["model"], body)
+    return {"content": body.get("content", []),
+            "stop_reason": body.get("stop_reason"),
+            "usage": body.get("usage", {})}
