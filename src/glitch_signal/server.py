@@ -271,8 +271,12 @@ def _authorized_brand(request: Request, body: dict | None = None) -> str:
     If the body carries a `brand` that differs from the authorized query brand, reject with 400
     rather than silently acting on the wrong one. Behavior is unchanged for the single-brand
     (glitch_executor default) case: no query brand + no body brand → the default brand, as before.
+
+    The no-query default is `settings().default_brand_id` — the SAME brand `_require_jobs_auth`
+    authenticated against when `?brand=` is absent, so a deployment with a non-`glitch_executor`
+    default resolves to its authenticated brand instead of 400-ing.
     """
-    brand = request.query_params.get("brand") or "glitch_executor"
+    brand = request.query_params.get("brand") or settings().default_brand_id
     if brand not in brand_ids():
         raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
     if body is not None:
@@ -289,21 +293,21 @@ def _authorized_brand(request: Request, body: dict | None = None) -> str:
 async def internal_facebook_test_post(request: Request) -> dict:
     """Publish one post to a brand's Facebook Page (verification / manual).
 
-    Body: {message?, brand_id?, link?, image_url?, video_url?}. Auth: x-jobs-token.
-    Credentials resolve per-brand via brand_env — nothing is passed in the body.
+    Body: {message?, link?, image_url?, video_url?}. Auth: x-jobs-token. The target brand comes from
+    the authorized `?brand=` (default brand when absent), NOT a body field — a body `brand_id` is
+    accepted only if it matches (else 400), so one brand's token can't publish as another (#95).
+    Credentials resolve per-brand via brand_env.
     """
     body: dict = {}
     try:
         body = await request.json()
     except Exception:
         pass
-    _fb_brand = body.get("brand_id")
-    if _fb_brand is not None and _fb_brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {_fb_brand!r}")
+    brand = _authorized_brand(request, {"brand": body.get("brand_id")})
     from glitch_signal.platforms.facebook import publish_facebook
 
     post_id, permalink = await publish_facebook(
-        brand_id=_fb_brand,
+        brand_id=brand,
         message=body.get("message"),
         link=body.get("link"),
         image_url=body.get("image_url"),
@@ -316,22 +320,22 @@ async def internal_facebook_test_post(request: Request) -> dict:
 async def internal_instagram_test_post(request: Request) -> dict:
     """Publish one post to a brand's Instagram account (verification / manual).
 
-    Body: {caption?, brand_id?, image_url?, video_url?}. Auth: x-jobs-token.
-    Meta requires a PUBLIC media URL (e.g. a STORAGE-1 Supabase URL); IG needs
-    image_url or video_url. Credentials resolve per-brand via brand_env.
+    Body: {caption?, image_url?, video_url?}. Auth: x-jobs-token. The target brand comes from the
+    authorized `?brand=` (default brand when absent), NOT a body field — a body `brand_id` is accepted
+    only if it matches (else 400), so one brand's token can't publish as another (#95). Meta requires a
+    PUBLIC media URL (e.g. a STORAGE-1 Supabase URL); IG needs image_url or video_url. Credentials
+    resolve per-brand via brand_env.
     """
     body: dict = {}
     try:
         body = await request.json()
     except Exception:
         pass
-    _ig_brand = body.get("brand_id")
-    if _ig_brand is not None and _ig_brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {_ig_brand!r}")
+    brand = _authorized_brand(request, {"brand": body.get("brand_id")})
     from glitch_signal.platforms.instagram import publish_instagram
 
     media_id, permalink = await publish_instagram(
-        brand_id=_ig_brand,
+        brand_id=brand,
         caption=body.get("caption"),
         image_url=body.get("image_url"),
         video_url=body.get("video_url"),
@@ -346,7 +350,7 @@ async def internal_instagram_test_post(request: Request) -> dict:
 async def internal_agent_remember(request: Request) -> dict:
     """Store a fact or episode (auth: x-jobs-token).
 
-    Body: {kind: fact|episode, content, brand?, key?, metadata?, importance?, source?}.
+    Body: {kind: fact|episode, content, key?, metadata?, importance?, source?}. Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95).
     """
     body: dict = {}
     try:
@@ -372,7 +376,7 @@ async def internal_agent_remember(request: Request) -> dict:
 async def internal_agent_recall(request: Request) -> dict:
     """Recall top-k memories for a brand (auth: x-jobs-token).
 
-    Body: {query, brand?, k?, kinds?} → ranked memories with fused/semantic/lexical scores.
+    Body: {query, k?, kinds?} → ranked memories with fused/semantic/lexical scores. Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95).
     """
     body: dict = {}
     try:
@@ -454,7 +458,7 @@ async def _run_agent_bg(run_id: str, brand: str, goal: str, max_steps: int, scop
 async def internal_agent_run(request: Request) -> dict:
     """Start an agent-loop run for a goal (auth: x-jobs-token).
 
-    Body: {goal, brand?, max_steps?, scope?}. The loop runs in the BACKGROUND (LLM round-trips
+    Body: {goal, max_steps?, scope?}. Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95). The loop runs in the BACKGROUND (LLM round-trips
     exceed the edge request timeout), recalling memory, planning, and calling capability-tools —
     but publishing is DISABLED (AGENT-POLICY). `scope` (default `agent_default_scope`) bounds the
     offered toolset (SCOPE). Returns `{ok, run_id, status, scope}`; poll GET /internal/agent/run/{id}.
@@ -520,10 +524,7 @@ async def internal_agent_pipeline(name: str, request: Request) -> dict:
     if p is None:
         raise HTTPException(status_code=404, detail=f"unknown pipeline {name!r}; options: {pipelines.names()}")
 
-    brand = request.query_params.get("brand") or "glitch_executor"
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
-
+    brand = _authorized_brand(request)   # ?brand= (default-brand when absent); never the body
     missing = p.missing_requirements()
     if missing:
         raise HTTPException(status_code=409, detail=f"pipeline {p.name!r} requires: {', '.join(missing)}")
@@ -559,10 +560,7 @@ async def internal_agent_pipeline_schedule(name: str, request: Request) -> dict:
     if not getattr(_settings(), "agent_cron_enabled", False):
         raise HTTPException(status_code=409, detail="scheduling is disabled (agent_cron_enabled is off)")
 
-    brand = request.query_params.get("brand") or "glitch_executor"
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
-
+    brand = _authorized_brand(request)   # ?brand= (default-brand when absent); never the body
     owner, job_name = f"pipeline:{brand}", f"pipeline:{p.name}"
     payload = {"pipeline": p.name}       # NAME only — resolved live at each fire (not a frozen snapshot)
     now = datetime.now(timezone.utc)
@@ -586,7 +584,7 @@ async def internal_agent_pipeline_schedule(name: str, request: Request) -> dict:
 async def internal_agent_curate(request: Request) -> dict:
     """Distill a brand's recent episodes into durable lessons (AGENT-LEARN; auth: x-jobs-token).
 
-    Body: {brand?, limit?}. Reads uncurated episodes, asks the LLM to distill them into durable
+    Body: {limit?}. Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95). Reads uncurated episodes, asks the LLM to distill them into durable
     facts (upserted by a stable key), and marks those episodes curated. One LLM call — synchronous.
     """
     from glitch_signal.agent.learn import curate as agent_curate
@@ -1068,7 +1066,7 @@ async def internal_buffer_channels(brand: str = "glitch_executor") -> dict:
 async def internal_buffer_test_post(request: Request) -> dict:
     """Create a Buffer post to a service (auth: x-jobs-token).
 
-    Body: {service?, text?, media_url?, mode?, brand?}. service = x/linkedin/tiktok/…
+    Body: {service?, text?, media_url?, mode?}. service = x/linkedin/tiktok/… Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95).
     """
     body: dict = {}
     try:
@@ -1120,7 +1118,7 @@ async def internal_media_recipes() -> dict:
 async def internal_media_generate(request: Request) -> dict:
     """Run a media-generation recipe against MUapi (auth: x-jobs-token).
 
-    Body: {recipe, inputs{...}, brand?}. Returns the finished hosted asset URL.
+    Body: {recipe, inputs{...}}. Returns the finished hosted asset URL. Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95).
     Template-only recipes (e.g. muapi-product-video-ad-maker) run with no LLM;
     recipes whose prompts are LLM-authored return 422 until the composer is
     wired (MEDIA-2).
@@ -1176,7 +1174,7 @@ async def internal_media_generate(request: Request) -> dict:
 
 @app.post("/internal/media/ensure-bucket", dependencies=[Depends(_require_jobs_auth)])
 async def internal_media_ensure_bucket(request: Request) -> dict:
-    """Create the brand's media bucket if absent (auth: x-jobs-token). Body: {brand?}."""
+    """Create the brand's media bucket if absent (auth: x-jobs-token). Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95)."""
     body: dict = {}
     try:
         body = await request.json()

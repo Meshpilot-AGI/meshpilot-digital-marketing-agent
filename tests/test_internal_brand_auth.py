@@ -123,3 +123,58 @@ def test_cron_create_body_brand_cannot_override(client, monkeypatch):
     })
     assert r.status_code == 400, r.text
     assert "brand" not in captured                      # no job created against another brand
+
+
+# ── /internal/{facebook,instagram}/test-post — publishing target is the AUTHORIZED brand, not the
+#    body `brand_id` (the field these two use). Closes the BFLA the sibling sweep missed. ──
+def _patch_fb(monkeypatch, captured):
+    async def _fake(**kw):
+        captured["brand"] = kw.get("brand_id")
+        return ("pid", "https://fb/permalink")
+    monkeypatch.setattr("glitch_signal.platforms.facebook.publish_facebook", _fake)
+
+
+def _patch_ig(monkeypatch, captured):
+    async def _fake(**kw):
+        captured["brand"] = kw.get("brand_id")
+        return ("mid", "https://ig/permalink")
+    monkeypatch.setattr("glitch_signal.platforms.instagram.publish_instagram", _fake)
+
+
+def test_facebook_body_brand_id_cannot_override(client, monkeypatch):
+    captured: dict = {}
+    _patch_fb(monkeypatch, captured)
+    r = client.post("/internal/facebook/test-post?brand=glitch_executor", headers=H,
+                    json={"brand_id": "someone_else", "message": "hi"})
+    assert r.status_code == 400, r.text
+    assert "brand" not in captured                      # never published as another brand
+
+
+def test_facebook_publishes_as_authorized_brand(client, monkeypatch):
+    captured: dict = {}
+    _patch_fb(monkeypatch, captured)
+    r = client.post("/internal/facebook/test-post?brand=glitch_executor", headers=H,
+                    json={"message": "hi"})
+    assert r.status_code == 200, r.text
+    assert captured["brand"] == "glitch_executor"       # target = authorized brand, not body
+
+
+def test_instagram_body_brand_id_cannot_override(client, monkeypatch):
+    captured: dict = {}
+    _patch_ig(monkeypatch, captured)
+    r = client.post("/internal/instagram/test-post?brand=glitch_executor", headers=H,
+                    json={"brand_id": "someone_else", "image_url": "https://x/y.png"})
+    assert r.status_code == 400, r.text
+    assert "brand" not in captured
+
+
+# ── #2: the no-query default is settings().default_brand_id, not a hardcoded "glitch_executor" ──
+def test_authorized_brand_uses_configured_default(monkeypatch):
+    from types import SimpleNamespace
+
+    import glitch_signal.server as srv
+
+    monkeypatch.setattr(srv, "settings", lambda: SimpleNamespace(default_brand_id="other_brand"))
+    monkeypatch.setattr(srv, "brand_ids", lambda: ["glitch_executor", "other_brand"])
+    req = SimpleNamespace(query_params={})               # no ?brand=
+    assert srv._authorized_brand(req) == "other_brand"   # authenticated default, not the literal
