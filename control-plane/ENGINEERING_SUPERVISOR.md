@@ -2,6 +2,22 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### README-SEO — flagship README polish + org profile — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** the existing README (350 lines, strong on substance but no OSS "chrome"); the org's public repo list (flagship + MCP servers + ai-* agents); the repo's GitHub metadata (description/topics/homepage all empty).
+
+**Changed:**
+- `README.md` — added a centered **hero** (🛰️ MeshPilot + one-line tagline), an **8-badge row** (License AGPL / Python 3.11+ / FastAPI / Claude / CI status / live-API uptime / PRs-welcome / GitHub stars), a **Contents TOC**, a keyword-rich SEO intro, renamed "Build & run" → "Quickstart", merged the duplicate Git-hosting + Contributing sections, added a slim **Ecosystem** pointer to the org (NOT the full portfolio table — that belongs at org level; operator flagged the duplication), and a star-CTA footer. Fixed the stale `Nuraveda-Labs` org reference (repo is `Meshpilot-AGI` now).
+- **GitHub repo metadata** via `gh repo edit`: description, homepage `meshpilot.app`, and **18 SEO topics** (ai-agent, autonomous-agents, agentic-ai, digital-marketing, marketing-automation, social-media-automation, llm, claude, anthropic, fastapi, python, open-source, self-hosted, content-generation, mcp, supabase, seo, generative-ai). All three were empty — the single biggest discoverability gap, since GitHub search + Google index those fields.
+- **New org profile**: created `Meshpilot-AGI/.github` (public) with `profile/README.md` — renders on the org landing page (github.com/Meshpilot-AGI): hero, flagship callout, full agent/MCP portfolio table (linkedin-ads-mcp, shopify-agentic-seo-app, ai-{seo,ads,social,ugc,sales,voice}-agent), and a "what we believe" section.
+
+**Verified:** TOC anchors match headings; both mermaid diagrams intact; `gh repo view` confirms description + 18 topics live; `gh api` confirms `profile/README.md` (3211 bytes) is on the `.github` repo. Org commit SSH-signed, authored as Tejas.
+
+**Remains:** a logo / social-preview `og:image` would further lift click-through — currently text + emoji only (optional).
+
+---
+
 ### OSS-PREP — open-source licensing prep (AGPL-3.0) — CLOSED 2026-08-29
 **Owner:** Claude
 
