@@ -3,6 +3,14 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### FILES — brand documents via the Files API          [DESIGN]
+Owner: Claude (Opus)        Opened: 2026-08-30
+Goal: ground the agent in a brand's real docs (style guide/brief/deck). Upload once via an admin endpoint → reference by file_id in Messages document blocks. Probe-confirmed live on the standard org (upload/reference/delete, no beta header). Scope (operator): admin-endpoint ingestion only. ~4 pieces: agent/files.py (thin Files API client), brand_document table + store (brand-scoped isolation), POST/GET/DELETE /internal/brand/{brand}/documents (jobs-auth), read_brand_doc loop tool.
+Design: docs/plans/2026-08-30-files-brand-documents.md  ← awaiting operator go before build
+Reading: agent/loop/{tools,llm}.py, server.py (_require_jobs_auth), db/models.py, supabase/migrations/
+Acceptance: upload endpoint stores a brand_document row (isolated); read_brand_doc answers from the doc; suite green; live Sonnet 5 upload→loop-reads→delete verified.
+Write-back: docs/vendors/anthropic.md, control-plane/ENGINEERING_SUPERVISOR.md
+
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
