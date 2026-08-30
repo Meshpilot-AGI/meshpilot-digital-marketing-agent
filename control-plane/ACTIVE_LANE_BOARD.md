@@ -3,13 +3,6 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### CI-GATEWAY — drift-gated gateway build check + `gateway-production` deploy branch          [IN PROGRESS]
-Owner: Claude (Opus)        Opened: 2026-08-30
-Goal: (1) CI validates the gateway Docker image on `gateway/` drift (`docker build` + `py_compile bridge.py`), skipping when unchanged like api/web/db; (2) new `gateway-production` deploy branch (peer of `web-production`) so Railway deploys the gateway on-demand (ff from `production`) instead of on every production push, with Railway's wait-for-CI gating on the build check.
-Reading: .github/workflows/ci.yml, gateway/{Dockerfile,bridge.py,railway.json}, CLAUDE.md (branches)
-Acceptance: ci.yml gains a drift-gated `gateway` job (`docker build` + `py_compile`) that runs on `gateway/` drift, skips otherwise; CI stays production-only (gateway-production is a ff of production → same SHA → same check suite, which Railway's wait-for-CI gates on); `gateway-production` branch exists (ff from production); docs updated. Operator sets Railway deploy branch = gateway-production in the dashboard.
-Write-back: CLAUDE.md, gateway/README.md, control-plane/ENGINEERING_SUPERVISOR.md
-
 ### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
 Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
 Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
@@ -20,6 +13,8 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
 
 ## Recently closed
+
+- **CI-GATEWAY — gateway build check + `gateway-production` deploy branch** (2026-08-30) — added a drift-gated `gateway` CI job (`docker build ./gateway` + `python3 -m py_compile gateway/bridge.py`) that runs only on `gateway/` drift and skips otherwise, like api/web/db. Created the **`gateway-production`** deploy branch (peer of web-production, ff from production, never developed on) so Railway deploys the gateway **on-demand** instead of on every production push. CI stays **production-only** by design: a gateway-production ff carries the identical SHA, so Railway's wait-for-CI gates on the gateway check already run on the production push. **Verified live**: the merge push (which touched `gateway/README.md`) ran the new job — `changes` computed `gateway=true`, api/db/web correctly **skipped**, `gateway` job **success** (real `docker build` green on CI); branch SHA == production. **Remains (operator)**: set the Railway service deploy branch = `gateway-production` in the dashboard (wait-for-CI already on). → supervisor
 
 - **README-REFRESH + repo hardening** (2026-08-30) — README refreshed for the chat control plane: intro reframed ("talk to it across channels / our own OpenClaw"), new **Talk to it** section (the Discord channel gateway), TOC + live-state note. Repo hardening: **branch protection** on `production` (PR required, no force-push/deletion) + `web-production` (no force-push/deletion, ff pushes allowed); **`#github` live feed** wired (repo webhook → Discord). → supervisor
 
