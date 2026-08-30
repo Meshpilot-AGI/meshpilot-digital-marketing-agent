@@ -51,20 +51,26 @@ key decision only in chat.
 
 ## Branches & promotion (THIS repo — read before any git work)
 
-This repo has no `main` and **no `preview`** (retired 2026-08-29). Three deploy
-branches, one trunk:
+This repo has no `main` and **no `preview`** (retired 2026-08-29). One trunk, and
+**one** remaining deploy branch:
 
-- **`production`** — the trunk **and** the API deploy branch. GitHub **default**
-  branch; FastAPI Cloud auto-deploys it on every push. Protected: never commit
-  directly, never author a commit on it — lanes PR **into** it.
+- **`production`** — the trunk **and** the deploy branch for BOTH the API and the
+  gateway. GitHub **default** branch. FastAPI Cloud auto-deploys the API on every
+  push; Railway auto-deploys the **gateway** (the Discord↔agent bridge in
+  `gateway/`, root dir `gateway`, wait-for-CI on) from this same branch, but only
+  when the push touched `gateway/**` (Railway **watch paths** = `gateway/**`), so
+  unrelated API pushes don't churn the Discord socket. Because Railway builds the
+  same `production` commit, wait-for-CI gates on the `gateway` build check that
+  ran on that push. No manual step to ship the gateway — merging to `production`
+  is the ship. Protected: never commit directly, never author a commit on it —
+  lanes PR **into** it. See gateway/README.md.
 - **`web-production`** — the **web** deploy branch (the Next.js `web/` app).
   Cloudflare Pages deploys it (root dir `web`, already configured). Fast-forwarded
   from `production`, never developed on. See docs/vendors + web/README.
-- **`gateway-production`** — the **gateway** deploy branch (the Discord↔agent
-  bridge in `gateway/`). Railway deploys it (root dir `gateway`, wait-for-CI on).
-  Fast-forwarded from `production`, never developed on. Because the ff carries the
-  identical SHA, Railway's wait-for-CI gates on the `gateway` build check that
-  already ran on the `production` push. See gateway/README.md.
+
+> ⚠️ `gateway-production` is **RETIRED** (2026-08-30) — the gateway now deploys
+> straight from `production` via Railway watch paths, ending the manual
+> fast-forward dance. Do not recreate it.
 
 Flow:
 
@@ -78,10 +84,11 @@ Flow:
    + `py_compile`** on `gateway/` drift, and **nothing** (fast pass) for docs/logs.
    It runs alongside the FastAPI Cloud auto-deploy, so **run `uv run pytest -q`
    locally before merging** — the push CI is validation, not a pre-merge gate.
-3. Merging the PR **auto-deploys production** (the API). To ship the web, then
-   fast-forward `web-production` from `production` (`git merge --ff-only production`).
-   To ship the gateway, fast-forward `gateway-production` the same way (Railway
-   deploys it, gated on the gateway build check from this commit).
+3. Merging the PR **auto-deploys production** — the API (FastAPI Cloud) and, when
+   the change touched `gateway/**`, the gateway (Railway, via watch paths). No
+   fast-forward needed for the gateway anymore. To ship the **web**, fast-forward
+   `web-production` from `production` (`git merge --ff-only production`) — web is
+   still a separate deploy branch.
 
 Pushing anything under `.github/workflows/**` needs a `gh` account with the
 `workflow` scope (`floating-astronaut`); repo-admin ops (e.g. branch rename)
