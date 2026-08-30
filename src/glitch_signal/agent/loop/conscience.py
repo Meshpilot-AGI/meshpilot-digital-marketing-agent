@@ -8,12 +8,13 @@ now: the verdict annotates the episode and is surfaced to the human reviewing th
 nothing, because publishing is drafts-only. When outward actions (publish/spend/reply) are enabled
 later, the same critic becomes a pre-commit HARD gate on those specific tools.
 
-One cheap model call (Haiku), wrapped so it can never fail the run. Gated by `agent_conscience_enabled`
+One model call on the loop model (or AGENT_DELIBERATION_MODEL), wrapped so it can never fail the run. Gated by `agent_conscience_enabled`
 (default off) at the runner.
 """
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 from functools import lru_cache
@@ -26,7 +27,14 @@ from glitch_signal.agent.loop import llm as agent_llm
 log = structlog.get_logger(__name__)
 
 CompleteFn = Callable[..., Awaitable[str]]
-DELIBERATION_MODEL = "claude-haiku-4-5-20251001"
+
+
+def _model() -> str:
+    """Model for the conscience critic. `AGENT_DELIBERATION_MODEL` overrides; else the loop model
+    (not every key/org can call every model — the cloud key couldn't call Haiku 4.5, which silently
+    emptied this pass, so default to what the loop uses and make a cheaper model opt-in)."""
+    return (os.environ.get("AGENT_DELIBERATION_MODEL") or "").strip() or agent_llm._model(None)
+
 
 # Sits beside SOUL.md in the agent package (parents[1] == …/agent from …/agent/loop/).
 _CONSTITUTION_PATH = pathlib.Path(__file__).resolve().parents[1] / "CONSCIENCE.md"
@@ -76,7 +84,7 @@ async def review(goal: str, output: str | None, *, complete: CompleteFn | None =
     prompt = (f"Run goal (context only): {goal}\n\nProposed output to review:\n{text[:3000]}\n\n"
               "Your verdict JSON:")
     try:
-        raw = await complete(prompt, system=system, model=model or DELIBERATION_MODEL, timeout_s=40)
+        raw = await complete(prompt, system=system, model=model or _model(), timeout_s=40)
     except Exception as exc:  # noqa: BLE001 — deliberation must never fail the run
         log.warning("agent.conscience.review_failed", error=str(exc)[:200])
         return {}
