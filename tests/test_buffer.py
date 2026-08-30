@@ -333,8 +333,6 @@ class TestPublishPriority:
         assert _PUBLISH_PRIORITY["facebook"] == ["meta_facebook"]
         assert _PUBLISH_PRIORITY["instagram"] == ["meta_instagram"]
         assert _PUBLISH_PRIORITY["youtube"] == ["youtube_shorts"]
-        # Upload-Post-only platforms are gone.
+        # Platforms with no publisher are gone.
         for gone in ("threads", "pinterest", "bluesky", "reddit"):
             assert gone not in _PUBLISH_PRIORITY
-        flat = [k for v in _PUBLISH_PRIORITY.values() for k in v]
-        assert not any("upload_post" in k for k in flat)

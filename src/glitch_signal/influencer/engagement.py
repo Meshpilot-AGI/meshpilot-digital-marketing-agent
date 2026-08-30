@@ -22,9 +22,9 @@ owned surfaces:
       NEVER auto-comment / auto-like on other accounts. Enforced here as
       a hard guard regardless of caller.
 
-The actual fetch/send transport is pluggable (Upload-Post comments API /
-platform Graph API) and defaults to dry-run, so this module is safe to
-run before per-brand messaging OAuth is wired.
+The actual fetch/send transport is pluggable transport and defaults to
+dry-run, so this module is safe to run before per-brand messaging OAuth
+is wired.
 """
 from __future__ import annotations
 

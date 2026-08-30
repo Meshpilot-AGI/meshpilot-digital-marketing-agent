@@ -15,8 +15,8 @@ Pipeline (May 2026 rebuild — code-rendered text, AI background only):
        the prompt — text/letters/UI explicitly negative-prompted).
     3. Pillow draws the brand chrome, the headline, the accent bar, the
        subline, and the link/pip on top of the background.
-    4. Caller uploads the PNG via Upload-Post upload_photos() with the
-       original sheet body as the post caption.
+    4. Caller uploads the PNG via the publisher with the original sheet
+       body as the post caption.
 
 Why this shape: image models are not layout engines. Asking them to render
 real copy at 10–18pt produces drift, mis-spellings, and inconsistent

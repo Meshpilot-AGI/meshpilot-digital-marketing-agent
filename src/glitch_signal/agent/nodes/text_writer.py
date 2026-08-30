@@ -2,7 +2,7 @@
 
 Replaces the script_writer → storyboard → video_generator chain for brands
 with content_format="text" (glitch_executor, glitch_founder). Output per
-signal is one ContentScript per enabled upload_post_* text platform, each
+signal is one ContentScript per enabled buffer_* text platform, each
 paired with a ScheduledPost (status=pending_veto) so the existing Telegram
 approve/veto + scheduler dispatch works unchanged.
 
@@ -30,17 +30,17 @@ log = structlog.get_logger(__name__)
 VETO_WINDOW_HOURS = 48
 
 # Which platform keys in a brand config emit text posts (vs video).
-TEXT_PLATFORM_KEYS = ("upload_post_x", "upload_post_linkedin")
+TEXT_PLATFORM_KEYS = ("buffer_x", "buffer_linkedin")
 
 # Per-platform hard limits. Kept conservative; LLM targets ~80% of max.
 PLATFORM_CHAR_LIMIT = {
-    "upload_post_x": 280,
-    "upload_post_linkedin": 2800,   # LinkedIn allows 3000; sweet spot ~1300-2500
+    "buffer_x": 280,
+    "buffer_linkedin": 2800,   # LinkedIn allows 3000; sweet spot ~1300-2500
 }
 # Target length (mid-sweet-spot). LLM instructed to stay close.
 PLATFORM_TARGET_CHARS = {
-    "upload_post_x": 250,
-    "upload_post_linkedin": 1800,
+    "buffer_x": 250,
+    "buffer_linkedin": 1800,
 }
 
 # ---------------------------------------------------------------------------
@@ -258,7 +258,7 @@ async def text_writer_node(state: SignalAgentState) -> SignalAgentState:
 
         created_ids: list[str] = []
         for platform_key in enabled_platforms:
-            short_platform = platform_key.replace("upload_post_", "")
+            short_platform = platform_key.replace("buffer_", "")
             try:
                 body = await _write_post(
                     signal=signal,
@@ -351,8 +351,8 @@ async def _write_post(
     playbook_text: str,
 ) -> str:
     """Generate the post body for a single (signal, platform) pair."""
-    target_chars = PLATFORM_TARGET_CHARS.get(f"upload_post_{platform_short}", 1500)
-    limit = PLATFORM_CHAR_LIMIT.get(f"upload_post_{platform_short}", 2800)
+    target_chars = PLATFORM_TARGET_CHARS.get(f"buffer_{platform_short}", 1500)
+    limit = PLATFORM_CHAR_LIMIT.get(f"buffer_{platform_short}", 2800)
 
     system_prompt = _build_system_prompt(
         brand_id=brand_id,
@@ -386,7 +386,7 @@ async def _write_post(
     if hits:
         log.info(
             "text_writer.forbidden_hits_regen",
-            platform=f"upload_post_{platform_short}",
+            platform=f"buffer_{platform_short}",
             brand_id=brand_id,
             hits=hits,
         )
@@ -407,7 +407,7 @@ async def _write_post(
         if second_hits:
             log.warning(
                 "text_writer.forbidden_hits_persisted",
-                platform=f"upload_post_{platform_short}",
+                platform=f"buffer_{platform_short}",
                 brand_id=brand_id,
                 hits=second_hits,
             )

@@ -276,8 +276,8 @@ async def _generate_slide_content(
 
 # ---------------------------------------------------------------------------
 # Body-driven carousel: take a hand-written LinkedIn post body and structure
-# it into slides. Used by the sheet_posting pipeline when platform is
-# upload_post_linkedin — the sheet row's body becomes the post description
+# it into slides. Used by the sheet_posting pipeline for LinkedIn carousel
+# posts — the sheet row's body becomes the post description
 # and the carousel PDF is the attached document.
 # ---------------------------------------------------------------------------
 

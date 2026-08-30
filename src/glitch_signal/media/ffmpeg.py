@@ -1,6 +1,6 @@
 """Local ffmpeg pre-publish transforms.
 
-Why local ffmpeg and not Upload-Post's FFmpeg Editor API:
+Why local ffmpeg and not a vendor's editor API:
   - Free, no per-minute quota on the Basic plan
   - Zero vendor round-trip (~seconds saved per publish)
   - No async job pattern to poll — just subprocess.run
@@ -19,8 +19,8 @@ Each entry is either a bare transform name (string) or an object with a
     }
   }
 
-Canonical platform names match Upload-Post's enum (`tiktok`, `instagram`,
-`youtube`, …). Our publisher keys (`upload_post_tiktok`, `zernio_tiktok`,
+Canonical platform names are the bare targets (`tiktok`, `instagram`,
+`youtube`, …). Our publisher keys (`buffer_tiktok`, `meta_instagram`,
 plain `tiktok`) all resolve to the same canonical name via
 `canonical_platform()` so the config is written once.
 
@@ -47,16 +47,19 @@ log = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def canonical_platform(platform_key: str) -> str:
-    """Strip publisher prefix to get Upload-Post's canonical platform name.
+    """Strip the publisher prefix to get the canonical platform name.
 
-    upload_post_tiktok → tiktok
+    buffer_tiktok      → tiktok
+    meta_instagram     → instagram
     zernio_tiktok      → tiktok
     tiktok             → tiktok
     youtube_shorts     → youtube
     instagram_reels    → instagram
     """
-    if platform_key.startswith("upload_post_"):
-        return platform_key[len("upload_post_"):]
+    if platform_key.startswith("buffer_"):
+        return platform_key[len("buffer_"):]
+    if platform_key.startswith("meta_"):
+        return platform_key[len("meta_"):]
     if platform_key.startswith("zernio_"):
         return platform_key[len("zernio_"):]
     if platform_key == "youtube_shorts":

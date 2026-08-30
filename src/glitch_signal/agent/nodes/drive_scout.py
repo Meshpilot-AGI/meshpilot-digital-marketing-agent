@@ -129,7 +129,7 @@ async def drive_scout_node(state: SignalAgentState) -> SignalAgentState:
 
     # Resolve the publisher to use for this brand. Priority order (defined
     # in glitch_signal.config._PUBLISH_PRIORITY):
-    #   upload_post_tiktok → zernio_tiktok → direct tiktok
+    #   buffer_tiktok (the publisher key for TikTok) → zernio_tiktok → direct tiktok
     # First one with `enabled=true` on the brand's platforms block wins.
     # Explicit state["platform"] still overrides (manual test harness,
     # specific re-runs).

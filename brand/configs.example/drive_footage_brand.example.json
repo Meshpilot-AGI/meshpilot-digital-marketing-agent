@@ -54,7 +54,7 @@
     },
     "tiktok": {
       "enabled": false,
-      "_comment": "Direct-post — gated on your own TikTok app audit. Keep disabled until the app is approved; use upload_post_tiktok below as the default publisher.",
+      "_comment": "Direct-post — gated on your own TikTok app audit. Keep disabled until the app is approved; use buffer_tiktok below as the default publisher.",
       "open_id": null,
       "daily_cap": 2,
       "default_privacy_level": "PUBLIC_TO_EVERYONE",
@@ -64,10 +64,10 @@
         "tag3"
       ]
     },
-    "upload_post_tiktok": {
+    "buffer_tiktok": {
       "enabled": true,
-      "_comment": "DEFAULT publisher. Upload-Post is an audited partner app — works today. Resolves via _PUBLISH_PRIORITY in config.py.",
-      "user": "<UPLOAD-POST MANAGED-USER PROFILE NAME FROM list_users()>",
+      "_comment": "DEFAULT publisher. Posts to TikTok via Buffer. Resolves via _PUBLISH_PRIORITY in config.py.",
+      "channel": "<BUFFER CHANNEL ID FOR THE CONNECTED TIKTOK ACCOUNT>",
       "daily_cap": 5,
       "default_privacy_level": "PUBLIC_TO_EVERYONE",
       "default_tags": [

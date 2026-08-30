@@ -311,15 +311,9 @@ class Settings(BaseSettings):
     make_org_id: str = ""
     make_api_token: str = ""
 
-    # --- Upload-Post (alternative audited multi-platform vendor) ---
-    # Cheaper than Zernio at real volume. Platform keys: "upload_post_tiktok",
-    # "upload_post_instagram", etc. See platforms/upload_post.py.
-    upload_post_api_key: str = ""
-
     # --- LinkedIn direct API (Marketing Developer Platform) ---
-    # When set, the sheet-posting pipeline routes upload_post_linkedin rows
-    # through LinkedIn's native /rest/posts + /rest/documents endpoints
-    # instead of Upload-Post. Removes vendor latency, returns the real
+    # The sheet-posting pipeline routes LinkedIn rows through LinkedIn's
+    # native /rest/posts + /rest/documents endpoints, returning the real
     # urn:li:share:... synchronously, and supports comment read/reply on
     # company-page posts (r_organization_social).
     #
@@ -343,29 +337,23 @@ class Settings(BaseSettings):
     linkedin_founder_person_urn: str = ""
     linkedin_brand_org_urn: str = "urn:li:organization:111931921"
 
-    # --- Buffer (third partner, GraphQL) ---
-    # Added 2026-04-19 specifically for TikTok AI-voice content: Upload-Post
-    # re-muxes server-side and triggers TikTok's synthetic-media mute on
-    # iOS/web, while Buffer forwards our signed URL untouched and the audio
-    # plays on every surface. See platforms/buffer.py for the full diagnosis.
+    # --- Buffer (primary multi-platform publisher, GraphQL) ---
+    # Buffer forwards our signed asset URL untouched, so TikTok AI-voice
+    # audio plays on every surface. See platforms/buffer.py for the full
+    # diagnosis. A Buffer post lands asynchronously: the publisher flips the
+    # ScheduledPost to `awaiting_webhook` and the reconcile sweep polls
+    # Buffer's status until it finalizes.
     buffer_api_token: str = ""
-    upload_post_status_timeout_s: int = 180
-    # Webhook custody:
-    #   - secret forms the URL path segment (/webhooks/upload_post/<secret>)
-    #     and is the only thing protecting the endpoint — Upload-Post does
-    #     not sign outgoing webhook bodies, so the URL itself is the secret.
-    #   - reconcile_after_s controls how long a ScheduledPost may sit in
-    #     `awaiting_webhook` before the scheduler falls back to polling
-    #     get_status (e.g. if the webhook was dropped / our server was down).
-    upload_post_webhook_secret: str = ""
     # NB: the /jobs + /internal auth token is NOT a global setting — it is per-brand,
     # read via brand_env("JOBS_AUTH_TOKEN") (i.e. <PREFIX>_JOBS_AUTH_TOKEN), and it fails CLOSED
     # (503 when unset). See server._require_jobs_auth. (The old global `jobs_auth_token` field was
     # dead — never read — and removed 2026-08-29.)
-    upload_post_webhook_reconcile_after_s: int = 600   # 10 min
+    # How long a ScheduledPost may sit in `awaiting_webhook` before the
+    # reconcile sweep polls the publisher for a terminal status.
+    webhook_reconcile_after_s: int = 600   # 10 min
 
     # --- Post-publish analytics pull cadence ---
-    # Upload-Post exposes per-post analytics. The scheduler's
+    # The scheduler's
     # _pull_post_analytics tick writes a MetricsSnapshot every
     # analytics_pull_interval_s once the post is at least
     # analytics_first_pull_after_s old (so metrics have time to accrue).
@@ -569,11 +557,10 @@ def brand_env_or_default(name: str, brand_id: str | None = None, default: str = 
     return brand_env(name, brand_id) or os.environ.get(name, default)
 
 
-# Which publisher handles each target (VENDOR-1, 2026-08-29): Upload-Post + the
-# redundant direct integrations were removed, leaving three publishers —
-# Buffer (TikTok / X / LinkedIn), Meta (Facebook / Instagram), and YouTube direct.
-# Platforms that only Upload-Post served (threads/pinterest/bluesky/reddit) are
-# dropped until a real publisher exists for them.
+# Which publisher handles each target: three publishers — Buffer (TikTok / X /
+# LinkedIn), Meta (Facebook / Instagram), and YouTube direct. Targets with no
+# entry here (threads / pinterest / bluesky / reddit) have no publisher and are
+# dropped until a real one exists for them.
 _PUBLISH_PRIORITY = {
     "tiktok":    ["buffer_tiktok"],
     "x":         ["buffer_x"],
@@ -587,8 +574,8 @@ _PUBLISH_PRIORITY = {
 def resolve_publish_platform(brand_id: str, target: str = "tiktok") -> str:
     """Return the platform key a brand should publish to for `target`.
 
-    Walks the priority list (Upload-Post first, then Zernio, then direct)
-    and returns the first key whose brand config has `enabled=true`.
+    Walks the priority list and returns the first key whose brand config
+    has `enabled=true`.
 
     Raises RuntimeError if nothing is enabled for this target.
     """

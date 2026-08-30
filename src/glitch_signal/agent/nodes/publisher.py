@@ -71,7 +71,7 @@ async def publish(scheduled_post_id: str) -> None:
         )
 
         if is_text_post:
-            # No file transforms, no video asset. upload_post.publish() reads
+            # No file transforms, no video asset. The text publisher reads
             # the post body from the ContentScript via script_id when
             # content_type="text" on the platform config.
             platform_post_id, platform_url = await _publish_to_platform(

@@ -2,6 +2,25 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### VENDOR-2 — remove Upload-Post completely — CLOSED 2026-08-29
+**Owner:** Claude
+
+**Read:** VENDOR-1's board entry (its explicit "Remains: influencer/posting.py left as dead code, imports the removed upload_post pip pkg"); the live publish path — `config._PUBLISH_PRIORITY` + `resolve_publish_platform`, `agent/nodes/publisher._publish_to_platform`, `platforms/buffer.py` (its own `awaiting_webhook` + poll-reconcile, `_CANONICAL` map), `influencer/pipeline.posting_tick` + `posting.py`, `agent/nodes/text_writer.py`, `media/ffmpeg.canonical_platform`, `sheet_posting/{reader,poster}.py`, `brand/schema/brand.config.schema.json` + `configs.example/`. Confirmed no real GE brand config is in the repo (external) and no live `/webhooks/upload_post` route exists (only `/webhooks/heygen`).
+
+**Changed:**
+- Deleted `src/glitch_signal/influencer/posting.py` (Upload-Post-only publisher; imported the removed `upload_post` pip pkg — VENDOR-1's leftover dead code). `influencer/pipeline.posting_tick`: the non-Meta else-branch (was `posting.post_asset`) now raises a loud "no publisher" — the pipeline is Meta-Graph-only, matching its existing `_postable_personas` Meta gate; dropped the `posting` import + fixed the module docstring.
+- `config.py`: removed dead settings `upload_post_api_key`, `upload_post_status_timeout_s`, `upload_post_webhook_secret`; renamed `upload_post_webhook_reconcile_after_s` → `webhook_reconcile_after_s` (its sole consumer is the Buffer async-reconcile sweep). Cleaned the LinkedIn/Buffer/analytics/routing comments.
+- Platform-key convention `upload_post_` → `buffer_`/`meta_`: `text_writer.py` now produces `buffer_x`/`buffer_linkedin` — **fixes a latent break**, since `_publish_to_platform` only routes `buffer_*`/`meta_*`/`youtube_shorts` and would have raised "Unknown platform" on the old keys. `ffmpeg.canonical_platform` now strips `buffer_`/`meta_` (also fixes a silent transform-lookup miss where `buffer_tiktok` didn't canonicalize to `tiktok`). `sheet_posting/reader.py` + `poster.py` share a new vendor-neutral `strip_publisher_prefix` (strips buffer_/meta_/zernio_).
+- `brand/schema/brand.config.schema.json` + `configs.example/drive_footage_brand.example.json`: `upload_post_{tiktok,instagram,youtube}` blocks renamed to `buffer_tiktok`/`meta_instagram`/`youtube_shorts` (platforms object is `additionalProperties:true`, so this is doc-only, no validation risk).
+- All remaining Upload-Post prose (comments/docstrings across ~15 files) reworded vendor-neutral (buffer.py's TikTok synthetic-media-mute rationale preserved as "the prior TikTok publisher").
+- `tests/test_dispatch_gate_inflight.py`: anchored test `now` to midday UTC. Pre-existing flake (unrelated to this removal, surfaced during it): seeds used `now - 1h`/`-2m`, which cross UTC midnight when the suite runs 00:00–01:00 UTC, so `_count_posts_today` (counts `last_attempt_at >= today-midnight`) intermittently returned 0 → the "2–4 failing, order/time dependent" behavior. Also updated the fixture platform key + docstring.
+
+**Verified (observed):** repo-wide `grep -rniE "upload.?post|UploadPost"` clean in src/ tests/ brand/. Full suite **431 passed, 1 skipped** (previously intermittently 2–4 failing on the midnight flake, now deterministic). ruff clean on every changed file. Import smoke-test: all touched modules load, deleted `posting` import gone, `settings().webhook_reconcile_after_s` present + `upload_post_api_key` absent, `strip_publisher_prefix('buffer_linkedin')=='linkedin'` / `('meta_facebook')=='facebook'` / `canonical_platform('buffer_tiktok')=='tiktok'`. No prod risk: publishing is OFF pre-launch and GE's live config already uses `buffer_*`/`meta_*` (the publisher has mandated those since VENDOR-1) — this migration aligns code to shipped reality.
+
+**Remains:** `zernio_` prefix untouched (separate legacy vendor, out of scope — still in schema + `canonical_platform` + `strip_publisher_prefix`); the standalone sheet-poster still posts operator-authored captions unsanitized (unchanged, by design). Nothing Upload-Post-related remains anywhere in the code.
+
+---
+
 ### CF-HARDEN — Cloudflare edge + origin hardening (mirrors leaselens) — CLOSED 2026-08-29
 **Owner:** Claude
 

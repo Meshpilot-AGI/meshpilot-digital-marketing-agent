@@ -10,11 +10,11 @@ Sheet schema (row 1 = header):
                         for update_row_by_key on completion.
     brand_id            glitch_executor | glitch_founder
     platform            x | linkedin | tiktok | facebook | instagram |
-                        youtube. A legacy "upload_post_" prefix on this
-                        value (from rows written before VENDOR-1) is still
-                        accepted and stripped on read; poster.py resolves
-                        the bare target to the surviving publisher — Buffer
-                        or Meta — via config.resolve_publish_platform.
+                        youtube. A publisher prefix on this value
+                        (e.g. "buffer_", "meta_") is accepted and stripped
+                        on read; poster.py resolves the bare target to the
+                        publisher — Buffer or Meta — via
+                        config.resolve_publish_platform.
     body                post text (X ≤ 280 chars; LinkedIn ≤ 2800).
                         For quote_card + carousel rows, this is also the
                         social-media caption shown alongside the image/PDF.
@@ -44,6 +44,20 @@ import structlog
 from glitch_signal.config import settings
 
 log = structlog.get_logger(__name__)
+
+# Publisher prefixes an operator-entered platform value may carry. Stripped to
+# the bare target (tiktok / x / linkedin / …) before resolving a publisher.
+_PUBLISHER_PREFIXES = ("buffer_", "meta_", "zernio_")
+
+
+def strip_publisher_prefix(platform: str) -> str:
+    """Normalize a sheet `platform` value to its bare target, lowercased."""
+    p = (platform or "").strip().lower()
+    for pref in _PUBLISHER_PREFIXES:
+        if p.startswith(pref):
+            return p[len(pref):]
+    return p
+
 
 SHEET_COLUMNS: list[str] = [
     "id",
@@ -83,10 +97,10 @@ class QueuedPost:
     def from_row(cls, row: dict[str, str], *, worksheet: str = "queue") -> QueuedPost:
         # content_type defaults: "carousel" for LinkedIn (legacy behaviour
         # before the column existed), "text" for everything else. Sheet rows
-        # may still carry the legacy "upload_post_*" platform values, so key
-        # this off the normalized target rather than the raw column value.
+        # may carry a publisher-prefixed platform value, so key this off the
+        # normalized bare target rather than the raw column value.
         platform = row.get("platform", "").strip()
-        target = platform.replace("upload_post_", "").strip().lower()
+        target = strip_publisher_prefix(platform)
         default_ct = "carousel" if target == "linkedin" else "text"
         content_type = (row.get("content_type") or "").strip().lower() or default_ct
         return cls(

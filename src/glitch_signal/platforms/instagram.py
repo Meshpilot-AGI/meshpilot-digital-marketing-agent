@@ -14,7 +14,8 @@ Flow (Graph API):
     publish: POST /{ig_user}/media_publish {creation_id}                  -> media_id
 
 Meta requires the media to be a PUBLIC URL — STORAGE-1's Supabase public URLs
-satisfy this. This replaces the old Upload-Post-based IG path (VENDOR-1).
+satisfy this. This is the direct Meta Graph API IG path (replaced an
+older reseller path).
 """
 from __future__ import annotations
 
