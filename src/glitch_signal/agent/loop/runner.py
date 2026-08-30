@@ -138,7 +138,8 @@ async def run(
                 if r:
                     delib["reckoning"] = r
             if _consc_on:
-                c = await conscience.review(goal, episode_final)
+                facts = await conscience.brand_facts(brand_id)   # verified ground truth for the critic
+                c = await conscience.review(goal, episode_final, facts=facts)
                 if c:
                     delib["conscience"] = c
             if delib:

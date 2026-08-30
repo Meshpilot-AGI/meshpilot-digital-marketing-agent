@@ -47,3 +47,36 @@ async def test_review_failsoft_on_error():
     async def _boom(*a, **k):
         raise RuntimeError("boom")
     assert await conscience.review("g", "output", complete=_boom) == {}
+
+
+# ── verified brand facts as authoritative ground truth (fixes over-escalation) ──
+async def test_review_with_facts_includes_ground_truth():
+    c = _fake('{"verdict":"pass","notes":"consistent with the verified facts"}')
+    out = await conscience.review("write a tweet",
+                                  "Glitch Executor: trade & pass prop-firm challenges.",
+                                  facts="- Glitch Executor is a prop-firm trading platform.", complete=c)
+    assert out["verdict"] == "pass"
+    assert "VERIFIED BRAND FACTS" in c.prompt and "prop-firm trading platform" in c.prompt
+    assert "Treat these facts as TRUE" in c.prompt
+
+
+async def test_brand_facts_formats_recalled_facts(monkeypatch):
+    class _M:
+        def __init__(self, content):
+            self.content, self.kind = content, "fact"
+
+    async def _recall(brand_id, query, *, k=8, kinds=None, **kw):
+        assert kinds == ["fact"]
+        return [_M("GE is a trading platform"), _M("GE targets prop-firm traders")]
+
+    monkeypatch.setattr("glitch_signal.agent.memory.store.recall", _recall)
+    out = await conscience.brand_facts("glitch_executor")
+    assert "GE is a trading platform" in out and out.startswith("- ")
+
+
+async def test_brand_facts_failsoft(monkeypatch):
+    async def _boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("glitch_signal.agent.memory.store.recall", _boom)
+    assert await conscience.brand_facts("b") == ""
