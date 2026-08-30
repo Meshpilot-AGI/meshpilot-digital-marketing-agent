@@ -2,6 +2,28 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### README-REFRESH-2 — bring the README up to the current agent — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Context:** The README was last refreshed around PR #146. PRs #147–#181 landed OpenRouter migration, native tool use, the model router, deliberation (reckoning + conscience), tool scoping, pipelines, self-cron, per-brand cost metering, web tools, brand-doc grounding, and discovery — so the README asserted several things the code no longer does.
+
+**Read:** current `README.md`; ground truth gathered by **4 parallel read-only subagents** (sonnet ×3 + haiku ×1) verifying, with file:line evidence: (1) `agent/loop/llm.py` — transport is OpenRouter (`OPENROUTER_API_KEY`, base `openrouter.ai/api/v1`), models still Claude slugs via `_MODEL_MAP`, `ANTHROPIC_API_KEY` now only in `agent/files.py` (Files API); (2) `runner.py` native tool-use, `parse_action` gone; (3) `routing.py` tiers + `models`-array failover + `AGENT_ROUTER_<TIER>`, `audit.py` `primary_idle`/`cost_per_call_drift`; (4) `agent/llm.py` content copy → Claude (`complete_messages`), MUapi image/video only; (5) reckoning/conscience/scopes/pipelines/cron modules + their default-OFF flags in `config.py`; (6) `server.py` route list incl. `/internal/agent/routing/*`, `/internal/analytics/{spend,budget,reconcile}`, `/internal/agent/pipeline/*`, `/internal/brand/{brand}/documents`; (7) `tools.py` TOOLS incl. `web_search`/`web_fetch`/`read_brand_doc`/`discover_trending`/`polish_copy`/`send_email`/`schedule`; (8) `analytics/cost/meter.py` `usage_events` (meters `openrouter` + muapi/higgsfield/heygen).
+
+**Changed:** `README.md` only —
+- Architecture intro + **both mermaid diagrams** rewritten: brain is Claude via OpenRouter with a router, native tool use, scope→policy layering, deliberation wrap; media factory is image/video (MUapi/HeyGen/Higgsfield); added cost meter + new data tables.
+- Brain section expanded from 4 parts (MEM/LOOP/POLICY/LEARN) to include **ROUTER, SCOPE+PIPELINES, DELIBERATION, SELF-CRON**.
+- Tech-stack rows: Brain LLM → Claude via OpenRouter; Agent framework → native tool-use loop; Media-generate → image/video (text moved to Claude); added Email (Resend) + Cost/budget rows.
+- "What runs right now" endpoint table gained routing/analytics/pipeline/brand-documents/cron rows; the LLM-split note corrected (OpenRouter brain + copy, MUapi image/video, `ANTHROPIC_API_KEY` = Files API); replaced the single publish kill-switch line with the full default-OFF flag set.
+- 60-second section, Projects×Capabilities, repo layout, and quickstart env line all updated for the current tools/modules/keys.
+
+**Verified:** all claims traced to file:line via the 4 agents (no assertion left ungrounded); README swept for stale terms (`ReAct JSON`, `Messages API`, `content text`, bare `ANTHROPIC_API_KEY`) — none remain except intentional corrective mentions; both ```mermaid blocks present and syntactically valid (standard flowchart, quoted labels). Docs-only change — no code touched, so the suite is unaffected (CI docs-drift path is a fast pass).
+
+**Docs:** this entry; `README.md`; `control-plane/ACTIVE_LANE_BOARD.md` (lane CLOSED).
+
+**Remains:** none. (`web-production` doesn't need a ff — README isn't under `web/`.)
+
+---
+
 ### SEC-FOLLOWUP-179 — Qodo second-order findings on PR #179's security fixes — CLOSED 2026-08-30
 **Owner:** Claude
 
