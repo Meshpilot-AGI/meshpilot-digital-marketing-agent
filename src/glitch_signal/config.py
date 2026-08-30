@@ -279,6 +279,15 @@ class Settings(BaseSettings):
     # Publishing kill-switch: while False, every publish/post tool is denied regardless of
     # brand. Flip to True (per env) ONLY when posting is intentionally enabled.
     agent_publish_enabled: bool = False
+    # --- Email (EMAIL-1) — the agent's outbound mail channel via Resend ---
+    resend_api_key: str = ""
+    resend_webhook_secret: str = ""   # Svix whsec_… — verifies POST /resend/webhook
+    resend_from: str = ""             # agent-wide default From (per-brand: <PREFIX>_RESEND_FROM)
+    # Email kill-switch (mirrors agent_publish_enabled): while False the agent's `send_email`
+    # tool is denied by the policy gate. Sending stays OFF until deliberately enabled.
+    agent_email_enabled: bool = False
+    agent_max_emails_per_run: int = 5        # per-loop-run cap (policy gate, via counts)
+    agent_email_brand_daily_cap: int = 50    # per-brand/day cap (send path; 0 = unlimited)
     # Per-run cost budget: max paid media generations the agent may run in a single loop.
     agent_max_media_per_run: int = 3
     # Hard ceiling on agent-loop steps (COST-METER INC-3) — clamps any caller/payload max_steps so an

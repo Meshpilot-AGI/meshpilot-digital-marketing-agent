@@ -2,6 +2,28 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### EMAIL-1 — the agent's email capability (Resend), gated OFF — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Read:** the operator's goal ("give our agent full mailing capacity") + the resend-python SDK; the existing patterns to mirror — `agent/loop/policy.py` (gate), `agent/loop/tools.py` (tool registry + how the runner calls `policy.allow` at runner.py:114), `server.py` `/webhooks/heygen` (signature-verify + `webhook_seen` dedup), `middleware/{ratelimit,originauth}`, `middleware/shared_state.SharedWindowLimiter`.
+
+**Design (operator-approved):** email as an agent capability, **gated OFF** (send immediately was offered + declined), webhook on **api.meshpilot.app/resend/webhook** (the path the operator configured in Resend).
+
+**Changed:**
+- Dep: `resend==2.42.0` (`uv add`).
+- `comms/email.py` (new) — `send_email(brand_id, to, subject, html?/text?, from?)`: per-brand From resolution (override → `<PREFIX>_RESEND_FROM` → brand config `email.from` → `RESEND_FROM`), content-policy `strip_footprints` on subject+body, `DISPATCH_MODE=dry_run` short-circuit, per-brand **daily cap** via `SharedWindowLimiter(cap, 86400)` over `rate_counters` (no new table), sync SDK wrapped in `asyncio.to_thread`. Empty/whitespace recipients filtered.
+- Policy gate (`agent/loop/policy.py`): `EMAIL_TOOLS={"send_email"}`, `Policy.email_enabled` + `max_emails_per_run`, gate rule 3b (deny unless enabled + per-run cap), wired in `from_config`.
+- Loop tool `send_email` (`agent/loop/tools.py`) — gated by the runner's existing `policy.allow` call.
+- `POST /resend/webhook` (`server.py`) — **Svix** verify: HMAC-SHA256 over `{svix-id}.{svix-timestamp}.{body}`, key = base64-decoded `whsec_…`, match any `v1,<b64>` in `svix-signature`; 5-min replay window; fail-closed 503 with no secret; dedup on `svix-id`. Added `/resend/webhook` to the rate-limit exemption (origin-auth already ignores it — not /internal|/jobs).
+- Config: `resend_api_key`, `resend_webhook_secret`, `resend_from`, `agent_email_enabled` (default False), `agent_max_emails_per_run` (5), `agent_email_brand_daily_cap` (50). `.env.example` documented. `SOUL.md` gains an **Email** channel + its gating rule.
+- Env (FastAPI Cloud secrets, set this session): `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET` (rotated to the api.meshpilot.app webhook's value).
+
+**Verified:** `tests/test_email.py` — 14 tests: gate (deny-when-off / allow-when-on / per-run cap / off-by-default), send (dry-run mock id, missing recipient/body/From raise, content-policy strips em-dash before the captured Resend call, daily-cap denial), webhook (valid Svix sig → 200, bad sig → 401, missing headers → 400, stale → 400, no-secret → 503). Full suite **445 passed, 1 skipped**. Ruff: 0 new debt (existing files unchanged at 12; new files clean). Import smoke + gate invariants confirmed live.
+
+**Remains (EMAIL-2):** bounce/complaint → suppression list + agent-memory feedback (the webhook currently verifies + logs only); inbound-reply parsing (Resend inbound); real per-brand From in brand configs. **Sending is OFF** until the operator sets `AGENT_EMAIL_ENABLED=true`. Minor: `.env.example` still carries stale `UPLOAD_POST_*` entries (VENDOR-2 cleaned the code, missed this file) — flag for a doc-cleanup pass.
+
+---
+
 ### SUPA-HARDEN — close the two Supabase security-advisor WARNs — CLOSED 2026-08-30
 **Owner:** Claude
 
