@@ -6,8 +6,11 @@ message list — including multimodal `image_url` blocks — and converts it to 
 so call sites migrating off LiteLLM keep their message shapes.
 
     ANTHROPIC_API_KEY    required — an INFERENCE key (sk-ant-api…). NOT an Admin key.
-    AGENT_LLM_MODEL      default model for `complete()` (default claude-haiku-4-5-20251001)
+    AGENT_LLM_MODEL      default model for `complete()` (default claude-sonnet-5)
     AGENT_LLM_BASE       override base URL (default https://api.anthropic.com)
+
+Current-generation Claude models (Sonnet 5 / Opus 5 / 4.7+) REJECT sampling params
+(`temperature`/`top_p`/`top_k`) with a 400, so we never send them — steer via the prompt.
 """
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ import os
 import httpx
 
 _DEFAULT_BASE = "https://api.anthropic.com"
-_DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+_DEFAULT_MODEL = "claude-sonnet-5"
 _ANTHROPIC_VERSION = "2023-06-01"
 _RETRYABLE = {429, 500, 502, 503, 529}  # transient — retry with backoff
 _MAX_ATTEMPTS = 3
@@ -78,9 +81,11 @@ async def _post(messages: list[dict], *, system: str | None, model: str | None,
     payload: dict = {
         "model": model or os.environ.get("AGENT_LLM_MODEL", _DEFAULT_MODEL),
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "messages": messages,
     }
+    # NB: `temperature` (and top_p/top_k) are intentionally NOT sent — current-gen models
+    # (Sonnet 5 / Opus 5 / 4.7+) 400 on them. The kwarg is kept for caller back-compat only.
+    _ = temperature
     if system:
         payload["system"] = system
     headers = {
@@ -132,11 +137,11 @@ async def complete(prompt: str, *, system: str | None = None, model: str | None 
                    timeout_s: int = 90, client: httpx.AsyncClient | None = None) -> str:
     """Single user turn → assistant text. `client` injectable for tests."""
     return await _post([{"role": "user", "content": prompt}], system=system, model=model,
-                       max_tokens=800, temperature=0.2, timeout_s=timeout_s, client=client)
+                       max_tokens=2048, temperature=0.2, timeout_s=timeout_s, client=client)
 
 
 async def complete_messages(messages: list[dict], *, model: str | None = None,
-                            max_tokens: int = 800, temperature: float = 0.2,
+                            max_tokens: int = 2048, temperature: float = 0.2,
                             timeout_s: int = 90, client: httpx.AsyncClient | None = None) -> str:
     """OpenAI/LiteLLM-style messages (system extracted, multimodal converted) → assistant text."""
     system_parts: list[str] = []
