@@ -23,13 +23,18 @@ _CREATE = text(
 )
 _FINISH = text(
     "UPDATE agent_runs SET status=:status, steps=:steps, final=:final, "
-    "transcript=cast(:transcript as jsonb), error=:error, updated_at=now() "
-    "WHERE run_id=:run_id"
+    "transcript=cast(:transcript as jsonb), deliberation=cast(:deliberation as jsonb), "
+    "error=:error, updated_at=now() WHERE run_id=:run_id"
 )
 _GET = text(
-    "SELECT run_id, brand_id, status, steps, final, transcript, error "
+    "SELECT run_id, brand_id, status, steps, final, transcript, deliberation, error "
     "FROM agent_runs WHERE run_id=:run_id"
 )
+
+
+def _deliberation(result: dict) -> str:
+    """Extract the reckoning + conscience passes from a run result → a JSON object for the column."""
+    return json.dumps({k: result[k] for k in ("reckoning", "conscience") if result.get(k)})
 
 
 async def create_run(run_id: str, brand_id: str, goal: str, *, engine: Any | None = None) -> None:
@@ -47,6 +52,7 @@ async def finish_run(run_id: str, result: dict, *, engine: Any | None = None) ->
             "steps": result.get("steps"),
             "final": result.get("final"),
             "transcript": json.dumps(result.get("transcript", [])),
+            "deliberation": _deliberation(result),
             "error": None,
         })
 
@@ -60,6 +66,7 @@ async def fail_run(run_id: str, error: str, *, engine: Any | None = None) -> Non
             "steps": None,
             "final": None,
             "transcript": json.dumps([]),
+            "deliberation": "{}",
             "error": error[:2000],
         })
 
@@ -74,4 +81,9 @@ async def get_run(run_id: str, *, engine: Any | None = None) -> dict | None:
     tr = d.get("transcript")
     if isinstance(tr, str):
         d["transcript"] = json.loads(tr)
+    delib = d.pop("deliberation", None)
+    if isinstance(delib, str):
+        delib = json.loads(delib or "{}")
+    if isinstance(delib, dict):
+        d.update(delib)   # expose reckoning/conscience at the top level (matches the run-result shape)
     return d

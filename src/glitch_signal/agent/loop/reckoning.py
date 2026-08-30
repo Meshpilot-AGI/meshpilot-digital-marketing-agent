@@ -8,12 +8,14 @@ a fault attribution when it fell short. It is grounded only in the run's own evi
 engagement) is a later phase. Advisory only: it annotates the episode (so LEARN can curate patterns of
 self-flagged misses) and is surfaced to the human reviewer; it blocks nothing.
 
-One cheap model call each (Haiku by default), and every call is wrapped so deliberation can never fail
-the run. Gated by `agent_reckoning_enabled` (default off) at the runner.
+One model call each on the loop model by default (`AGENT_DELIBERATION_MODEL` can point it at a cheaper
+model like Haiku once that key's access is confirmed), and every call is wrapped so deliberation can
+never fail the run. Gated by `agent_reckoning_enabled` (default off) at the runner.
 """
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any, Awaitable, Callable
 
@@ -25,8 +27,13 @@ log = structlog.get_logger(__name__)
 
 CompleteFn = Callable[..., Awaitable[str]]
 
-# A cheap model — reflection is legwork, not the main reasoning (model-tiering).
-DELIBERATION_MODEL = "claude-haiku-4-5-20251001"
+
+def _model() -> str:
+    """Model for the deliberation passes. `AGENT_DELIBERATION_MODEL` overrides; otherwise the SAME
+    model the main loop uses. Reflection is cheap legwork so a Haiku is ideal — but not every key/org
+    can call every model (the cloud key couldn't call Haiku 4.5, which silently emptied these passes),
+    so the safe default is the loop model, and Haiku is opt-in via the env var once its access is confirmed."""
+    return (os.environ.get("AGENT_DELIBERATION_MODEL") or "").strip() or agent_llm._model(None)
 
 
 def _parse_obj(raw: str) -> dict:
@@ -57,7 +64,7 @@ async def expectation(goal: str, seed: str, *, complete: CompleteFn | None = Non
     complete = complete or agent_llm.complete
     prompt = f"Goal: {goal}\n\nWhat you recall:\n{(seed or '')[:1500]}\n\nYour expectation:"
     try:
-        txt = await complete(prompt, system=_EXPECT_SYS, model=model or DELIBERATION_MODEL, timeout_s=40)
+        txt = await complete(prompt, system=_EXPECT_SYS, model=model or _model(), timeout_s=40)
         return (txt or "").strip()[:400]
     except Exception as exc:  # noqa: BLE001 — deliberation must never fail the run
         log.warning("agent.reckoning.expectation_failed", error=str(exc)[:200])
@@ -84,7 +91,7 @@ async def reckon(goal: str, expectation_text: str, transcript: list[dict[str, An
     prompt = (f"Goal: {goal}\nExpected: {expectation_text or '(none recorded)'}\n"
               f"Actions: {actions or 'none'}\nFinal result: {(final or '')[:600]}\n\nYour reckoning JSON:")
     try:
-        raw = await complete(prompt, system=_RECKON_SYS, model=model or DELIBERATION_MODEL, timeout_s=40)
+        raw = await complete(prompt, system=_RECKON_SYS, model=model or _model(), timeout_s=40)
     except Exception as exc:  # noqa: BLE001
         log.warning("agent.reckoning.reckon_failed", error=str(exc)[:200])
         return {}
