@@ -2,6 +2,23 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### ARCH-REFRESH — rewrite ARCHITECTURE.md for the current agent — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Context:** `ARCHITECTURE.md` (897 lines) was the pre-rebuild box-era document — ~95% false against the current agent: Upload-Post/Zernio vendors, direct TikTok OAuth, a Telegram approval bot, the ORM subsystem, LangGraph as the core, Kling/fal video + gpt-image-2 carousels, systemd/nginx on a box, `DISPATCH_MODE` as the master switch, Proprietary/Nuraveda Lab license, "81 tests". It contradicted the just-refreshed README (#182).
+
+**Read:** the full stale `ARCHITECTURE.md`; the verified ground truth already gathered for the README refresh (LLM/OpenRouter, native tool use, router, deliberation, scope, pipelines, self-cron, endpoints, tools, cost metering, config flags); plus a dedicated 5th read-only subagent (sonnet) that verified, with file:line, the **data model** (`db/models.py` legacy tables + `supabase/migrations/*.sql` brain/infra tables; RLS deny-all via `..._supa_harden.sql`), the **middleware/auth stack** (`middleware/*`, `server.py` `_require_jobs_auth` / `_authorized_brand`, `crypto.py` Fernet), and **deploy/runtime** (`main.py`, lifespan startup, `.github/workflows/ci.yml` drift jobs, `gateway/`).
+
+**Changed:** `ARCHITECTURE.md` rewritten (897 → 402 lines) as the deep engineering reference complementing the README (explicit precedence note: README = overview, this = detail, code wins). Sections: the rebuild (monorepo mesh → one `glitch_signal` agent); runtime topology (new mermaid: CF → FastAPI Cloud multi-worker → Supabase + external vendors) with the multi-worker/no-in-proc-state + CF-origin-403 consequences; the loop internals (native tool-use cycle, scope=OFFERED vs policy=ALLOWED, router + `models`-array failover + audit, deliberation wrap, self-cron clamp, per-call cost metering); memory + operator-verified provenance; the full data model (brain/infra vs legacy tables, RLS deny-all, naive-UTC); the security model (middleware order, origin-auth, jobs-auth + BFLA `?brand=` scoping, `web_fetch` SSRF pin-to-IP guard, Fernet, kill-switches, Sentry PII scrub); per-brand config model + global infra keys (incl. `ANTHROPIC_API_KEY` = Files-API-only); media factory (recipes + engines, per-brand buckets, content text on Claude); the legacy LangGraph pipeline marked superseded-still-wired (its `/jobs/*` + legacy tables + `DISPATCH_MODE`); the Discord gateway; deploy/branches/CI + runtime gotchas; testing; contributing; **AGPL open-core** license (was "Proprietary — Nuraveda Lab"). Also updated the README doc-index line describing ARCHITECTURE.md.
+
+**Verified:** every claim traced to file:line by the 5 agents; swept for hard-stale terms (Upload-Post / Zernio / Proprietary / Telegram / LiteLLM / Kling / systemd / port 3111 / 81 tests) — the only remaining mentions are the intentional "what was removed" list in the rebuild story; single ```mermaid block present + syntactically valid. Docs-only — no code touched.
+
+**Docs:** this entry; `ARCHITECTURE.md`; `README.md` (doc-index line); `control-plane/ACTIVE_LANE_BOARD.md` (lane CLOSED).
+
+**Remains:** none. Some `docs/plans/*` predate later lanes but each is a dated point-in-time design record, not a live contract — out of scope for this lane.
+
+---
+
 ### README-REFRESH-2 — bring the README up to the current agent — CLOSED 2026-08-30
 **Owner:** Claude
 
