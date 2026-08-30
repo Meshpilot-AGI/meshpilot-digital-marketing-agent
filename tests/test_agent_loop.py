@@ -121,27 +121,7 @@ async def test_loop_resumes_on_pause_turn():
     assert res["final"] == "found it" and res["steps"] == 2
 
 
-def test_server_tool_defs_gating(monkeypatch):
-    from glitch_signal.agent.loop import tools
-    for k in ("AGENT_WEB_SEARCH_ENABLED", "AGENT_WEB_FETCH_ENABLED", "AGENT_WEB_SEARCH_MAX_USES",
-              "AGENT_WEB_BLOCKED_DOMAINS", "AGENT_WEB_SEARCH_TAG"):
-        monkeypatch.delenv(k, raising=False)
-    defs = tools.server_tool_defs()                        # both on by default (standard org)
-    assert {t["name"] for t in defs} == {"web_search", "web_fetch"}
-    ws = next(t for t in defs if t["name"] == "web_search")
-    assert ws["type"] == "web_search_20250305" and ws["max_uses"] == 3  # basic tag (dynamic opt-in)
-    monkeypatch.setenv("AGENT_WEB_FETCH_ENABLED", "false")  # gate fetch off
-    assert {t["name"] for t in tools.server_tool_defs()} == {"web_search"}
-    monkeypatch.setenv("AGENT_WEB_FETCH_ENABLED", "true")
-    monkeypatch.setenv("AGENT_WEB_SEARCH_ENABLED", "false")  # gate search off
-    assert {t["name"] for t in tools.server_tool_defs()} == {"web_fetch"}
-    monkeypatch.setenv("AGENT_WEB_SEARCH_ENABLED", "true")
-    monkeypatch.setenv("AGENT_WEB_BLOCKED_DOMAINS", "evil.com, spam.io")
-    ws = next(t for t in tools.server_tool_defs() if t["name"] == "web_search")
-    assert ws["blocked_domains"] == ["evil.com", "spam.io"]
-
-
-# ── NVIDIA chat llm.complete (injected fake httpx client, no network) ──
+# ── OpenRouter llm.complete (injected fake httpx client, no network) ──
 class _FakeResp:
     def __init__(self, status_code, payload):
         self.status_code = status_code
@@ -162,35 +142,35 @@ class _FakeHTTPX:
         return self._resp
 
 
+def _oai(text):
+    return {"choices": [{"message": {"content": text}, "finish_reason": "stop"}], "usage": {}}
+
+
 async def test_llm_complete_parses_text_blocks(monkeypatch):
     from glitch_signal.agent.loop import llm as agent_llm
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
-    fake = _FakeHTTPX(_FakeResp(200, {"content": [{"type": "text", "text": '{"final":"ok"}'}]}))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    fake = _FakeHTTPX(_FakeResp(200, _oai('{"final":"ok"}')))
     out = await agent_llm.complete("hi", system="sys", client=fake)
     assert out == '{"final":"ok"}'
-    assert fake.posted["url"].endswith("/v1/messages")
-    # system is top-level and wrapped in a cacheable block (HARDEN — prompt caching)
-    assert fake.posted["json"]["system"] == [
-        {"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}
-    ]
-    assert fake.posted["json"]["messages"][0] == {"role": "user", "content": "hi"}
-    assert fake.posted["headers"]["x-api-key"] == "sk-ant-api-test"
-    assert fake.posted["headers"]["anthropic-version"]
+    assert fake.posted["url"].endswith("/chat/completions")
+    assert fake.posted["json"]["messages"] == [{"role": "system", "content": "sys"},
+                                                {"role": "user", "content": "hi"}]
+    assert fake.posted["headers"]["Authorization"] == "Bearer sk-or-test"
 
 
-async def test_llm_complete_rejects_admin_key(monkeypatch):
+async def test_llm_complete_requires_key(monkeypatch):
     from glitch_signal.agent.loop import llm as agent_llm
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-admin-xyz")  # admin key cannot do inference
-    with pytest.raises(RuntimeError, match="Admin key"):
-        await agent_llm.complete("hi", client=_FakeHTTPX(_FakeResp(200, {"content": []})))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+        await agent_llm.complete("hi", client=_FakeHTTPX(_FakeResp(200, _oai("x"))))
 
 
 async def test_llm_complete_raises_on_error(monkeypatch):
     from glitch_signal.agent.loop import llm as agent_llm
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     fake = _FakeHTTPX(_FakeResp(404, {"detail": "gone"}))
     with pytest.raises(RuntimeError):
         await agent_llm.complete("hi", client=fake)
@@ -210,10 +190,10 @@ class _SeqHTTPX:
 async def test_llm_complete_retries_transient_5xx(monkeypatch):
     from glitch_signal.agent.loop import llm as agent_llm
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     fake = _SeqHTTPX([
-        _FakeResp(503, {"error": "credential validation failed"}),
-        _FakeResp(200, {"content": [{"type": "text", "text": "ok"}]}),
+        _FakeResp(503, {"error": "transient"}),
+        _FakeResp(200, _oai("ok")),
     ])
     out = await agent_llm.complete("hi", client=fake)
     assert out == "ok" and fake.posts == 2          # retried once, then succeeded
@@ -222,7 +202,7 @@ async def test_llm_complete_retries_transient_5xx(monkeypatch):
 async def test_llm_complete_does_not_retry_4xx(monkeypatch):
     from glitch_signal.agent.loop import llm as agent_llm
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-test")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     fake = _SeqHTTPX([_FakeResp(404, {"detail": "gone"})])
     with pytest.raises(RuntimeError):
         await agent_llm.complete("hi", client=fake)
