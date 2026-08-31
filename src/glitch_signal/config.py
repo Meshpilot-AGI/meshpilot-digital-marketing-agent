@@ -306,6 +306,9 @@ class Settings(BaseSettings):
     # Both only annotate the episode + run result (they block nothing) and each is one cheap Haiku call.
     agent_reckoning_enabled: bool = False
     agent_conscience_enabled: bool = False
+    # SOCIAL-CAMPAIGN — master switch (default OFF: ships inert) + per-run post cap (the 5 platforms).
+    agent_social_enabled: bool = False
+    agent_social_max_posts_per_run: int = 5
     # PIPELINE: when False, the `content` pipeline runs caption-first (scope `content_draft`, no paid
     # media) — it drafts copy + a media brief. Flip True to have content runs also generate the media
     # (scope `content`, MUapi/Higgsfield, bounded by agent_max_media_per_run).

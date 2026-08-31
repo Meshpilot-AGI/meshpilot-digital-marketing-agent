@@ -56,11 +56,22 @@ async def _cap_routing_audit(brand_id: str, args: dict) -> dict:
     return {"summary": res["summary"], "findings": res["findings"]}
 
 
+async def _cap_social_campaign(brand_id: str, args: dict) -> dict:
+    """AGENT-SOCIAL: run one social_campaign cycle (ideate → media → captions → fan-out)."""
+    from glitch_signal.agent.social.campaign import run_campaign
+
+    res = await run_campaign(brand_id)
+    return {"ran": "social_campaign", "brand": brand_id,
+            "posted": sum(1 for p in getattr(res, "posts", []) if p.status == "posted"),
+            "skipped_reason": getattr(res, "skipped_reason", None)}
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "drive_scout": _cap_drive_scout,
     "reconcile": _cap_reconcile,
     "routing_audit": _cap_routing_audit,
+    "social_campaign": _cap_social_campaign,
 }
 
 
