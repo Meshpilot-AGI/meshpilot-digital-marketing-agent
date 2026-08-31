@@ -1,4 +1,5 @@
 import json
+
 from glitch_signal.agent.social import ideate
 
 

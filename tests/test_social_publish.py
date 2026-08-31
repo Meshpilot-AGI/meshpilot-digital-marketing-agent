@@ -14,11 +14,14 @@ class _FakeStore:
 
 def _deps(calls):
     async def buffer_create(brand_id, service, *, text, media_url=None):
-        calls.append(("buffer", service, media_url)); return ("bpost", "sending")
+        calls.append(("buffer", service, media_url))
+        return ("bpost", "sending")
     async def fb(*, brand_id=None, message=None, image_url=None, video_url=None):
-        calls.append(("fb", image_url, video_url)); return ("fbid", "http://fb")
+        calls.append(("fb", image_url, video_url))
+        return ("fbid", "http://fb")
     async def ig(*, brand_id=None, caption=None, image_url=None, video_url=None):
-        calls.append(("ig", image_url, video_url)); return ("igid", "http://ig")
+        calls.append(("ig", image_url, video_url))
+        return ("igid", "http://ig")
     return publish.Publishers(buffer_create=buffer_create, facebook=fb, instagram=ig)
 
 

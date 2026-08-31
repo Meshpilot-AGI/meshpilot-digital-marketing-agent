@@ -17,8 +17,13 @@ def test_reference_urls_splits_env(monkeypatch):
 
 async def test_generate_video_submits_polls_persists():
     seen = {}
-    async def _submit(prompt, file_urls): seen["files"] = file_urls; return "sess_1"
-    async def _poll(session_id): seen["sess"] = session_id; return "https://heygen/out.mp4"
+    async def _submit(prompt, file_urls):
+        seen["files"] = file_urls
+        return "sess_1"
+
+    async def _poll(session_id):
+        seen["sess"] = session_id
+        return "https://heygen/out.mp4"
     async def _persist(brand_id, url): return f"https://bucket/{brand_id}/out.mp4"
     out = await video.generate_video("ge", "prompt", ["https://a/1.png"],
                                      submit=_submit, poll=_poll, persist_url=_persist)

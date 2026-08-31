@@ -108,6 +108,7 @@ async def _default_persist(brand_id: str, url: str) -> str:
     `upload_bytes(brand_id, data, content_type=, suffix=)` guess does not match.
     """
     import httpx
+
     from glitch_signal.media.generation.storage import upload_bytes
 
     async with httpx.AsyncClient(timeout=120) as c:

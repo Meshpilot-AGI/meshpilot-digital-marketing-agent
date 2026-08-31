@@ -1,6 +1,10 @@
 from glitch_signal.agent.social.spec import (
-    Idea, PostDraft, PlatformResult, CampaignResult,
-    IMAGE_PLATFORMS, VIDEO_PLATFORMS, IMAGE_RECIPE,
+    IMAGE_PLATFORMS,
+    IMAGE_RECIPE,
+    VIDEO_PLATFORMS,
+    CampaignResult,
+    Idea,
+    PlatformResult,
 )
 
 
