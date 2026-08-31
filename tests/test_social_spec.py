@@ -5,7 +5,23 @@ from glitch_signal.agent.social.spec import (
     CampaignResult,
     Idea,
     PlatformResult,
+    derive_status,
 )
+
+
+def _posts(*statuses):
+    return [PlatformResult(platform=f"p{i}", status=s) for i, s in enumerate(statuses)]
+
+
+def test_derive_status_distinguishes_outcomes():
+    assert derive_status([]) == "skipped"
+    assert derive_status(_posts("posted", "posted")) == "posted"
+    assert derive_status(_posts("pending", "pending")) == "pending"
+    assert derive_status(_posts("held", "held")) == "held"
+    assert derive_status(_posts("failed", "failed")) == "failed"        # all-failed, NOT held
+    assert derive_status(_posts("posted", "failed")) == "partial"       # some delivered
+    assert derive_status(_posts("pending", "held")) == "partial"        # in-flight delivered + held
+    assert derive_status(_posts("held", "failed")) == "mixed"           # no delivered, not uniform
 
 
 def test_platform_partition_covers_five_no_youtube():

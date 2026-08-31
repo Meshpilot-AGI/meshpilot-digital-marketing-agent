@@ -44,3 +44,23 @@ class CampaignResult:
     posts: list[PlatformResult] = field(default_factory=list)
     cost_usd: float = 0.0
     skipped_reason: str | None = None
+
+
+def derive_status(posts: list[PlatformResult]) -> str:
+    """Aggregate campaign status from the FULL result set (fixes 'all-failed → held').
+
+    `pending` (Buffer 'sending', not yet reconciled to terminal) counts as delivered-in-flight,
+    not a failure. Returns one of: posted | pending | held | failed | partial | mixed | skipped.
+    """
+    if not posts:
+        return "skipped"
+    total = len(posts)
+    n = {s: sum(1 for p in posts if p.status == s)
+         for s in ("posted", "pending", "held", "failed", "skipped")}
+    for uniform in ("posted", "pending", "held", "failed", "skipped"):
+        if n[uniform] == total:
+            return uniform
+    delivered = n["posted"] + n["pending"]          # in-flight or done, not failed/held
+    if delivered and delivered < total:
+        return "partial"                             # some delivered, some held/failed/skipped
+    return "mixed"                                    # only non-delivered outcomes, but not uniform
