@@ -2,6 +2,28 @@
 
 > Append-only. Newest first. One entry per closed lane. See docs/LANE-LIFECYCLE.md §5.
 
+### SOCIAL-CAMPAIGN — autonomous, conscience-gated multi-platform posting — CLOSED 2026-08-30
+**Owner:** Claude
+
+**Context:** Operator wants the agent to autonomously find a content idea for a brand, generate an image (Higgsfield) + a video (HeyGen), and post one piece per platform — X, LinkedIn, TikTok, Facebook, Instagram (no YouTube), no HITL. Built as a first-class, deterministic, testable capability rather than a raw `full`-scope agent run. Explicit operator constraints honored: (1) do NOT hardcode the agent's workflow to this — it's one capability among many; (2) video via HeyGen's prompt-driven **Video Agent** (B-roll + subtitles, **no avatar**), fed brand assets + platform screenshots as reference files.
+
+**Design:** brainstormed → spec (`docs/plans/2026-08-30-social-campaign.md`) → plan (`…-plan.md`) → subagent-driven TDD execution (10 tasks, fresh Sonnet implementer + Sonnet reviewer per task, controller-verify for trivial tasks, final gate).
+
+**Changed (all additive; core loop/scopes/other capabilities untouched):**
+- `src/glitch_signal/agent/social/`: `spec.py` (dataclasses + fixed platform/media mapping), `store.py` (+ migration `supabase/migrations/20260831000000_social_campaign.sql`: `social_campaign`/`social_post`, RLS deny-all, dedup + `unique(campaign_id,platform)` idempotency), `ideate.py` (LLM idea grounded in notes+verified facts, deduped), `captions.py` (per-medium captions, `polish_copy` wired in), `video.py` (**self-contained HeyGen Video Agent client** — POST /v3/video-agents, poll session→video_id→video, persist to brand bucket via real `upload_bytes`, meter via `record_usage`/`heygen_cost`; NOT a media-factory engine), `publish.py` (deterministic per-platform fan-out + hold/idempotency/fail-soft), `campaign.py` (orchestrator: preconditions→budget→ideate→media(fail-soft)→captions→**per-run cap clamp**→conscience gate→create→fan-out→finalize→remember).
+- `config.py`: `agent_social_enabled=False` + `agent_social_max_posts_per_run=5`.
+- `agent/cron/capabilities.py`: registered `social_campaign` (additive `_cap_social_campaign` + one `_REGISTRY` entry).
+
+**Verified:** subagent TDD — each task test-first, per-task spec+quality review (Tasks 3,4,5,6,7,8 full dispatched review; 2,9 controller-verified). Reviewers independently confirmed the real external signatures video.py/publish.py bind to (`upload_bytes`, `os.environ["HEYGEN_API_KEY"]`, `record_usage`/`heygen_cost`, buffer/facebook/instagram) — no runtime-crash risk. Controller resolved ⚠️-items (llm/recall sigs; `_default_deps()` constructs cleanly, all 10 deps resolve). **Whole-branch gate caught + fixed** a real regression (pre-existing `test_agent_cron.py::test_capability_registry` exact-set assertion) + 11 new-file ruff errors (commit d1ad802). Final: **`uv run pytest -q` → 580 passed, 1 skipped**; ruff 0 new debt; `import glitch_signal.server` OK. **No prod flags flipped; ships inert.**
+
+**Conscience hard-gate (the no-HITL safety net):** `escalate` → post `held` (persisted, never published); `pass`/`concerns` → publish; critic error → held (fail toward not posting); no constitution → allowed (documented, matches current advisory semantics).
+
+**Docs:** this entry; spec Status→BUILT; `ACTIVE_LANE_BOARD.md` (CLOSED); the two plan docs.
+
+**Remains (enablement — separate, deliberate, NOT done here):** host GE's logo + the 4 platform screenshots in `ge-media/reference/` and set `GE_SOCIAL_REFERENCE_URLS`; flip `agent_social_enabled` + `agent_publish_enabled`; seed the `social_campaign` cron job. Deferred minors (see plan ledger): HeyGen `_default_poll` doesn't fast-fail `cancelled`; unknown-platform fan-out path skips `record_post` (unreachable at 5 fixed platforms); no `inspect.signature` drift smoke-test for publishers; live end-to-end (real vendor calls) unexercised by the network-free suite.
+
+---
+
 ### LINK-V1-ARCHIVE — hyperlink the v1 monorepo archive — CLOSED 2026-08-30
 **Owner:** Claude
 

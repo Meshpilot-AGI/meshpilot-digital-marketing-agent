@@ -1,6 +1,6 @@
 # SOCIAL-CAMPAIGN — autonomous, conscience-gated social posting
 
-**Status:** DESIGN (approved 2026-08-30) · **Owner:** Claude · **Lane:** `lane/social-campaign`
+**Status:** BUILT 2026-08-30 (ships INERT behind `agent_social_enabled=False`) · **Owner:** Claude · **Lane:** `lane/social-campaign`
 
 > Goal (operator): the agent should, on its own, find a content idea for GE, generate an
 > image (Higgsfield) and a video (HeyGen), and post **one** piece to each platform —
