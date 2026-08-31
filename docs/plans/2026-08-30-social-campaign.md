@@ -27,6 +27,23 @@ fan-out, dedup, cost) is deterministic code.
 
 ---
 
+## Isolation — one capability among many (non-negotiable)
+
+This is **one** of the agent's tasks/capabilities, not its workflow. The agent stays a
+general, multi-tool, multi-capability agent; `social_campaign` sits beside `curate`,
+`drive_scout`, `reconcile`, `routing_audit`, and future capabilities — nothing about the
+core is hardcoded to social posting.
+
+- **Additive only.** Do NOT modify the ReAct loop (`agent/loop/runner.py`), the default scope,
+  the general tool registry, or any other capability. The only shared-surface touches are:
+  two new config flags, one new cron-registry entry, and one additive migration.
+- **Self-contained.** All social logic lives under `src/glitch_signal/agent/social/`. The
+  fixed platform/media mapping, routing, and recipe choices are internal to that package.
+- **Reuse, don't fork.** It calls the shared building blocks (media factory, conscience,
+  memory, publishers, budget, LLM) as they are — it must not special-case them for social.
+- **No behavior change when disabled.** With `agent_social_enabled=False` (default) the agent
+  behaves exactly as before; the capability is inert and invisible to every other path.
+
 ## Decisions (locked in brainstorming)
 
 | Decision | Choice |
