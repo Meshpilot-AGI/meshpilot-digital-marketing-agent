@@ -14,7 +14,7 @@ def _deps(**over):
         return [PlatformResult(platform=d.platform, status="posted") for d in drafts]
     class _Store:
         async def recent_dedup_keys(self, b, **k): return set()
-        async def create_campaign(self, b, idea, **k): return "camp-1"
+        async def reserve_campaign(self, b, idea, **k): return "camp-1"
         async def finalize_campaign(self, cid, status, cost, **k): self.final = (status, cost)
     async def spend_now(brand_id): return 0.0
     d = campaign.RunDeps(ideate=ideate, captions=captions, generate_image=gen_img,
@@ -120,3 +120,51 @@ async def test_cost_usd_is_run_delta(monkeypatch):
     async def spend_now(brand_id): return next(spends)
     res = await campaign.run_campaign("ge", deps=_deps(spend_now=spend_now))
     assert res.cost_usd == 1.5
+
+
+async def test_reserve_conflict_skips_before_paid_work(monkeypatch):
+    """HARDEN #1: a DB dedup conflict at reserve time skips cleanly and does NO paid work."""
+    monkeypatch.setattr(campaign, "_social_on", lambda: True)
+    class _Store:
+        async def recent_dedup_keys(self, b, **k): return set()
+        async def reserve_campaign(self, b, idea, **k): return None       # unique(brand,dedup) conflict
+        async def finalize_campaign(self, cid, status, cost, **k): pass
+    async def boom(brand_id, idea): raise AssertionError("paid work ran despite dedup conflict")
+    d = _deps(store_mod=_Store())
+    d.generate_image = boom
+    d.generate_video = boom
+    res = await campaign.run_campaign("ge", deps=d)
+    assert res.skipped_reason == "duplicate idea (already reserved)" and not res.posts
+
+
+async def test_budget_recheck_skips_video(monkeypatch):
+    """HARDEN #5: the per-action budget re-check skips the (paid) video when the cap is hit,
+    preserving image-only progress."""
+    monkeypatch.setattr(campaign, "_social_on", lambda: True)
+    seq = iter([(True, ""), (True, ""), (False, "over cap")])   # precondition, image ok, video denied
+    async def budget_check(brand_id, **k): return next(seq)
+    vid = {"n": 0}
+    async def gen_vid(brand_id, idea):
+        vid["n"] += 1
+        return "v"
+    res = await campaign.run_campaign("ge", deps=_deps(budget_check=budget_check, generate_video=gen_vid))
+    assert vid["n"] == 0
+    assert {p.platform for p in res.posts} == {"x", "linkedin", "facebook"}   # image-only
+
+
+async def test_caption_failure_finalizes_paid_campaign(monkeypatch):
+    """HARDEN #7: a caption/fact failure after paid media still finalizes the campaign (failed +
+    reason), never aborts without recording the paid work."""
+    monkeypatch.setattr(campaign, "_social_on", lambda: True)
+    finals: dict = {}
+    class _Store:
+        async def recent_dedup_keys(self, b, **k): return set()
+        async def reserve_campaign(self, b, idea, **k): return "camp-1"
+        async def finalize_campaign(self, cid, status, cost, **k):
+            finals["status"] = status
+            finals["reason"] = k.get("failure_reason")
+    async def captions(brand_id, idea, **k): raise RuntimeError("caption LLM down")
+    res = await campaign.run_campaign("ge", deps=_deps(captions=captions, store_mod=_Store()))
+    assert res.skipped_reason and "caption/facts failed" in res.skipped_reason
+    assert finals["status"] == "failed" and "caption" in (finals["reason"] or "")
+    assert not res.posts

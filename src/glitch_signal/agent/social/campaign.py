@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -12,6 +13,7 @@ from glitch_signal.agent.social.spec import (
     VIDEO_PLATFORMS,
     CampaignResult,
     PostDraft,
+    derive_status,
 )
 
 log = structlog.get_logger(__name__)
@@ -76,6 +78,7 @@ def _default_deps() -> RunDeps:
 
 async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
                        engine: Any = None) -> CampaignResult:
+    from glitch_signal.config import settings
     d = deps or _default_deps()
     if not _social_on():
         return CampaignResult(idea=None, image_url=None, video_url=None,
@@ -92,65 +95,80 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
         return CampaignResult(idea=None, image_url=None, video_url=None,
                               skipped_reason="no fresh idea")
 
-    # media — per-medium fail-soft (image = Higgsfield/factory; video = HeyGen Video Agent)
-    image_url = video_url = None
-    try:
-        image_url = await d.generate_image(brand_id, idea)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("social.image_failed", error=str(exc)[:200])
-    try:
-        video_url = await d.generate_video(brand_id, idea)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("social.video_failed", error=str(exc)[:200])
-    if not image_url and not video_url:
+    # RESERVE the campaign BEFORE any paid work — the DB unique(brand_id,dedup_key) is the dedup
+    # authority, so two concurrent runs of the same idea can never both do paid work. A conflict
+    # (no row returned) is a clean duplicate skip.
+    cid = await d.store_mod.reserve_campaign(brand_id, idea, engine=engine)
+    if cid is None:
         return CampaignResult(idea=idea, image_url=None, video_url=None,
-                              skipped_reason="media generation failed")
+                              skipped_reason="duplicate idea (already reserved)")
 
-    caps = await d.captions(brand_id, idea)
-    facts = await d.brand_facts(brand_id)
+    async def _finish(status: str, *, image_url: str | None = None, video_url: str | None = None,
+                      posts: list | None = None, reason: str | None = None) -> CampaignResult:
+        cost = max(0.0, (await d.spend_now(brand_id)) - spent0)
+        await d.store_mod.finalize_campaign(cid, status, cost, image_url=image_url,
+                                            video_url=video_url, failure_reason=reason, engine=engine)
+        return CampaignResult(idea=idea, image_url=image_url, video_url=video_url,
+                              posts=posts or [], cost_usd=cost, skipped_reason=reason)
+
+    # media — per-medium fail-soft, with a budget RE-CHECK before each paid action so overlapping
+    # or accumulating spend cannot blow past the cap mid-run.
+    image_url = video_url = None
+    if (await d.budget_check(brand_id))[0]:
+        try:
+            image_url = await d.generate_image(brand_id, idea)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("social.image_failed", error=str(exc)[:200])
+    if (await d.budget_check(brand_id))[0]:
+        deadline = int(getattr(settings(), "agent_social_video_timeout_s", 420))
+        try:
+            # Bound video to a deadline well under the cron capability timeout: a slow HeyGen render
+            # times out to IMAGE-ONLY (progress preserved) instead of the cron killing the whole run.
+            video_url = await asyncio.wait_for(d.generate_video(brand_id, idea), timeout=deadline)
+        except Exception as exc:  # noqa: BLE001 — incl. asyncio.TimeoutError
+            log.warning("social.video_failed", error=str(exc)[:200])
+
+    if not image_url and not video_url:
+        return await _finish("failed", reason="media generation failed")
+
+    # Caption / fact failures after paid media must NOT abort without recording the paid campaign.
+    try:
+        caps = await d.captions(brand_id, idea)
+        facts = await d.brand_facts(brand_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("social.captions_or_facts_failed", error=str(exc)[:200])
+        return await _finish("failed", image_url=image_url, video_url=video_url,
+                             reason=f"caption/facts failed: {str(exc)[:150]}")
 
     drafts: list[PostDraft] = []
     if image_url:
         drafts += [PostDraft(p, "image", image_url, caps["image"]) for p in IMAGE_PLATFORMS]
     if video_url:
         drafts += [PostDraft(p, "video", video_url, caps["video"]) for p in VIDEO_PLATFORMS]
-
-    # Per-run post cap (spec: agent_social_max_posts_per_run) — enforced here because the
-    # brief's drafts list has no upper bound of its own before the conscience gate.
-    from glitch_signal.config import settings
     drafts = drafts[:settings().agent_social_max_posts_per_run]
 
-    # conscience gate per intended post → verdict map. Fail CLOSED: a critic error, empty
-    # response, or unparseable verdict is only "pass" when NO constitution is loaded (documented
-    # no-op); once a constitution exists, the same failure must HOLD the post (escalate), because
-    # a critic timeout/rate-limit/model-access failure must never publish ungated content.
+    # conscience gate — fail CLOSED: with a constitution loaded, a critic error/empty/unparseable
+    # verdict HOLDS the post (escalate). No constitution → documented allow.
     have_constitution = d.have_constitution()
     verdicts: dict[str, str] = {}
     for dr in drafts:
         if not have_constitution:
-            verdicts[dr.platform] = "pass"  # no constitution loaded → documented allow, no review call
+            verdicts[dr.platform] = "pass"
             continue
         try:
             v = await d.review(f"Social post for {brand_id} ({dr.platform})", dr.caption, facts=facts)
-        except Exception:  # noqa: BLE001 — critic error WITH a constitution loaded → hold
+        except Exception:  # noqa: BLE001
             v = {}
         verdict = str((v or {}).get("verdict") or "").lower()
-        if verdict not in ("pass", "concerns", "escalate"):
-            verdict = "escalate"  # empty/unparseable verdict WITH a constitution loaded → hold
-        verdicts[dr.platform] = verdict
+        verdicts[dr.platform] = verdict if verdict in ("pass", "concerns", "escalate") else "escalate"
 
-    cid = await d.store_mod.create_campaign(brand_id, idea, image_url=image_url,
-                                            video_url=video_url, engine=engine)
     posts = await d.fan_out(brand_id, cid, drafts, verdicts, engine=engine)
-
-    posted = sum(1 for p in posts if p.status == "posted")
-    status = ("posted" if posted == len(posts) and posts
-              else "partial" if posted else "held")
-    spent1 = await d.spend_now(brand_id)
-    cost = max(0.0, spent1 - spent0)
-    await d.store_mod.finalize_campaign(cid, status, cost, engine=engine)
+    result = await _finish(derive_status(posts), image_url=image_url, video_url=video_url, posts=posts)
     try:
-        await d.remember(brand_id, f"social_campaign: {idea.angle} → {posted}/{len(posts)} posted")
+        posted = sum(1 for p in posts if p.status == "posted")
+        pending = sum(1 for p in posts if p.status == "pending")
+        await d.remember(brand_id, f"social_campaign: {idea.angle} → {posted} posted / "
+                                   f"{pending} pending / {len(posts)} total")
     except Exception:  # noqa: BLE001
         pass
-    return CampaignResult(idea=idea, image_url=image_url, video_url=video_url, posts=posts, cost_usd=cost)
+    return result

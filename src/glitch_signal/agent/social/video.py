@@ -73,7 +73,7 @@ async def _default_submit(prompt: str, file_urls: list[str]) -> str:
         return (r.json() or {}).get("data", {})["session_id"]
 
 
-async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 1800) -> str:
+async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 600) -> str:
     import httpx
 
     headers = _heygen_headers()
@@ -159,6 +159,8 @@ async def generate_video(
 
     session_id = await submit(prompt, file_urls)
     heygen_url = await poll(session_id)
-    out = await persist_url(brand_id, heygen_url)
+    # Meter at the vendor's BILLABLE state (completed poll), BEFORE re-hosting — a storage/persist
+    # failure must never lose the metering (record_usage is request_id-idempotent on session_id).
     await _meter(brand_id, session_id)
+    out = await persist_url(brand_id, heygen_url)
     return out
