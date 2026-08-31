@@ -4,9 +4,9 @@
 
 **Goal:** Build a deterministic, conscience-gated `social_campaign` capability that finds one content idea for a brand, generates a Higgsfield image + a HeyGen video, and publishes one post to each of X, LinkedIn, TikTok (Buffer) + Facebook, Instagram (Meta) — no YouTube, no human in the loop — running on the existing self-cron.
 
-**Architecture:** A Python orchestrator (`agent/social/`) calls the LLM only for the idea and captions; everything exact/safe (media mapping, the conscience hold, per-platform fan-out, dedup, cost, idempotency) is deterministic code. Ships inert behind `agent_social_enabled`.
+**Architecture:** A Python orchestrator (`agent/social/`) calls the LLM only for the idea, captions, and the video prompt; everything exact/safe (media mapping, the conscience hold, per-platform fan-out, dedup, cost, idempotency) is deterministic code. Image = Higgsfield via the media factory; video = HeyGen **Video Agent** (prompt+files → B-roll/subtitles, no avatar) via a self-contained client. Ships inert behind `agent_social_enabled`.
 
-**Tech Stack:** Python 3.11 / `uv`, FastAPI, SQLModel + Supabase-native SQL migrations, pytest (asyncio auto mode). Reuses the media factory (Higgsfield/HeyGen engines), `agent/loop/conscience.py`, `agent/memory/store.py`, `platforms/{buffer,facebook,instagram}.py`, `analytics/cost/budget.py`, `agent/loop/llm.py`, `agent/cron/capabilities.py`.
+**Tech Stack:** Python 3.11 / `uv`, FastAPI, SQLModel + Supabase-native SQL migrations, pytest (asyncio auto mode). Reuses the media factory (Higgsfield **image** recipe), `agent/loop/conscience.py`, `agent/memory/store.py`, `platforms/{buffer,facebook,instagram}.py`, `analytics/cost/budget.py`, `agent/loop/llm.py`, `agent/cron/capabilities.py`, `media/generation/storage` (bucket host for the HeyGen output). HeyGen **Video Agent** is called directly (self-contained client), not via the factory's avatar engine.
 
 **Spec:** `docs/plans/2026-08-30-social-campaign.md` (read it — this plan implements it).
 
@@ -31,7 +31,7 @@
 - Test: `tests/test_social_spec.py`
 
 **Interfaces:**
-- Produces: `Idea(angle: str, hook: str, key_points: list[str], dedup_key: str)`; `PostDraft(platform: str, media_kind: str, media_url: str, caption: str)`; `PlatformResult(platform: str, status: str, verdict: str | None = None, platform_post_id: str | None = None, post_url: str | None = None, error: str | None = None)`; `CampaignResult(idea: Idea | None, image_url: str | None, video_url: str | None, posts: list[PlatformResult], cost_usd: float = 0.0, skipped_reason: str | None = None)`. Constants: `IMAGE_PLATFORMS = ("x", "linkedin", "facebook")`, `VIDEO_PLATFORMS = ("tiktok", "instagram")`, `IMAGE_RECIPE = "higgsfield-soul-image"`, `VIDEO_RECIPE = "heygen-avatar-video"`.
+- Produces: `Idea(angle: str, hook: str, key_points: list[str], dedup_key: str)`; `PostDraft(platform: str, media_kind: str, media_url: str, caption: str)`; `PlatformResult(platform: str, status: str, verdict: str | None = None, platform_post_id: str | None = None, post_url: str | None = None, error: str | None = None)`; `CampaignResult(idea: Idea | None, image_url: str | None, video_url: str | None, posts: list[PlatformResult], cost_usd: float = 0.0, skipped_reason: str | None = None)`. Constants: `IMAGE_PLATFORMS = ("x", "linkedin", "facebook")`, `VIDEO_PLATFORMS = ("tiktok", "instagram")`, `IMAGE_RECIPE = "higgsfield-soul-image"`. (No `VIDEO_RECIPE` — video comes from the HeyGen Video Agent client in Task 4.)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -39,7 +39,7 @@
 # tests/test_social_spec.py
 from glitch_signal.agent.social.spec import (
     Idea, PostDraft, PlatformResult, CampaignResult,
-    IMAGE_PLATFORMS, VIDEO_PLATFORMS, IMAGE_RECIPE, VIDEO_RECIPE,
+    IMAGE_PLATFORMS, VIDEO_PLATFORMS, IMAGE_RECIPE,
 )
 
 
@@ -56,7 +56,7 @@ def test_dataclasses_construct():
     assert r.cost_usd == 0.0 and r.skipped_reason is None
     pr = PlatformResult(platform="x", status="posted")
     assert pr.verdict is None and pr.error is None
-    assert VIDEO_RECIPE == "heygen-avatar-video" and IMAGE_RECIPE == "higgsfield-soul-image"
+    assert IMAGE_RECIPE == "higgsfield-soul-image"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -80,8 +80,9 @@ from dataclasses import dataclass, field
 # Fixed media mapping (spec): one image fans to these, one video fans to those.
 IMAGE_PLATFORMS = ("x", "linkedin", "facebook")
 VIDEO_PLATFORMS = ("tiktok", "instagram")
-IMAGE_RECIPE = "higgsfield-soul-image"     # existing Higgsfield recipe
-VIDEO_RECIPE = "heygen-avatar-video"       # authored in Task 4 (HeyGen engine)
+IMAGE_RECIPE = "higgsfield-soul-image"     # existing Higgsfield recipe (image)
+# NB: video is produced by the HeyGen Video Agent client (agent/social/video.py), NOT a
+# media-factory recipe — so there is no VIDEO_RECIPE constant.
 
 
 @dataclass(frozen=True)
@@ -374,74 +375,161 @@ git commit -m "feat(social): social_campaign/social_post tables + store (dedup, 
 
 ---
 
-### Task 4: HeyGen video recipe
+### Task 4: `video.py` — HeyGen Video Agent client (no avatar)
 
 **Files:**
-- Create: `src/glitch_signal/media/generation/recipe_library/heygen-avatar-video/recipe.json`
-- Create: `src/glitch_signal/media/generation/recipe_library/heygen-avatar-video/SKILL.md`
-- Test: `tests/test_social_recipe.py`
+- Create: `src/glitch_signal/agent/social/video.py`
+- Test: `tests/test_social_video.py`
 
 **Interfaces:**
-- Produces: a loadable recipe slug `heygen-avatar-video` whose engine is `heygen`, taking inputs `{script, avatar_id, voice_id}`. GE's `avatar_id`/`voice_id` are supplied at enablement via `brand_env` (owner data) — the recipe references them as `{{avatar_id}}`/`{{voice_id}}` placeholders filled by the caller's `Brief.inputs`.
+- Consumes: `Idea` (Task 1); `config.brand_env`; `media/generation/storage.persist` (or `upload_bytes`) for bucket hosting; the cost meter.
+- Produces:
+  - `build_video_prompt(idea: Idea) -> str` — natural story + tone + `orientation: portrait`, positive framing (per HeyGen guidance: no timestamps, no questions, no "no B-roll").
+  - `reference_urls(brand_id: str) -> list[str]` — from `brand_env("SOCIAL_REFERENCE_URLS")` (comma-separated), capped at 20.
+  - `async generate_video(brand_id: str, prompt: str, file_urls: list[str], *, submit=None, poll=None, persist_url=None) -> str` — POST the Video Agent, poll to completion, persist the result to the brand bucket, return the durable URL. `submit`/`poll`/`persist_url` are injectable for tests (defaults use httpx + the real bucket).
 
-> **NOTE:** Read an existing `recipe.json` (e.g. `recipe_library/higgsfield-soul-image/recipe.json`) FIRST and mirror its exact structure/keys — the loader (`media/generation/registry.py`) defines the schema. The JSON below shows intent; conform its keys to the real loader. Confirm the HeyGen submit body fields (`agent/media/generation/engines/heygen.py::_submit`) so `recipe.json` inputs map to what the engine sends (`v3/videos`: script/text, avatar, voice).
+> HeyGen Video Agent API (verified from developers.heygen.com): `POST https://api.heygen.com/v3/video-agents` with header `X-Api-Key: $HEYGEN_API_KEY`, body `{"prompt": <=10000 chars, "orientation": "portrait", "mode": "generate", "files": [{"type":"url","url":...}]}` → `{"data": {"session_id", "video_id": null, ...}}`. Poll `GET /v3/video-agents/{session_id}` until `data.video_id` is set, then `GET /v3/videos/{video_id}` until `data.status == "completed"` → `data.video_url`. Render takes ~5–10× the clip length (fine on a background run). Confirm exact response nesting against the live API during implementation.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# tests/test_social_recipe.py
-from glitch_signal.media.generation import registry
+# tests/test_social_video.py
+from glitch_signal.agent.social import video
+from glitch_signal.agent.social.spec import Idea
 
 
-def test_heygen_recipe_loads_and_uses_heygen_engine():
-    rec = registry.load("heygen-avatar-video")   # conform to the real loader API
-    assert rec.engine == "heygen"
-    # inputs the caller must supply
-    assert {"script", "avatar_id", "voice_id"} <= set(rec.declared_inputs())
+def test_build_video_prompt_is_portrait_positive():
+    p = video.build_video_prompt(Idea("risk", "Blow-ups are optional", ["use stops"], "k"))
+    assert "portrait" in p.lower()
+    assert "no b-roll" not in p.lower()          # positive framing only
+    assert "Blow-ups are optional" in p
+
+
+def test_reference_urls_splits_env(monkeypatch):
+    monkeypatch.setenv("GE_SOCIAL_REFERENCE_URLS", "https://a/1.png, https://a/2.png")
+    urls = video.reference_urls("glitch_executor")   # ENV_PREFIX for glitch_executor is GE
+    assert urls == ["https://a/1.png", "https://a/2.png"]
+
+
+async def test_generate_video_submits_polls_persists():
+    seen = {}
+    async def _submit(prompt, file_urls): seen["files"] = file_urls; return "sess_1"
+    async def _poll(session_id): seen["sess"] = session_id; return "https://heygen/out.mp4"
+    async def _persist(brand_id, url): return f"https://bucket/{brand_id}/out.mp4"
+    out = await video.generate_video("ge", "prompt", ["https://a/1.png"],
+                                     submit=_submit, poll=_poll, persist_url=_persist)
+    assert out == "https://bucket/ge/out.mp4"
+    assert seen["sess"] == "sess_1" and seen["files"] == ["https://a/1.png"]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/test_social_recipe.py -q`
-Expected: FAIL — recipe slug not found.
+Run: `uv run pytest tests/test_social_video.py -q`
+Expected: FAIL — module missing.
 
-- [ ] **Step 3: Write the recipe** (conform keys to the real loader)
+- [ ] **Step 3: Write minimal implementation**
 
-```json
-// recipe_library/heygen-avatar-video/recipe.json
-{
-  "slug": "heygen-avatar-video",
-  "engine": "heygen",
-  "kind": "video",
-  "inputs": {
-    "script": {"type": "string", "required": true},
-    "avatar_id": {"type": "string", "required": true},
-    "voice_id": {"type": "string", "required": true}
-  },
-  "phases": [
-    {"op": "generate", "model": "heygen",
-     "params": {"script": "{{script}}", "avatar_id": "{{avatar_id}}", "voice_id": "{{voice_id}}"}}
-  ]
-}
+```python
+# src/glitch_signal/agent/social/video.py
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import structlog
+
+from glitch_signal.agent.social.spec import Idea
+
+log = structlog.get_logger(__name__)
+
+_API = "https://api.heygen.com/v3"
+_MAX_FILES = 20
+
+
+def build_video_prompt(idea: Idea) -> str:
+    body = f"{idea.hook}. " + " ".join(idea.key_points)
+    return (
+        f"{body}\n\n"
+        "Tone: confident, sharp, honest — a trader done with hype, talking straight to camera's "
+        "audience. Energetic but grounded.\n"
+        "Use the attached brand assets and product screenshots for on-brand B-roll and overlays.\n"
+        "Orientation: portrait."
+    )[:10000]
+
+
+def reference_urls(brand_id: str) -> list[str]:
+    from glitch_signal.config import brand_env
+    raw = brand_env("SOCIAL_REFERENCE_URLS", brand_id)
+    return [u.strip() for u in raw.split(",") if u.strip()][:_MAX_FILES]
+
+
+async def _default_submit(prompt: str, file_urls: list[str]) -> str:
+    import httpx
+    from glitch_signal.config import settings
+    key = (getattr(settings(), "heygen_api_key", "") or "").strip()  # or os.environ["HEYGEN_API_KEY"]
+    body = {"prompt": prompt[:10000], "orientation": "portrait", "mode": "generate",
+            "files": [{"type": "url", "url": u} for u in file_urls[:_MAX_FILES]]}
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(f"{_API}/video-agents", headers={"X-Api-Key": key}, json=body)
+        r.raise_for_status()
+        return r.json()["data"]["session_id"]
+
+
+async def _default_poll(session_id: str, *, sleep=asyncio.sleep, timeout_s: int = 1800) -> str:
+    import httpx
+    from glitch_signal.config import settings
+    key = (getattr(settings(), "heygen_api_key", "") or "").strip()
+    headers = {"X-Api-Key": key}
+    waited = 0
+    async with httpx.AsyncClient(timeout=60) as c:
+        video_id = None
+        while waited < timeout_s:
+            if video_id is None:
+                d = (await c.get(f"{_API}/video-agents/{session_id}", headers=headers)).json()["data"]
+                video_id = d.get("video_id")
+            if video_id:
+                v = (await c.get(f"{_API}/videos/{video_id}", headers=headers)).json()["data"]
+                status = str(v.get("status", "")).lower()
+                if status == "completed":
+                    return v["video_url"]
+                if status == "failed":
+                    raise RuntimeError(f"heygen video {video_id} failed")
+            await sleep(10); waited += 10
+    raise TimeoutError(f"heygen session {session_id} timed out after {timeout_s}s")
+
+
+async def _default_persist(brand_id: str, url: str) -> str:
+    # Download the HeyGen mp4 and re-host in the brand bucket (durable URL). Reuse the media
+    # factory's storage helper; confirm the exact function name during implementation.
+    from glitch_signal.media.generation.storage import upload_bytes
+    import httpx
+    async with httpx.AsyncClient(timeout=120) as c:
+        data = (await c.get(url)).content
+    return await upload_bytes(brand_id, data, content_type="video/mp4", suffix=".mp4")
+
+
+async def generate_video(brand_id: str, prompt: str, file_urls: list[str], *,
+                         submit=None, poll=None, persist_url=None) -> str:
+    submit = submit or _default_submit
+    poll = poll or _default_poll
+    persist_url = persist_url or _default_persist
+    session_id = await submit(prompt, file_urls)
+    heygen_url = await poll(session_id)
+    return await persist_url(brand_id, heygen_url)
 ```
 
-```markdown
-<!-- recipe_library/heygen-avatar-video/SKILL.md -->
-# heygen-avatar-video
-A short brand avatar video (HeyGen). Inputs: script (spoken copy), avatar_id, voice_id
-(brand-specific, supplied via brand_env at call time). Engine: heygen (submit→poll).
-```
+> **Verify during implementation:** (a) `HEYGEN_API_KEY` access — confirm whether it's on `settings()` or read from `os.environ` (mirror `media/generation/engines/heygen.py`); (b) the exact `storage` helper name/signature for uploading bytes to the brand bucket; (c) meter the HeyGen spend through the same `usage_events` choke point the avatar engine uses. Keep `video.py` self-contained — do NOT add an engine/recipe to the media factory.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run tests to verify they pass**
 
-Run: `uv run pytest tests/test_social_recipe.py -q`
-Expected: PASS. If the loader's API differs, adjust the test + JSON keys to the real schema (read `registry.py`).
+Run: `uv run pytest tests/test_social_video.py -q`
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add "src/glitch_signal/media/generation/recipe_library/heygen-avatar-video/" tests/test_social_recipe.py
-git commit -m "feat(social): heygen-avatar-video recipe (HeyGen engine, brand avatar/voice)"
+git add src/glitch_signal/agent/social/video.py tests/test_social_video.py
+git commit -m "feat(social): HeyGen Video Agent client (prompt+files, no avatar)"
 ```
 
 ---
@@ -849,7 +937,8 @@ from glitch_signal.agent.social.spec import Idea, PlatformResult
 def _deps(**over):
     async def ideate(brand_id, **k): return Idea("a", "h", ["p"], "k1")
     async def captions(brand_id, idea, **k): return {"image": "ci", "video": "cv"}
-    async def gen(brand_id, recipe, inputs): return f"https://cdn/{recipe}.out"
+    async def gen_img(brand_id, idea): return "https://cdn/img.png"
+    async def gen_vid(brand_id, idea): return "https://cdn/vid.mp4"
     async def review(goal, output, *, facts="", **k): return {"verdict": "pass", "notes": ""}
     async def brand_facts(brand_id, **k): return ""
     async def budget_check(brand_id, **k): return (True, "")
@@ -859,9 +948,10 @@ def _deps(**over):
         async def recent_dedup_keys(self, b, **k): return set()
         async def create_campaign(self, b, idea, **k): return "camp-1"
         async def finalize_campaign(self, cid, status, cost, **k): self.final = (status, cost)
-    d = campaign.RunDeps(ideate=ideate, captions=captions, generate_media=gen, review=review,
-                         brand_facts=brand_facts, budget_check=budget_check, fan_out=fan_out,
-                         store_mod=_Store(), remember=lambda *a, **k: None)
+    d = campaign.RunDeps(ideate=ideate, captions=captions, generate_image=gen_img,
+                         generate_video=gen_vid, review=review, brand_facts=brand_facts,
+                         budget_check=budget_check, fan_out=fan_out, store_mod=_Store(),
+                         remember=lambda *a, **k: None)
     for key, val in over.items():
         setattr(d, key, val)
     return d
@@ -900,8 +990,8 @@ async def test_dedup_skips(monkeypatch):
 
 async def test_both_media_fail_skips(monkeypatch):
     monkeypatch.setattr(campaign, "_social_on", lambda: True)
-    async def gen(brand_id, recipe, inputs): raise RuntimeError("engine down")
-    res = await campaign.run_campaign("ge", deps=_deps(generate_media=gen))
+    async def boom(brand_id, idea): raise RuntimeError("engine down")
+    res = await campaign.run_campaign("ge", deps=_deps(generate_image=boom, generate_video=boom))
     assert res.skipped_reason == "media generation failed" and not res.posts
 ```
 
@@ -922,7 +1012,7 @@ from typing import Any, Callable
 import structlog
 
 from glitch_signal.agent.social.spec import (
-    CampaignResult, IMAGE_PLATFORMS, IMAGE_RECIPE, PostDraft, VIDEO_PLATFORMS, VIDEO_RECIPE,
+    CampaignResult, IMAGE_PLATFORMS, IMAGE_RECIPE, PostDraft, VIDEO_PLATFORMS,
 )
 
 log = structlog.get_logger(__name__)
@@ -939,7 +1029,8 @@ def _social_on() -> bool:
 class RunDeps:
     ideate: Callable[..., Any]
     captions: Callable[..., Any]
-    generate_media: Callable[..., Any]     # (brand_id, recipe, inputs) -> url
+    generate_image: Callable[..., Any]     # (brand_id, idea) -> url  (Higgsfield via media factory)
+    generate_video: Callable[..., Any]     # (brand_id, idea) -> url  (HeyGen Video Agent client)
     review: Callable[..., Any]
     brand_facts: Callable[..., Any]
     budget_check: Callable[..., Any]
@@ -950,36 +1041,30 @@ class RunDeps:
 
 def _default_deps() -> RunDeps:
     from glitch_signal.agent.loop import conscience
-    from glitch_signal.agent.loop.llm import complete           # noqa: F401 (used by ideate/captions defaults)
     from glitch_signal.agent.memory.store import remember
-    from glitch_signal.agent.social import captions, ideate, publish, store
+    from glitch_signal.agent.social import captions, ideate, publish, store, video
     from glitch_signal.analytics.cost import budget
     from glitch_signal.media.generation import generate as _generate
     from glitch_signal.media.generation.spec import Brief
     from glitch_signal.media.generation.storage import persist
 
-    async def generate_media(brand_id: str, recipe: str, inputs: dict) -> str:
-        asset = await _generate(Brief(brand_id=brand_id, recipe=recipe, inputs=inputs))
-        asset = await persist(asset, brand_id)
-        return asset.url
+    async def generate_image(brand_id: str, idea) -> str:
+        asset = await _generate(Brief(brand_id=brand_id, recipe=IMAGE_RECIPE,
+                                      inputs={"prompt": f"{idea.angle}: {idea.hook}"}))
+        return (await persist(asset, brand_id)).url
+
+    async def generate_video(brand_id: str, idea) -> str:
+        return await video.generate_video(brand_id, video.build_video_prompt(idea),
+                                          video.reference_urls(brand_id))
 
     async def _remember(brand_id, content):
         await remember(brand_id, "episode", content, source="social_campaign")
 
     return RunDeps(ideate=ideate.propose_idea, captions=captions.write_captions,
-                   generate_media=generate_media, review=conscience.review,
-                   brand_facts=conscience.brand_facts, budget_check=budget.check,
-                   fan_out=publish.fan_out, store_mod=store, remember=_remember)
-
-
-def _brief_inputs(brand_id: str, recipe: str, idea) -> dict:
-    """Recipe inputs. HeyGen avatar/voice come from brand_env (owner data)."""
-    from glitch_signal.config import brand_env
-    script = f"{idea.hook}. " + " ".join(idea.key_points)
-    if recipe == VIDEO_RECIPE:
-        return {"script": script, "avatar_id": brand_env("HEYGEN_AVATAR_ID", brand_id),
-                "voice_id": brand_env("HEYGEN_VOICE_ID", brand_id)}
-    return {"prompt": f"{idea.angle}: {idea.hook}"}     # image recipe
+                   generate_image=generate_image, generate_video=generate_video,
+                   review=conscience.review, brand_facts=conscience.brand_facts,
+                   budget_check=budget.check, fan_out=publish.fan_out,
+                   store_mod=store, remember=_remember)
 
 
 async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
@@ -999,14 +1084,14 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
         return CampaignResult(idea=None, image_url=None, video_url=None,
                               skipped_reason="no fresh idea")
 
-    # media — per-medium fail-soft
+    # media — per-medium fail-soft (image = Higgsfield/factory; video = HeyGen Video Agent)
     image_url = video_url = None
     try:
-        image_url = await d.generate_media(brand_id, IMAGE_RECIPE, _brief_inputs(brand_id, IMAGE_RECIPE, idea))
+        image_url = await d.generate_image(brand_id, idea)
     except Exception as exc:  # noqa: BLE001
         log.warning("social.image_failed", error=str(exc)[:200])
     try:
-        video_url = await d.generate_media(brand_id, VIDEO_RECIPE, _brief_inputs(brand_id, VIDEO_RECIPE, idea))
+        video_url = await d.generate_video(brand_id, idea)
     except Exception as exc:  # noqa: BLE001
         log.warning("social.video_failed", error=str(exc)[:200])
     if not image_url and not video_url:
@@ -1148,7 +1233,7 @@ Run: `uv run python -c "import glitch_signal.server"` — expect no import error
 
 - [ ] **Step 3: Docs write-back**
 
-Update the spec Status to `BUILT`; add a `SOCIAL-CAMPAIGN` CLOSED entry to the board and an evidence entry to the supervisor (read / changed / verified / docs / remains — note enablement is a separate step, and GE's `HEYGEN_AVATAR_ID`/`HEYGEN_VOICE_ID` must be set before a live run).
+Update the spec Status to `BUILT`; add a `SOCIAL-CAMPAIGN` CLOSED entry to the board and an evidence entry to the supervisor (read / changed / verified / docs / remains). Note the enablement steps are separate and NOT done here: host GE's logo + platform screenshots in `ge-media/reference/`, set `GE_SOCIAL_REFERENCE_URLS`, flip `agent_social_enabled` + `agent_publish_enabled`, and seed the `social_campaign` cron job.
 
 - [ ] **Step 4: Commit + PR**
 
@@ -1163,10 +1248,10 @@ gh pr create --base production --title "feat(social): autonomous conscience-gate
 
 ## Self-Review
 
-**Spec coverage:** idea+dedup (T5) · Higgsfield image + HeyGen video, incl. the missing recipe (T4, media factory) · captions+polish (T6) · conscience hard-gate (T8) · exactly-1/platform fan-out + mapping + idempotency (T7) · dedup + tables (T3) · flags/inert (T2) · self-cron capability (T9) · budget/fail-soft/cost (T7,T8) · tests (every task) · docs (T10). All spec sections map to a task.
+**Spec coverage:** idea+dedup (T5) · Higgsfield image via media factory + HeyGen **Video Agent** client (T4) · captions+polish (T6) · conscience hard-gate (T8) · exactly-1/platform fan-out + mapping + idempotency (T7) · dedup + tables (T3) · flags/inert (T2) · self-cron capability (T9) · budget/fail-soft/cost (T7,T8) · reference assets via `SOCIAL_REFERENCE_URLS` (T4) · tests (every task) · docs (T10). All spec sections map to a task.
 
-**Placeholder scan:** No TBD/TODO. Two flagged *verify-against-real-API* notes (T4 recipe loader schema; T6 `polish_copy` import; T7 publisher kwargs) are deliberate — the reference sheet gave signatures but the recipe-loader schema and exact publisher kwargs must be confirmed against source at build time; each says exactly what to check and the fallback.
+**Placeholder scan:** No TBD/TODO. The *verify-against-real-API* notes (T4 HeyGen Video Agent response nesting + `HEYGEN_API_KEY` access + the `storage` upload helper; T6 `polish_copy` import; T7 publisher kwargs) are deliberate — signatures came from the reference sheet / HeyGen docs, but exact response nesting, the key-access pattern, and publisher kwargs must be confirmed against source at build time; each says what to check and the fallback.
 
-**Type consistency:** `Idea`/`PostDraft`/`PlatformResult`/`CampaignResult` fields consistent across T1→T8; `Publishers`/`RunDeps` dataclasses defined where introduced; `store` function names match between T3, T7, T8; capability `CapFn = (brand_id, args)->dict` matches T9.
+**Type consistency:** `Idea`/`PostDraft`/`PlatformResult`/`CampaignResult` fields consistent across T1→T8; `Publishers`/`RunDeps` dataclasses defined where introduced; `RunDeps` uses `generate_image`+`generate_video` (T8) matching the T8 defaults + tests; `store` function names match between T3, T7, T8; capability `CapFn = (brand_id, args)->dict` matches T9. No `VIDEO_RECIPE` remains (removed from T1, campaign import, and tests).
 
-**Known real dependency (not a blocker to build, is a blocker to enable live):** no HeyGen recipe existed (T4 authors one); GE's `HEYGEN_AVATAR_ID` / `HEYGEN_VOICE_ID` are owner-supplied and required before a live video run.
+**Known real dependencies (not blockers to build, are blockers to enable live):** (1) `HEYGEN_API_KEY` (present in prod) drives the Video Agent; (2) the **reference assets** — GE's logo + the 4 platform screenshots — must be hosted in GE's Supabase bucket (e.g. `ge-media/reference/`) and their public URLs set in `GE_SOCIAL_REFERENCE_URLS` (comma-separated) before a live video run; (3) `agent_social_enabled` + `agent_publish_enabled` must be flipped and a cron job seeded — all separate, deliberate enablement steps, none done in this lane.

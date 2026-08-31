@@ -50,9 +50,32 @@ core is hardcoded to social posting.
 |---|---|
 | Safety model (no HITL) | **Conscience as a hard gate** — `escalate` → held as draft (not posted); `pass`/`concerns` → publish |
 | Trigger | **Recurring self-cron** (existing `agent/cron`); operator sets cadence; ships inert |
-| Media mapping | **1 HeyGen video → TikTok + Instagram**; **1 Higgsfield image → X + LinkedIn + Facebook** (1 idea, 2 generations) |
-| Build shape | **Deterministic capability** (LLM for idea + captions only) |
+| Media mapping | **1 video → TikTok + Instagram**; **1 image → X + LinkedIn + Facebook** (1 idea, 2 generations) |
+| Video method | **HeyGen Video Agent** — prompt-driven, **B-roll + subtitles, NO avatar/talking-head**; **portrait**; fed **brand assets + platform screenshots** as reference files |
+| Image method | **Higgsfield** via the existing `higgsfield-soul-image` recipe (media factory) |
+| Build shape | **Deterministic capability** (LLM for idea, captions, and the video prompt only) |
 | Platforms | X, LinkedIn, TikTok (Buffer) + Facebook, Instagram (Meta). **YouTube excluded.** |
+
+### Video — HeyGen Video Agent (no avatar)
+
+The video is produced by HeyGen's **Video Agent** (prompt→video), which selects B-roll, adds
+text overlays/subtitles, music, and pacing on its own. We do **not** use a talking-head avatar.
+
+- **API:** `POST https://api.heygen.com/v3/video-agents` (`X-Api-Key: $HEYGEN_API_KEY`), body
+  `{prompt, orientation:"portrait", mode:"generate", files:[{type:"url", url:…}]}`. Async:
+  response gives `session_id`; poll `GET /v3/video-agents/{session_id}` until `video_id` is set,
+  then `GET /v3/videos/{video_id}` until `status=completed` → `video_url`. (~5–10× the clip
+  length to render; fine on a background run.)
+- **Reference files = OUR inputs:** brand assets + platform screenshots, supplied as URLs via
+  `brand_env("SOCIAL_REFERENCE_URLS")` (comma-separated; owner-controlled). Up to 20 files;
+  png/jpeg/mp4/pdf.
+- **Prompt craft** (per HeyGen's guidance): a natural, first-person **story** script + a **tone**
+  line + `orientation: portrait`; **positive framing** (describe what we want, never "no
+  B-roll"); no timestamps/scene-structure; no question-driven scripts.
+- **Isolation:** this is a **self-contained client** in `agent/social/video.py` — it does **not**
+  add an engine/recipe to the shared media factory (the factory's avatar `heygen.py` engine is a
+  different HeyGen product and is left untouched). It reuses only `storage.persist`-style bucket
+  upload and the cost meter.
 
 ---
 
@@ -68,15 +91,28 @@ core is hardcoded to social posting.
 - `captions.py` — `async write_captions(brand_id, idea, *, complete) -> dict[str, str]`.
   Two variants (`image`, `video`) in GE voice, each passed through `polish_copy`
   (mandatory content-policy pass), then deterministic per-platform length trims.
+- `video.py` — **self-contained HeyGen Video Agent client** (isolation: not a media-factory
+  engine). `build_video_prompt(idea) -> str` (natural story + tone + `orientation: portrait`,
+  positive framing) and `async generate_video(brand_id, prompt, file_urls, *, submit, poll) ->
+  str` (POST `/v3/video-agents`, poll session→`video_id`→`/v3/videos/{id}`, then persist to the
+  brand bucket + meter). `reference_urls(brand_id) -> list[str]` reads
+  `brand_env("SOCIAL_REFERENCE_URLS")`.
 - `campaign.py` — `async run_campaign(brand_id, *, deps…) -> CampaignResult`. The
   orchestrator (below). All external effects injected for tests.
 - Registered in `agent/cron/capabilities.py` as capability **`social_campaign`** so the
   self-cron can run it.
 
-**Reused as-is (no changes beyond seams):** `media.generation.generate` + `persist`
-(image/video), `agent/loop/conscience.py::review` + `brand_facts`, `platforms/buffer.py`,
-`platforms/facebook.py`, `platforms/instagram.py`, `analytics/cost/budget.py`,
-`agent/memory/store.py` (`recall`/`remember`), `agent/loop/routing.py` (via the LLM seam).
+**Reused as-is (no changes beyond seams):** `media.generation.generate` + `persist` (Higgsfield
+**image only**), `agent/loop/conscience.py::review` + `brand_facts`, `platforms/buffer.py`,
+`platforms/facebook.py`, `platforms/instagram.py`, `analytics/cost/budget.py` + the cost meter,
+`agent/memory/store.py` (`recall`/`remember`), `agent/loop/routing.py` (via the LLM seam),
+`media/generation/storage` (bucket persist for the HeyGen output). **Not touched:** the media
+factory's avatar `heygen.py` engine (a different HeyGen product).
+
+**Reference assets (owner-curated, hosted in the brand's Supabase bucket):** the brand's logo +
+platform screenshots live under the brand bucket (e.g. `ge-media/reference/`); their public URLs
+are listed in `brand_env("SOCIAL_REFERENCE_URLS")` (comma-separated) and passed to the Video
+Agent as `files`. Owner uploads the curated set at enablement.
 
 ---
 
@@ -93,10 +129,12 @@ never aborts the others; any uncertainty resolves **toward not posting**.
 2. **Ideate.** `propose_idea()` — recall discovery/trend notes + verified brand facts, LLM
    returns one idea; dedup against recent `social_campaign.dedup_key` (last N). No fresh
    idea → skip (recorded).
-3. **Generate media (2 calls).** Higgsfield image + HeyGen video via the media factory
-   (recipes chosen from config), each persisted to GE's bucket. **Per-medium fail-soft:** if
-   the video fails, image-group posts still proceed; if the image fails, video-group posts
-   still proceed; if both fail → skip.
+3. **Generate media (2 calls).** **Image:** Higgsfield via the media factory
+   (`generate(Brief(recipe="higgsfield-soul-image"))` + `persist`). **Video:** the HeyGen
+   **Video Agent** via `video.generate_video(brand_id, build_video_prompt(idea),
+   reference_urls(brand_id))` — prompt + brand/screenshot reference files → B-roll+subtitles
+   video, persisted to the bucket. **Per-medium fail-soft:** video fails → image-group posts
+   still proceed; image fails → video-group posts still proceed; both fail → skip.
 4. **Captions.** `write_captions()` → `{image, video}`, polished, per-platform trimmed.
 5. **Conscience gate.** For each intended post, `conscience.review(goal, output=caption(+idea
    context), facts=brand_facts)`. `escalate` → **held** (`social_post.status=held`, not
