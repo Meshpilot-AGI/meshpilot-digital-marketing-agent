@@ -92,7 +92,7 @@ async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_
                 status = str(v.get("status", "")).lower()
                 if status == "completed":
                     return v["video_url"]
-                if status in ("failed", "error"):
+                if status in ("failed", "error", "cancelled", "canceled"):
                     raise RuntimeError(f"heygen video {video_id} {status}: {v.get('error') or v.get('message') or ''}")
             await sleep(10)
             waited += 10
