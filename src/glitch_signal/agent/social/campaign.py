@@ -8,6 +8,7 @@ from typing import Any
 import structlog
 
 from glitch_signal.agent.social.spec import (
+    IMAGE_MODEL,
     IMAGE_PLATFORMS,
     VIDEO_PLATFORMS,
     CampaignResult,
@@ -67,30 +68,50 @@ def _default_deps() -> RunDeps:
     from glitch_signal.agent.social import captions, ideate, publish, store, video
     from glitch_signal.analytics.cost import budget
 
-    async def generate_image(brand_id: str, idea) -> str:
-        """Render the post card deterministically — no image model in the loop.
+    async def _voice(brand_id: str):
+        from glitch_signal.agent import positioning as _pos
+        from glitch_signal.agent.social.plan import BrandVoice
+        return BrandVoice.from_brand(await _pos.get_visual(brand_id),
+                                     await _pos.get_guardrails(brand_id))
 
-        The previous path sent `f"{idea.angle}: {idea.hook}"` to a photorealism model with no art
-        direction at all, which is why the output was generic: the best model in the world returns
-        stock imagery from a bare topic string. And for this brand a glossy AI photograph is the
-        wrong creative regardless of quality — it reads as stock to a reader who is specifically
-        allergic to marketing. The hook, set well, IS the image.
+    async def generate_image(brand_id: str, idea) -> str:
+        """Route on what the post IS, then render it that way.
+
+        Two routes, both grounded in the brand's own art direction: a conceptual idea goes to the
+        image model with a brief REFINED from the loose idea (the step whose absence made the last
+        campaign generic), and a structured idea — a comparison, a definition, a list — renders as a
+        deterministic card where the type is exact. Neither is the default; `asset_kind` decides.
         """
         from glitch_signal.agent import positioning as _pos
+        from glitch_signal.agent.loop import llm as _llm
+        from glitch_signal.agent.social import plan as _plan
         from glitch_signal.media.generation.storage import upload_bytes
         from glitch_signal.media.render import card as _card
+        from glitch_signal.media.render import layouts as _layouts
 
+        voice = await _voice(brand_id)
         tokens = await _pos.get_visual(brand_id)
-        png = _card.render(_card.Card(
-            headline=idea.hook or idea.angle,
-            # The angle reads "pillar: specific topic"; only the pillar belongs in the kicker —
-            # the specific topic is already the headline right beneath it.
-            kicker=idea.angle.split(":")[0],
-            subhead=(idea.key_points[0] if idea.key_points else ""),
-            wordmark=str(tokens.get("wordmark", "")),
+        p = await _plan.plan_asset(idea, asset_kind=idea.asset_kind, platform="instagram",
+                                   voice=voice, positioning=await _pos.get(brand_id),
+                                   complete=_llm.complete)
+        if p.route in ("image", "poster"):
+            from glitch_signal.media.generation.engines.muapi import MuapiEngine
+            url = await MuapiEngine().generate(IMAGE_MODEL, p.prompt,
+                                               params={"aspect_ratio": p.aspect})
+            import httpx
+            async with httpx.AsyncClient(timeout=120) as c:
+                r = await c.get(url)
+                r.raise_for_status()
+                data = r.content
+            # Re-host: muapi output URLs expire, and a post that outlives its image is worse than no
+            # post at all.
+            return await upload_bytes(data, brand_id, ext="jpg", content_type="image/jpeg",
+                                      prefix="social_image")
+
+        png = _layouts.render(p.layout, _layouts.Spec(
+            content=_layouts.Content(**{k: v for k, v in p.fields.items()}),
             fmt=str(tokens.get("format") or _card.DEFAULT_FORMAT),
-            palette=_card.Palette.from_dict(tokens),
-        ))
+            palette=_card.Palette.from_dict(tokens)))
         return await upload_bytes(png, brand_id, ext="png", content_type="image/png",
                                   prefix="social_card")
 

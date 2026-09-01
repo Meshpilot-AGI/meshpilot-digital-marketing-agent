@@ -73,6 +73,29 @@ async def get_visual(brand_id: str, *, engine: Any = None) -> dict:
         return {}
 
 
+async def get_guardrails(brand_id: str, *, engine: Any = None) -> dict:
+    """Machine-checkable guardrails: prohibited phrases + banned imagery. {} when unset.
+
+    The prose doc states these for the models; this states them for CODE, so a prohibited phrase
+    fails the draft deterministically BEFORE any paid generation rather than depending on a critic
+    noticing it afterwards.
+    """
+    try:
+        eng = engine or _engine()
+        async with eng.connect() as conn:
+            row = (await conn.execute(
+                text("SELECT guardrails FROM brand_positioning WHERE brand_id = :brand"),
+                {"brand": brand_id})).first()
+        val = row[0] if row else None
+        if isinstance(val, str):
+            import json
+            val = json.loads(val)
+        return val if isinstance(val, dict) else {}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brand.guardrails_read_failed", brand_id=brand_id, error=str(exc)[:200])
+        return {}
+
+
 async def put(brand_id: str, content: str, *, updated_by: str = "operator",
               engine: Any = None) -> None:
     """Upsert this brand's positioning doc. Operator-only by contract — see the /internal routes."""
