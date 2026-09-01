@@ -168,3 +168,44 @@ async def test_caption_failure_finalizes_paid_campaign(monkeypatch):
     assert res.skipped_reason and "caption/facts failed" in res.skipped_reason
     assert finals["status"] == "failed" and "caption" in (finals["reason"] or "")
     assert not res.posts
+
+
+# ── dry run: produce the creative, never publish ────────────────────────────────────────────────
+async def test_dry_run_never_calls_fan_out(monkeypatch):
+    """The safety property is STRUCTURAL, not conditional: a preview must not be able to reach a
+    platform in any flag state, so fan_out is simply never called."""
+    monkeypatch.setattr(campaign, "_social_enabled", lambda: True)
+    async def boom(*a, **k):
+        raise AssertionError("fan_out ran during a dry run")
+    res = await campaign.run_campaign("ge", deps=_deps(fan_out=boom), dry_run=True)
+    assert res.posts == [] and res.image_url == "https://cdn/img.png"
+
+
+async def test_dry_run_does_not_reserve_or_burn_the_dedup_key(monkeypatch):
+    """Previewing an idea must leave it available for the real run."""
+    monkeypatch.setattr(campaign, "_social_enabled", lambda: True)
+    calls = {"reserve": 0, "finalize": 0}
+    class _Store:
+        async def recent_dedup_keys(self, b, **k): return set()
+        async def reserve_campaign(self, b, idea, **k):
+            calls["reserve"] += 1
+            return "camp-1"
+        async def finalize_campaign(self, cid, status, cost, **k):
+            calls["finalize"] += 1
+    await campaign.run_campaign("ge", deps=_deps(store_mod=_Store()), dry_run=True)
+    assert calls == {"reserve": 0, "finalize": 0}
+
+
+async def test_dry_run_still_runs_while_publishing_is_disabled(monkeypatch):
+    """The whole point of a preview is judging output BEFORE enabling publishing."""
+    monkeypatch.setattr(campaign, "_social_on", lambda: False)        # publish gate CLOSED
+    monkeypatch.setattr(campaign, "_social_enabled", lambda: True)    # social switch open
+    res = await campaign.run_campaign("ge", deps=_deps(), dry_run=True)
+    assert res.image_url and res.posts == []
+
+
+async def test_dry_run_is_off_by_default(monkeypatch):
+    """A normal run must be unaffected — publishing still happens when it is meant to."""
+    monkeypatch.setattr(campaign, "_social_on", lambda: True)
+    res = await campaign.run_campaign("ge", deps=_deps())
+    assert len(res.posts) == 5
