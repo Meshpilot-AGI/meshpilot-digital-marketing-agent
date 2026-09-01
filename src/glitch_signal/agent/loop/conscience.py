@@ -95,12 +95,18 @@ async def brand_facts(brand_id: str, *, limit: int = 8) -> str:
         return ""
 
 
-async def review(goal: str, output: str | None, *, facts: str = "",
+async def review(goal: str, output: str | None, *, facts: str = "", positioning: str = "",
                  complete: CompleteFn | None = None, model: str | None = None) -> dict:
     """Independently review the run's outward-intended output. {} if no constitution / empty output.
 
     `facts` (verified brand ground truth) is authoritative: the critic must defer to it over its own
-    priors — so it stops escalating a real brand it's simply unfamiliar with (e.g. a name collision)."""
+    priors — so it stops escalating a real brand it's simply unfamiliar with (e.g. a name collision).
+
+    `positioning` is kept SEPARATE from facts on purpose. Facts are checkable claims; positioning is
+    judgement — voice, and the never-say list. Mislabelling judgement as ground truth would let a
+    positioning statement launder itself into an authorized claim. The critic needs both, but it
+    must know which is which: facts say what is TRUE, positioning says what is ON-BRAND, and an
+    output can satisfy one while violating the other."""
     complete = complete or agent_llm.complete
     con = constitution()
     text = (output or "").strip()
@@ -115,8 +121,16 @@ async def review(goal: str, output: str | None, *, facts: str = "",
             "alarm about an unfamiliar brand or a name collision. They do NOT authorize any claim: STILL "
             "escalate if the output makes a harmful, non-compliant, misleading, or unsupported claim, or "
             "asserts something these facts do not support.")
+    pos_block = ""
+    if positioning.strip():
+        pos_block = (
+            "\n\n--- BRAND POSITIONING (voice + prohibitions; NOT claim authorization) ---\n"
+            + positioning[:3000] +
+            "\nESCALATE if the output breaks a prohibition named here, adopts a voice this forbids, or "
+            "positions the brand as something it explicitly says it is not — even when every individual "
+            "statement in the output is factually true.")
     prompt = (f"Run goal (context only): {goal}\n\nProposed output to review:\n{text[:3000]}"
-              f"{facts_block}\n\nYour verdict JSON:")
+              f"{facts_block}{pos_block}\n\nYour verdict JSON:")
     try:
         raw = await complete(prompt, system=system, model=model or _model(), timeout_s=40)
     except Exception as exc:  # noqa: BLE001 — deliberation must never fail the run
