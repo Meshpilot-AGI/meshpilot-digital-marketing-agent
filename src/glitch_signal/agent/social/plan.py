@@ -122,7 +122,8 @@ _SYSTEM = (
 
 _ASK = (
     "IDEA\nangle: {angle}\nhook: {hook}\nkey points: {points}\n\n"
-    "BRAND POSITIONING (authoritative — voice, prohibitions, visual direction):\n{positioning}\n\n"
+    "BRAND POSITIONING (authoritative — voice, prohibitions, visual direction):\n{positioning}\n"
+    "{firm_rules}\n"
     "The chosen asset kind is '{kind}', which renders as: {route_desc}\n\n"
     "Return JSON with exactly these keys:\n{schema}\n"
     "Every word must obey the positioning. Invent no numbers. JSON only."
@@ -152,7 +153,8 @@ _ROUTE_DESC = {
 
 
 async def plan_asset(idea: Any, *, asset_kind: str, platform: str, voice: BrandVoice,
-                     positioning: str = "", complete: Callable[..., Any] | None = None) -> AssetPlan:
+                     positioning: str = "", firm_rules_block: str = "",
+                     complete: Callable[..., Any] | None = None) -> AssetPlan:
     """Route the idea and author the refined brief the chosen renderer needs.
 
     Degrades rather than fails: if the authoring call is unavailable or returns junk, fall back to a
@@ -164,6 +166,12 @@ async def plan_asset(idea: Any, *, asset_kind: str, platform: str, voice: BrandV
     if route == "skip":
         return AssetPlan(route="skip", reason=f"no renderable route for asset_kind={asset_kind!r}")
 
+    # Any firm threshold in the copy must come from the verified table, never from the model. Left
+    # to itself it will invent a confident, plausible number about a THIRD PARTY's product — and the
+    # conscience critic cannot catch that: its prohibitions cover our own invented figures, and a
+    # competitor's rule reads to it as an ordinary fact.
+    firm_rules = firm_rules_block or ""
+
     data: dict = {}
     if complete is not None:
         try:
@@ -171,7 +179,8 @@ async def plan_asset(idea: Any, *, asset_kind: str, platform: str, voice: BrandV
                 _ASK.format(angle=idea.angle, hook=idea.hook,
                             points="; ".join(getattr(idea, "key_points", []) or []),
                             positioning=positioning[:6000], kind=asset_kind,
-                            route_desc=_ROUTE_DESC[route], schema=_SCHEMAS[route]),
+                            firm_rules=firm_rules, route_desc=_ROUTE_DESC[route],
+                            schema=_SCHEMAS[route]),
                 system=_SYSTEM, tier="complex", timeout_s=60)
             data = _strip_json(raw)
         except Exception as exc:  # noqa: BLE001 — authoring is a refinement, not a gate

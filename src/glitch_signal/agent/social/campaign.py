@@ -95,11 +95,18 @@ def _default_deps() -> RunDeps:
         from glitch_signal.media.render import card as _card
         from glitch_signal.media.render import layouts as _layouts
 
+        from glitch_signal.agent import firms as _firms
+
         voice = await _voice(brand_id)
         tokens = await _pos.get_visual(brand_id)
+        # Hand the author the VERIFIED thresholds for whichever firms this idea names. Without this
+        # the model supplies the numbers itself, and a wrong figure here is a false claim about a
+        # partner's product published under an affiliate relationship.
+        named = _firms.mentioned(f"{idea.angle} {idea.hook} {' '.join(idea.key_points or [])}")
+        rules = _firms.rules_block(await _firms.rules_for_names(named)) if named else ""
         p = await _plan.plan_asset(idea, asset_kind=idea.asset_kind, platform="instagram",
                                    voice=voice, positioning=await _pos.get(brand_id),
-                                   complete=_llm.complete)
+                                   firm_rules_block=rules, complete=_llm.complete)
         if p.route in ("image", "poster"):
             from glitch_signal.media.generation.engines.muapi import MuapiEngine
             url = await MuapiEngine().generate(IMAGE_MODEL, p.prompt,
