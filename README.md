@@ -14,7 +14,7 @@ remembers what happened, and gets *better on its own* as it runs.
 [![Built with FastAPI](https://img.shields.io/badge/built%20with-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Brain: Claude](https://img.shields.io/badge/brain-Claude-d4a373.svg)](https://www.anthropic.com/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Meshpilot-AGI/meshpilot-digital-marketing-agent/ci.yml?branch=production&label=CI)](../../actions)
-[![Live API](https://img.shields.io/website?url=https%3A%2F%2Fapi.meshpilot.app%2Fhealthz&label=api.meshpilot.app&up_message=live)](https://api.meshpilot.app)
+[![Live API](https://img.shields.io/website?url=https%3A%2F%2Fapi.meshpilot.app%2Fhealthz&label=api.meshpilot.app&up_message=live)](https://meshpilot.app)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Stars](https://img.shields.io/github/stars/Meshpilot-AGI/meshpilot-digital-marketing-agent?style=social)](../../stargazers)
 
