@@ -37,6 +37,12 @@ def _video_deadline_s() -> int:
     return max(_VIDEO_DEADLINE_MIN_S, min(configured, ceiling))
 
 
+def _social_enabled() -> bool:
+    """The social kill-switch alone, WITHOUT the publish gate — what a dry run needs."""
+    from glitch_signal.config import settings
+    return bool(getattr(settings(), "agent_social_enabled", False))
+
+
 def _social_on() -> bool:
     from glitch_signal.config import settings
     s = settings()
@@ -135,11 +141,23 @@ def _default_deps() -> RunDeps:
                    spend_now=_spend_now, positioning=_positioning.get)
 
 
-async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
+async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: bool = False,
                        engine: Any = None) -> CampaignResult:
+    """Run one campaign. With `dry_run`, produce the creative but NEVER publish.
+
+    A preview has to be able to run while publishing is switched off — that is the whole point of
+    it — so it gates on `agent_social_enabled` alone. The safety property is structural rather than
+    conditional: a dry run never reaches `fan_out` at all, so there is no flag state in which it can
+    reach a platform. It also skips the campaign reservation, so previewing an idea does not burn
+    its dedup key and the real run can still use it.
+    """
     from glitch_signal.config import settings
     d = deps or _default_deps()
-    if not _social_on():
+    if dry_run:
+        if not _social_enabled():
+            return CampaignResult(idea=None, image_url=None, video_url=None,
+                                  skipped_reason="social disabled")
+    elif not _social_on():
         return CampaignResult(idea=None, image_url=None, video_url=None,
                               skipped_reason="social/publish disabled")
     allowed, reason = await d.budget_check(brand_id)
@@ -157,16 +175,18 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
     # RESERVE the campaign BEFORE any paid work — the DB unique(brand_id,dedup_key) is the dedup
     # authority, so two concurrent runs of the same idea can never both do paid work. A conflict
     # (no row returned) is a clean duplicate skip.
-    cid = await d.store_mod.reserve_campaign(brand_id, idea, engine=engine)
-    if cid is None:
+    cid = None if dry_run else await d.store_mod.reserve_campaign(brand_id, idea, engine=engine)
+    if cid is None and not dry_run:
         return CampaignResult(idea=idea, image_url=None, video_url=None,
                               skipped_reason="duplicate idea (already reserved)")
 
     async def _finish(status: str, *, image_url: str | None = None, video_url: str | None = None,
                       posts: list | None = None, reason: str | None = None) -> CampaignResult:
         cost = max(0.0, (await d.spend_now(brand_id)) - spent0)
-        await d.store_mod.finalize_campaign(cid, status, cost, image_url=image_url,
-                                            video_url=video_url, failure_reason=reason, engine=engine)
+        if not dry_run:
+            await d.store_mod.finalize_campaign(cid, status, cost, image_url=image_url,
+                                                video_url=video_url, failure_reason=reason,
+                                                engine=engine)
         return CampaignResult(idea=idea, image_url=image_url, video_url=video_url,
                               posts=posts or [], cost_usd=cost, skipped_reason=reason)
 
@@ -225,6 +245,10 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
         verdict = str((v or {}).get("verdict") or "").lower()
         verdicts[dr.platform] = verdict if verdict in ("pass", "concerns", "escalate") else "escalate"
 
+    if dry_run:
+        # Structurally cannot publish: fan_out is never called on this path.
+        return await _finish("preview", image_url=image_url, video_url=video_url,
+                             reason=f"dry run — {len(drafts)} draft(s), verdicts={verdicts}")
     posts = await d.fan_out(brand_id, cid, drafts, verdicts, engine=engine)
     result = await _finish(derive_status(posts), image_url=image_url, video_url=video_url, posts=posts)
     try:

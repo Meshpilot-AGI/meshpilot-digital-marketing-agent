@@ -1293,6 +1293,39 @@ async def internal_media_generate(request: Request) -> dict:
     }
 
 
+@app.post("/internal/social/preview", dependencies=[Depends(_require_jobs_auth)])
+async def internal_social_preview(request: Request) -> dict:
+    """Produce one campaign's creative WITHOUT publishing it (auth: x-jobs-token).
+
+    Exists so the operator can judge what the agent would post before letting it post — which means
+    it has to work while `agent_publish_enabled` is off. It cannot publish: the dry-run path never
+    calls the fan-out, so there is no flag state in which this endpoint reaches a platform. It also
+    skips the campaign reservation, so previewing an idea does not burn its dedup key.
+    """
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    brand = _authorized_brand(request, body)
+
+    from glitch_signal.agent.social.campaign import run_campaign
+
+    res = await run_campaign(brand, dry_run=True)
+    return {
+        "ok": True,
+        "dry_run": True,
+        "brand": brand,
+        "idea": ({"angle": res.idea.angle, "hook": res.idea.hook,
+                  "asset_kind": res.idea.asset_kind, "key_points": res.idea.key_points}
+                 if res.idea else None),
+        "image_url": res.image_url,
+        "video_url": res.video_url,
+        "cost_usd": res.cost_usd,
+        "note": res.skipped_reason,
+    }
+
+
 @app.post("/internal/media/ensure-bucket", dependencies=[Depends(_require_jobs_auth)])
 async def internal_media_ensure_bucket(request: Request) -> dict:
     """Create the brand's media bucket if absent (auth: x-jobs-token). Brand is authorized via `?brand=` (default brand when absent); a body `brand` must match it (#95)."""
