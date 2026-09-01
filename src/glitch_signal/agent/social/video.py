@@ -151,16 +151,31 @@ async def generate_video(
     submit: Any = None,
     poll: Any = None,
     persist_url: Any = None,
+    on_session: Any = None,
 ) -> str:
-    """POST the Video Agent, poll to completion, persist to the brand bucket, return the durable URL."""
+    """POST the Video Agent, poll to completion, persist to the brand bucket, return the durable URL.
+
+    `on_session(session_id)` (optional, sync) is invoked as soon as HeyGen ACCEPTS the render, so a
+    caller that later abandons the poll still knows which session it left running.
+    """
     submit = submit or _default_submit
     poll = poll or _default_poll
     persist_url = persist_url or _default_persist
 
     session_id = await submit(prompt, file_urls)
-    heygen_url = await poll(session_id)
-    # Meter at the vendor's BILLABLE state (completed poll), BEFORE re-hosting — a storage/persist
-    # failure must never lose the metering (record_usage is request_id-idempotent on session_id).
+    # Meter at ACCEPT, not at completed-poll. HeyGen starts (and charges for) the render the moment
+    # it accepts the session, and the caller bounds this coroutine with `asyncio.wait_for` — so
+    # metering after the poll silently LOSES the spend of every render we time out on. record_usage
+    # is request_id-idempotent on session_id, so accounting for it here is safe and exactly-once.
     await _meter(brand_id, session_id)
+    if on_session is not None:
+        on_session(session_id)
+    # Surface the session id on the cancellation path too: a timed-out render is still running (and
+    # already billed) vendor-side, and this is the only handle for reconciling it.
+    try:
+        heygen_url = await poll(session_id)
+    except (asyncio.CancelledError, TimeoutError):
+        log.warning("social.video_abandoned", session_id=session_id, brand_id=brand_id)
+        raise
     out = await persist_url(brand_id, heygen_url)
     return out

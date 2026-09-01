@@ -27,6 +27,11 @@ log = structlog.get_logger(__name__)
 W_SEM = 0.7
 W_LEX = 0.3
 
+# recall() candidate-pool sizing (#101): each stage (semantic <=> order, lexical ts_rank order)
+# pulls this many rows before the two are unioned and re-ranked by the fused score.
+CANDIDATE_POOL_MULTIPLIER = 8
+CANDIDATE_POOL_MIN = 40
+
 # Operator-verified provenance. Trust is conferred ONLY by the trusted verification workflow — never by
 # arbitrary `source` text (an agent- or curator-written "fact" must not be able to pass as verified). A
 # fact is authoritative iff its metadata carries a typed `verified` flag OR its `source` is one of these
@@ -144,14 +149,21 @@ async def recall(
     """Return top-k memories for a brand by fused semantic + lexical relevance.
 
     `verified_only` restricts to operator-verified provenance IN THE QUERY, so `LIMIT :k` is applied to
-    the already-filtered set (verified facts outside an arbitrary top-N window aren't lost)."""
+    the already-filtered set (verified facts outside an arbitrary top-N window aren't lost).
+
+    Two-stage retrieval (#101): fusing `w_sem*cosine + w_lex*ts_rank` directly in a single
+    `ORDER BY` over the whole brand partition stops Postgres from using the `<=>` HNSW index —
+    it becomes an O(n) exact-distance recompute per call as memory grows. Instead, pull a
+    candidate pool via two INDEX-ELIGIBLE ORDER BYs (raw `<=>` distance, and `ts_rank` separately),
+    union their ids, and only fuse/re-rank that small candidate set."""
     qvec = await _embed_or_none(query, "query", embed_fn)
     # :qvec bound as text (String) so asyncpg can type it; text -> halfvec via CAST.
     sem = "(CASE WHEN embedding IS NULL OR :qvec IS NULL THEN 0 ELSE 1 - (embedding <=> CAST(:qvec AS halfvec)) END)"
     lex = "ts_rank(to_tsvector('english', content), plainto_tsquery('english', :q))"
     kind_clause = ""
+    cand_k = max(k * CANDIDATE_POOL_MULTIPLIER, CANDIDATE_POOL_MIN)
     params: dict[str, Any] = {"brand": brand_id, "qvec": qvec, "q": query, "k": k,
-                              "w_sem": W_SEM, "w_lex": W_LEX}
+                              "w_sem": W_SEM, "w_lex": W_LEX, "cand_k": cand_k}
     if kinds:
         valid = [k2 for k2 in kinds if k2 in ("fact", "episode")]
         kind_clause = "AND kind = ANY(string_to_array(:kinds_csv, ',')::text[])"
@@ -161,13 +173,34 @@ async def recall(
         verified_clause = ("AND (lower(coalesce(source, '')) = ANY(string_to_array(:vsrc_csv, ',')::text[]) "
                            "OR lower(coalesce(metadata->>'verified', '')) IN ('true', '1', 'yes'))")
         params["vsrc_csv"] = ",".join(sorted(VERIFIED_SOURCES))
+    # Semantic candidates: ORDER BY the raw `<=>` operator (index-eligible) — skipped entirely when
+    # embedding the query failed (:qvec IS NULL), since ordering by distance-to-NULL is meaningless.
+    sem_cand = "" if qvec is None else f"""
+        sem_cand AS (
+            SELECT id FROM agent_memory
+            WHERE brand_id = :brand AND embedding IS NOT NULL {kind_clause} {verified_clause}
+            ORDER BY embedding <=> CAST(:qvec AS halfvec)
+            LIMIT :cand_k
+        ),
+    """
+    candidates_union = "SELECT id FROM lex_cand" if qvec is None else "SELECT id FROM sem_cand UNION SELECT id FROM lex_cand"
     sql = text(f"""
-        SELECT id, brand_id, kind, key, content, metadata, importance, source,
-               created_at, last_used_at,
+        WITH {sem_cand}
+        lex_cand AS (
+            SELECT id FROM agent_memory
+            WHERE brand_id = :brand
+                  AND to_tsvector('english', content) @@ plainto_tsquery('english', :q)
+                  {kind_clause} {verified_clause}
+            ORDER BY ts_rank(to_tsvector('english', content), plainto_tsquery('english', :q)) DESC
+            LIMIT :cand_k
+        ),
+        candidates AS ({candidates_union})
+        SELECT m.id, m.brand_id, m.kind, m.key, m.content, m.metadata, m.importance, m.source,
+               m.created_at, m.last_used_at,
                {sem} AS semantic, {lex} AS lexical,
                (:w_sem * {sem} + :w_lex * {lex}) AS score
-        FROM agent_memory
-        WHERE brand_id = :brand {kind_clause} {verified_clause}
+        FROM agent_memory m
+        JOIN candidates c ON c.id = m.id
         ORDER BY score DESC, importance DESC, created_at DESC
         LIMIT :k
     """).bindparams(bindparam("qvec", type_=String))

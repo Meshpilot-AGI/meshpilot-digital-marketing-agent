@@ -78,6 +78,20 @@ def is_subset(child: str | None, parent: str | None) -> bool:
     return c <= p
 
 
+def capabilities_of(name: str | None) -> frozenset[str]:
+    """The capability set a scope name grants (unknown/blank → the safe default's)."""
+    return SCOPES.get((name or DEFAULT_SCOPE).strip().lower(), SCOPES[DEFAULT_SCOPE])
+
+
+def grants(parent: str | None, needed: frozenset[str]) -> bool:
+    """True if `parent` scope grants every capability in `needed`.
+
+    The capability-set counterpart to `is_subset`, for payloads whose required powers are known as
+    capabilities rather than as a named scope (cron `capability` / `pipelineTurn` jobs — #195).
+    """
+    return needed <= capabilities_of(parent)
+
+
 # The scope of the run currently executing on this task — so the `schedule` tool can clamp a
 # self-scheduled job's scope to ⊆ the current run's scope (contextvars are per-task/coroutine).
 _current: contextvars.ContextVar[str] = contextvars.ContextVar("current_scope", default=DEFAULT_SCOPE)

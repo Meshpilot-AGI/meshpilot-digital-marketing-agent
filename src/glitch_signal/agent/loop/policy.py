@@ -29,6 +29,11 @@ EMAIL_TOOLS = frozenset({"send_email"})
 # pulls stay OFF until deliberately enabled, so the ability ships inert (no scraping until flipped).
 DISCOVERY_TOOLS = frozenset({"discover_trending"})
 
+# Web tools (web_search / web_fetch) — each gated by its own kill-switch (#191). Live outbound
+# search/fetch + LLM-plugin cost stay OFF until deliberately enabled, so the ability ships inert.
+WEB_SEARCH_TOOLS = frozenset({"web_search"})
+WEB_FETCH_TOOLS = frozenset({"web_fetch"})
+
 # External MCP tools default-DENY (#93): we can't know an arbitrary MCP tool's blast radius, so a
 # tool is allowed only if it is explicitly allowlisted per brand, has a read-only verb prefix, or
 # publishing is deliberately enabled. A denylist of "bad" verbs is leaky (misses create/update/run/
@@ -50,6 +55,8 @@ class Policy:
     publish_enabled: bool = False
     email_enabled: bool = False
     discovery_enabled: bool = False
+    web_search_enabled: bool = False
+    web_fetch_enabled: bool = False
     max_media_per_run: int = 3
     max_emails_per_run: int = 5
     max_discovery_per_run: int = 5
@@ -96,6 +103,12 @@ class Policy:
             if counts.get(tool_name, 0) >= self.max_discovery_per_run:
                 return Decision(False, f"discovery budget exhausted ({self.max_discovery_per_run} per run)")
 
+        # 3d. web kill-switches (#191) — outbound web search/fetch stays off until enabled
+        if tool_name in WEB_SEARCH_TOOLS and not self.web_search_enabled:
+            return Decision(False, "web_search is disabled (agent_web_search_enabled is off)")
+        if tool_name in WEB_FETCH_TOOLS and not self.web_fetch_enabled:
+            return Decision(False, "web_fetch is disabled (agent_web_fetch_enabled is off)")
+
         # 4. per-run media budget (cost control)
         if tool_name == "generate_media" and counts.get("generate_media", 0) >= self.max_media_per_run:
             return Decision(False, f"media budget exhausted ({self.max_media_per_run} per run)")
@@ -130,6 +143,8 @@ def from_config() -> Policy:
         publish_enabled=bool(getattr(s, "agent_publish_enabled", False)),
         email_enabled=bool(getattr(s, "agent_email_enabled", False)),
         discovery_enabled=bool(getattr(s, "agent_discovery_enabled", False)),
+        web_search_enabled=bool(getattr(s, "agent_web_search_enabled", False)),
+        web_fetch_enabled=bool(getattr(s, "agent_web_fetch_enabled", False)),
         max_media_per_run=int(getattr(s, "agent_max_media_per_run", 3)),
         max_emails_per_run=int(getattr(s, "agent_max_emails_per_run", 5)),
         max_discovery_per_run=int(getattr(s, "agent_max_discovery_per_run", 5)),

@@ -20,23 +20,33 @@ _DEDUP_INSERT = text(
     "ON CONFLICT (provider, event_id) DO NOTHING RETURNING 1"
 )
 _RATE_UPSERT = text(
-    "INSERT INTO rate_counters (key, window_start, count) VALUES (:k, :w, 1) "
+    "INSERT INTO rate_counters (key, window_start, window_seconds, count) VALUES (:k, :w, :ws, 1) "
     "ON CONFLICT (key, window_start) DO UPDATE SET count = rate_counters.count + 1 "
     "RETURNING count"
 )
 _CLEANUP = (
-    text("DELETE FROM rate_counters WHERE window_start < :cutoff"),
+    # Each row expires on its OWN window scale (#193) — a 60s rate-limiter bucket and an 86400s
+    # daily-cap bucket are NOT comparable as raw `window_start` integers, so cutoff must be computed
+    # in wall-clock time per row (window_start * window_seconds), not against a single caller-supplied
+    # window_s. Keep the last few windows of slack per row's own scale.
+    text(
+        "DELETE FROM rate_counters "
+        "WHERE window_start * window_seconds < (extract(epoch from now())::bigint - 3 * window_seconds)"
+    ),
     text("DELETE FROM webhook_dedup WHERE created_at < now() - interval '30 days'"),
 )
 
 
 async def cleanup(*, window_s: int = 60, engine: Any | None = None) -> None:
-    """Prune expired rate-counter buckets + old webhook-dedup rows (called from the scheduler). Fail-soft."""
+    """Prune expired rate-counter buckets + old webhook-dedup rows (called from the scheduler). Fail-soft.
+
+    `window_s` is accepted for backward compatibility with existing callers but is no longer used to
+    compute the cutoff — each row is pruned against its own stored `window_seconds` (#193).
+    """
     try:
         eng = engine or _engine()
-        cutoff = int(time.time() // window_s) - 3  # keep the last few windows
         async with eng.begin() as conn:
-            await conn.execute(_CLEANUP[0], {"cutoff": cutoff})
+            await conn.execute(_CLEANUP[0])
             await conn.execute(_CLEANUP[1])
     except Exception:  # noqa: BLE001
         pass
@@ -77,7 +87,11 @@ class SharedWindowLimiter:
         try:
             eng = self._engine or _engine()
             async with eng.begin() as conn:
-                row = (await conn.execute(_RATE_UPSERT, {"k": key, "w": bucket})).first()
+                row = (
+                    await conn.execute(
+                        _RATE_UPSERT, {"k": key, "w": bucket, "ws": int(self.window)}
+                    )
+                ).first()
             count = int(row[0]) if row else 1
         except Exception:  # noqa: BLE001 — fail-open: a slow/broken DB never becomes an outage
             return True, 0

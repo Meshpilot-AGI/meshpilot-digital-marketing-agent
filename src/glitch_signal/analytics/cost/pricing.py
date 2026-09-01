@@ -40,10 +40,17 @@ def _web_search_usd() -> float:
         return 0.01
 
 
-def anthropic_cost(model: str, usage: dict) -> float:
-    """usage = Anthropic response `usage` (input/output tokens, cache tokens, server_tool_use)."""
+def anthropic_cost(model: str, usage: dict) -> float | None:
+    """usage = Anthropic response `usage` (input/output tokens, cache tokens, server_tool_use).
+
+    Returns None when `model` has no entry in the price book — the book only holds Claude models
+    (#194), so a router-selected non-Anthropic fallback (glm/kimi/deepseek/gpt/…) must not be
+    silently priced at an arbitrary Claude tier. Callers should treat None as "unknown", not $0.
+    """
     prices = _anthropic_prices()
-    p = prices.get(model) or next(iter(prices.values()), {"input": 1.0, "output": 5.0})
+    p = prices.get(model)
+    if p is None:
+        return None
     it = float(usage.get("input_tokens", 0) or 0)
     ot = float(usage.get("output_tokens", 0) or 0)
     cr = float(usage.get("cache_read_input_tokens", 0) or 0)

@@ -55,9 +55,39 @@ def test_anthropic_cost_web_search_requests():
     assert usd == pytest.approx(0.03)   # web_fetch is free
 
 
-def test_anthropic_cost_unknown_model_falls_back():
-    # unknown model must not raise — it falls back to the first price entry
-    assert anthropic_cost("mystery-model", {"input_tokens": 1_000_000}) > 0
+def test_anthropic_cost_unknown_model_returns_none():
+    # An unknown/non-Anthropic model must NOT be priced at an arbitrary Claude tier (#194) — the
+    # price book only covers Claude models, so a miss must surface as "unknown", not a guessed cost.
+    assert anthropic_cost("mystery-model", {"input_tokens": 1_000_000}) is None
+
+
+def test_anthropic_cost_router_fallback_models_return_none():
+    # Non-Anthropic models the router can fail over to (routing.py tiers) must not silently price at
+    # claude-haiku-4-5-20251001 rates just because that happens to be the first price-book entry (#194).
+    usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+    for model in ("glm-5.3", "kimi-k3", "deepseek-v4-pro", "gpt-5.6-luna", "gpt-5.6-sol"):
+        assert anthropic_cost(model, usage) is None
+
+
+async def test_meter_records_zero_not_a_guessed_tier_for_router_fallback_model(monkeypatch):
+    # #194 regression: when OpenRouter omits usage.cost for a non-Anthropic router-fallback model
+    # (e.g. z-ai/glm-5.3), _meter must record cost_usd=0.0 (unknown), never the Claude Haiku rate
+    # it used to fall back to via anthropic_cost's old "first price-book entry" default.
+    from glitch_signal.agent.loop.llm import _meter
+
+    recorded: dict = {}
+
+    async def _fake_record_usage(**kwargs):
+        recorded.update(kwargs)
+
+    monkeypatch.setattr("glitch_signal.analytics.cost.record_usage", _fake_record_usage)
+    monkeypatch.setattr("glitch_signal.analytics.cost.get_brand", lambda: "acme")
+
+    usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}  # no "cost" key (OpenRouter omitted it)
+    await _meter("z-ai/glm-5.3", usage, "req-1")
+
+    assert recorded["cost_usd"] == 0.0
+    assert recorded["model"] == "z-ai/glm-5.3"
 
 
 def test_higgsfield_cost_credits_to_usd(monkeypatch):
