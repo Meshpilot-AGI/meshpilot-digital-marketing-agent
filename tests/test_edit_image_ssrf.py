@@ -97,3 +97,34 @@ async def test_edit_image_rejects_non_https():
 
 async def test_edit_image_requires_url():
     assert (await tools._t_edit_image({}, "brand")).startswith("ERROR: edit_image requires image_url")
+
+
+# ── #196: _pin_url must bracket IPv6 literals in both the pinned URL authority and the Host
+#    header, or the port becomes ambiguous with the address's own colons (an invalid authority /
+#    malformed Host header) — RFC 3986 / RFC 7230 both require `[addr]:port` for an IPv6 literal.
+
+def test_pin_url_brackets_ipv6_resolved_ip():
+    # host is an ordinary hostname; the resolved `ip` is IPv6 — the pinned URL's netloc must bracket it.
+    pinned, host_header = tools._pin_url("https://example.com:443/path?q=1", "example.com", "2001:db8::1")
+    assert pinned == "https://[2001:db8::1]:443/path?q=1"
+    assert host_header == "example.com:443"
+
+
+def test_pin_url_brackets_ipv6_host_in_host_header():
+    # the ORIGINAL url used an IPv6 literal host (urlsplit().hostname strips the brackets), and it
+    # resolved to itself — the Host header must re-bracket it, not emit "::1:8080".
+    pinned, host_header = tools._pin_url("https://[::1]:8080/x", "::1", "::1")
+    assert pinned == "https://[::1]:8080/x"
+    assert host_header == "[::1]:8080"
+
+
+def test_pin_url_ipv6_no_port():
+    pinned, host_header = tools._pin_url("https://example.com/x", "example.com", "fe80::1")
+    assert pinned == "https://[fe80::1]/x"
+    assert host_header == "example.com"
+
+
+def test_pin_url_ipv4_unbracketed():
+    pinned, host_header = tools._pin_url("https://example.com:8443/x", "example.com", "93.184.216.34")
+    assert pinned == "https://93.184.216.34:8443/x"
+    assert host_header == "example.com:8443"

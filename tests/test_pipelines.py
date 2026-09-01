@@ -93,7 +93,10 @@ async def test_pipeline_turn_skips_when_requirement_off(monkeypatch):
 
 
 async def test_pipeline_turn_runs_and_reresolves_media_flag(monkeypatch):
-    """Content fire-time scope follows the CURRENT media flag, not the value seeded earlier."""
+    """Content fire-time scope follows the CURRENT media flag, not the value seeded earlier — as
+    long as that still fits within the scope the job was CREATED under (#196 finding 9: fire-time
+    re-resolution can't be allowed to silently outgrow the creator's powers, so this job is stamped
+    `created_scope="content"`, wide enough to cover both the draft and full-media resolutions)."""
     from glitch_signal.agent.cron import service
 
     seen: list = []
@@ -104,12 +107,12 @@ async def test_pipeline_turn_runs_and_reresolves_media_flag(monkeypatch):
 
     monkeypatch.setattr(pipelines, "settings",
                         lambda: SimpleNamespace(agent_content_media_enabled=False))
-    await service._run_pipeline_turn("b", {"pipeline": "content"})
+    await service._run_pipeline_turn("b", {"pipeline": "content"}, created_scope="content")
     assert seen[-1]["scope"] == "content_draft"         # media off → no paid media
 
     monkeypatch.setattr(pipelines, "settings",
                         lambda: SimpleNamespace(agent_content_media_enabled=True))
-    await service._run_pipeline_turn("b", {"pipeline": "content"})
+    await service._run_pipeline_turn("b", {"pipeline": "content"}, created_scope="content")
     assert seen[-1]["scope"] == "content"               # flipped on → media, same job would re-resolve
 
 

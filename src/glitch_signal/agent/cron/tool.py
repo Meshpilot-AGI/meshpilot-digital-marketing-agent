@@ -100,6 +100,7 @@ async def schedule_tool(args: dict, brand_id: str) -> str:
         denied = _clamp_scope(str(args.get("payload_kind", "")), payload)
         if denied:
             return f"ERROR: {denied}"
+        from glitch_signal.agent.loop import scopes
         try:
             job_id = await store.create_job(
                 brand_id=brand_id, owner=owner,
@@ -111,6 +112,10 @@ async def schedule_tool(args: dict, brand_id: str) -> str:
                 pacing=args.get("pacing") or {},
                 delete_after_run=bool(args.get("delete_after_run", args.get("schedule_kind") == "at")),
                 now=datetime.now(timezone.utc),
+                # Persist the CREATING run's scope (#196 finding 9) so fire-time dispatch can
+                # re-check containment even for payloads (pipelineTurn) whose resolved scope can
+                # widen between now and then.
+                created_scope=scopes.current(),
             )
         except KeyError as e:
             return f"ERROR: missing field {e}"

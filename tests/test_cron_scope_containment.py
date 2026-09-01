@@ -4,11 +4,13 @@ A `chat`-scoped run could self-schedule a `capability` or `pipelineTurn` job tha
 powers the creating run never held — widening the agent's own powers across time, which is exactly
 what the clamp exists to prevent.
 """
+from types import SimpleNamespace
+
 import pytest
 
-from glitch_signal.agent.cron import store
+from glitch_signal.agent.cron import service, store
 from glitch_signal.agent.cron import tool as cron_tool
-from glitch_signal.agent.loop import scopes
+from glitch_signal.agent.loop import pipelines, scopes
 
 
 @pytest.fixture
@@ -103,3 +105,104 @@ async def test_unknown_payload_kind_is_refused(_creatable):
 def test_unknown_capability_requires_everything():
     """Fail closed: a name we don't recognise must not pass containment by default."""
     assert cron_tool.capabilities.required_capabilities("nope") == frozenset(scopes.CAPABILITIES)
+
+
+# ── Finding 9 (PR #196): create-time containment isn't enough for `pipelineTurn` ──
+#
+# `_clamp_scope` only checks a pipeline's scope ONCE, when the job is created. But
+# `service._run_pipeline_turn` deliberately RE-RESOLVES the pipeline from the registry at FIRE time
+# (so kill-switches are read live) — and a pipeline's scope is not static: `content` resolves to
+# `content_draft` while `agent_content_media_enabled` is off, and to `content` (which grants media
+# tools) once it's on. A run narrowly scoped at create time could pre-arm a `content` pipelineTurn
+# that passed containment then, and have it fire later — after an operator flips the switch — with
+# media tools its creator never held. `_run_pipeline_turn` must re-check containment at fire time
+# against the scope stamped on the job when it was created (`created_scope`).
+
+async def test_pipeline_scope_widening_after_create_is_skipped_at_fire_time(monkeypatch):
+    """The concrete scenario from the finding: created while media was off (content_draft), fires
+    after media flips on (content, which grants media tools) — must be skipped, not run."""
+    monkeypatch.setattr(pipelines, "settings",
+                        lambda: SimpleNamespace(agent_content_media_enabled=True))
+    ran = {}
+
+    async def _fake_run_agent_turn(brand, payload):
+        ran["called"] = True
+        return {}
+
+    monkeypatch.setattr(service, "_run_agent_turn", _fake_run_agent_turn)
+
+    result = await service._run_pipeline_turn(
+        "glitch_executor", {"pipeline": "content"}, created_scope="content_draft")
+
+    assert "called" not in ran
+    assert result.get("skipped") and "scope escalation" in result["skipped"]
+
+
+async def test_pipeline_scope_still_within_creator_scope_is_allowed_to_run(monkeypatch):
+    """Not a blanket ban — a job whose live-resolved scope is still ⊆ its creator's scope runs."""
+    monkeypatch.setattr(pipelines, "settings",
+                        lambda: SimpleNamespace(agent_content_media_enabled=True))
+    ran = {}
+
+    async def _fake_run_agent_turn(brand, payload):
+        ran["called"] = True
+        ran["scope"] = payload["scope"]
+        return {"ok": True}
+
+    monkeypatch.setattr(service, "_run_agent_turn", _fake_run_agent_turn)
+
+    result = await service._run_pipeline_turn(
+        "glitch_executor", {"pipeline": "content"}, created_scope="content")
+
+    assert ran.get("called") is True
+    assert ran["scope"] == "content"
+    assert "skipped" not in result
+
+
+async def test_legacy_job_with_no_stored_creator_scope_fails_closed(monkeypatch):
+    """A job created before this fix has no `created_scope` (None). Trusting it unconditionally
+    would reopen the exact gap this closes, so it must be treated as the safe default scope
+    (`chat`) rather than as unlimited trust — a pipeline needing more than `chat` is skipped."""
+    monkeypatch.setattr(pipelines, "settings",
+                        lambda: SimpleNamespace(agent_content_media_enabled=True))
+    ran = {}
+
+    async def _fake_run_agent_turn(brand, payload):
+        ran["called"] = True
+        return {}
+
+    monkeypatch.setattr(service, "_run_agent_turn", _fake_run_agent_turn)
+
+    result = await service._run_pipeline_turn(
+        "glitch_executor", {"pipeline": "content"}, created_scope=None)
+
+    assert "called" not in ran
+    assert result.get("skipped") and "scope escalation" in result["skipped"]
+
+
+async def test_legacy_job_within_default_scope_still_runs(monkeypatch):
+    """Fail closed must not become a blanket ban on every pre-migration job: one whose live-resolved
+    scope is still ⊆ the safe default (`chat`) keeps working."""
+    monkeypatch.setattr(pipelines, "settings",
+                        lambda: SimpleNamespace(agent_content_media_enabled=False))
+    ran = {}
+
+    async def _fake_run_agent_turn(brand, payload):
+        ran["called"] = True
+        return {"ok": True}
+
+    monkeypatch.setattr(service, "_run_agent_turn", _fake_run_agent_turn)
+
+    result = await service._run_pipeline_turn(
+        "glitch_executor", {"pipeline": "content"}, created_scope=None)
+
+    assert ran.get("called") is True
+    assert "skipped" not in result
+
+
+async def test_created_scope_is_persisted_at_create_time(_creatable):
+    """`create` must stamp the creating run's CURRENT scope onto the job so fire-time dispatch has
+    something real to re-check against."""
+    scopes.set_current("full")
+    await _create("pipelineTurn", {"pipeline": "discovery"})
+    assert _creatable["created_scope"] == "full"

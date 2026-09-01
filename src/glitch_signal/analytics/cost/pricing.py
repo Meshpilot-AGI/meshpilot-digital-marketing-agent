@@ -113,6 +113,19 @@ def _muapi_default_usd() -> float:
         return 0.02
 
 
+def unknown_model_cost_usd() -> float:
+    """Conservative flat estimate for a model missing from the price book (not a Claude tier — #194).
+
+    `anthropic_cost()` returns None for such a model so callers don't guess a vendor's price tier;
+    but recording $0.0 for a real paid call makes it look free to the daily-budget check and cost
+    reconciliation (usage_events.cost_usd), which can burn budget invisibly. Callers should record
+    this instead of 0.0, and should still mark the row `estimated=True` (record_usage's default)."""
+    try:
+        return float(os.environ.get("COST_UNKNOWN_MODEL_USD", "0.05"))
+    except ValueError:
+        return 0.05
+
+
 def muapi_cost(model: str) -> float:
     """Coarse per-call estimate for a MUapi generation (trued up by balance-delta reconciliation).
 

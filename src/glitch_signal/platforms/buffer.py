@@ -178,6 +178,15 @@ async def list_channels(brand_id: str) -> dict:
     return {"organization_id": org_id, "organizations": orgs, "channels": data.get("channels") or []}
 
 
+class BufferPostFailed(RuntimeError):
+    """Buffer reports this post as TERMINALLY failed — do not retry it.
+
+    Distinct from the transport, GraphQL and rate-limit errors that also surface as RuntimeError:
+    a reconciler that cannot tell the two apart treats a permanent rejection as retryable, burns its
+    retry budget, and then leaves the row pending forever having never recorded the failure.
+    """
+
+
 async def _channel_id_for_service(brand_id: str, service: str) -> str:
     want = _SERVICE_ALIASES.get(service.lower(), {service.lower()})
     channels = (await list_channels(brand_id))["channels"]
@@ -431,7 +440,7 @@ async def poll_status_for_post(
     if status == "sent":
         return buffer_post_id, external
     if status in ("failed", "error"):
-        raise RuntimeError(
+        raise BufferPostFailed(
             f"Buffer post {buffer_post_id!r} reported status={status!r}"
         )
     # sending / processing / unknown → still in flight
