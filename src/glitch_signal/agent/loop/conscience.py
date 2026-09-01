@@ -41,6 +41,11 @@ _CONSTITUTION_PATH = pathlib.Path(__file__).resolve().parents[1] / "CONSCIENCE.m
 
 _VERDICTS = ("pass", "concerns", "escalate")
 
+# The positioning doc is front-loaded with identity and back-loaded with PROHIBITIONS (claim limits,
+# banned register, banned imagery). A tight budget here silently truncates exactly the half the
+# critic exists to enforce — at 3000 chars it was cut before reaching "no outcome promises".
+_POSITIONING_BUDGET = 8000
+
 _SYS_PREFIX = (
     "You are an INDEPENDENT reviewer — NOT the author of the output below and you owe it no loyalty. "
     "Judge the proposed marketing output ONLY against the constitution that follows. Reply with ONLY a "
@@ -125,7 +130,7 @@ async def review(goal: str, output: str | None, *, facts: str = "", positioning:
     if positioning.strip():
         pos_block = (
             "\n\n--- BRAND POSITIONING (voice + prohibitions; NOT claim authorization) ---\n"
-            + positioning[:3000] +
+            + positioning[:_POSITIONING_BUDGET] +
             "\nESCALATE if the output breaks a prohibition named here, adopts a voice this forbids, or "
             "positions the brand as something it explicitly says it is not — even when every individual "
             "statement in the output is factually true.")
