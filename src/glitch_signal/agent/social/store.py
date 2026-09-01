@@ -39,34 +39,89 @@ async def reserve_campaign(brand_id: str, idea: Idea, *, engine: Any = None) -> 
 
 
 async def mark_pending(campaign_id: str, platform: str, media_kind: str, caption: str,
-                       verdict: str, *, engine: Any = None) -> bool:
+                       verdict: str, *, idem_key: str | None = None, engine: Any = None) -> bool:
     """Durable OUTBOX: reserve the per-platform row (status='pending') BEFORE the external publish.
 
     Returns True if newly inserted (caller should proceed to publish); False if a row already
     exists for (campaign_id, platform) — an already-attempted/uncertain request that must NOT be
     blindly republished (idempotency).
+
+    `idem_key` is the caller's pre-generated correlation key. It is persisted BEFORE the provider is
+    called and echoed to the provider in the post `source` field, so a submission whose response is
+    lost can still be tied back to this row.
     """
     eng = engine or _engine()
     async with eng.begin() as conn:
         row = (await conn.execute(
             text("INSERT INTO social_post (campaign_id, platform, media_kind, caption, verdict, "
-                 "status) VALUES (CAST(:cid AS uuid), :platform, :media_kind, :caption, :verdict, "
-                 "'pending') ON CONFLICT (campaign_id, platform) DO NOTHING RETURNING id"),
+                 "status, idem_key) VALUES (CAST(:cid AS uuid), :platform, :media_kind, :caption, "
+                 ":verdict, 'pending', :idem) "
+                 "ON CONFLICT (campaign_id, platform) DO NOTHING RETURNING id"),
             {"cid": campaign_id, "platform": platform, "media_kind": media_kind,
-             "caption": caption, "verdict": verdict})).first()
+             "caption": caption, "verdict": verdict, "idem": idem_key})).first()
     return row is not None
 
 
 async def mark_result(campaign_id: str, platform: str, status: str, *, platform_post_id: str | None,
                       post_url: str | None, error: str | None, engine: Any = None) -> None:
-    """Update the outbox row AFTER the publish call resolves (terminal or pending-terminal)."""
+    """Update the outbox row AFTER the publish call resolves (terminal or pending-terminal).
+
+    Stamps `submitted_at` whenever a provider id came back, which is what makes the row eligible
+    for the reconciler — see `reconcile.py`.
+    """
     eng = engine or _engine()
     async with eng.begin() as conn:
         await conn.execute(
             text("UPDATE social_post SET status = :s, platform_post_id = :ppid, post_url = :url, "
-                 "error = :err WHERE campaign_id = CAST(:cid AS uuid) AND platform = :p"),
+                 "error = :err, submitted_at = CASE WHEN :ppid IS NULL THEN submitted_at "
+                 "ELSE COALESCE(submitted_at, now()) END "
+                 "WHERE campaign_id = CAST(:cid AS uuid) AND platform = :p"),
             {"s": status, "ppid": platform_post_id, "url": post_url, "err": error,
              "cid": campaign_id, "p": platform})
+
+
+async def pending_for_reconcile(*, older_than_s: int, limit: int = 25, max_attempts: int = 20,
+                                engine: Any = None) -> list[dict]:
+    """Outbox rows still 'pending' past the settle window — the reconciler's working set.
+
+    Only rows that carry a provider id are returned: without one there is nothing to poll. A row
+    that has burned through `max_attempts` is left alone so a permanently unresolvable post cannot
+    spin the sweep forever.
+    """
+    eng = engine or _engine()
+    async with eng.connect() as conn:
+        rows = (await conn.execute(
+            text("SELECT p.id, p.campaign_id, p.platform, p.platform_post_id, "
+                 "       p.reconcile_attempts, c.brand_id "
+                 "FROM social_post p JOIN social_campaign c ON c.id = p.campaign_id "
+                 "WHERE p.status = 'pending' AND p.platform_post_id IS NOT NULL "
+                 "  AND p.created_at <= now() - make_interval(secs => :age) "
+                 "  AND p.reconcile_attempts < :max_attempts "
+                 "ORDER BY p.created_at LIMIT :k"),
+            {"age": older_than_s, "max_attempts": max_attempts, "k": limit})).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def resolve_pending(post_id: str, status: str, *, post_url: str | None = None,
+                          error: str | None = None, engine: Any = None) -> None:
+    """Move one reconciled outbox row to its terminal state (by row id)."""
+    eng = engine or _engine()
+    async with eng.begin() as conn:
+        await conn.execute(
+            text("UPDATE social_post SET status = :s, "
+                 "post_url = COALESCE(:url, post_url), error = COALESCE(:err, error) "
+                 "WHERE id = CAST(:id AS uuid)"),
+            {"s": status, "url": post_url, "err": error, "id": post_id})
+
+
+async def bump_reconcile_attempt(post_id: str, *, engine: Any = None) -> None:
+    """Count one poll against a still-in-flight row so retries stay bounded."""
+    eng = engine or _engine()
+    async with eng.begin() as conn:
+        await conn.execute(
+            text("UPDATE social_post SET reconcile_attempts = reconcile_attempts + 1 "
+                 "WHERE id = CAST(:id AS uuid)"),
+            {"id": post_id})
 
 
 async def record_post(campaign_id: str, r: PlatformResult, media_kind: str, caption: str,

@@ -66,13 +66,53 @@ async def _cap_social_campaign(brand_id: str, args: dict) -> dict:
             "skipped_reason": getattr(res, "skipped_reason", None)}
 
 
+async def _cap_social_reconcile(brand_id: str, args: dict) -> dict:
+    """AGENT-SOCIAL: settle Buffer submissions still sitting `pending` in the social outbox.
+
+    Account-level (the sweep is keyed on post age, not brand), so `brand_id` is ignored. Also runs
+    automatically from the cron sweep — this entry exists so it can be forced out-of-band.
+    """
+    from glitch_signal.agent.social.reconcile import reconcile_pending
+
+    return await reconcile_pending()
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "drive_scout": _cap_drive_scout,
     "reconcile": _cap_reconcile,
     "routing_audit": _cap_routing_audit,
     "social_campaign": _cap_social_campaign,
+    "social_reconcile": _cap_social_reconcile,
 }
+
+
+# SCOPE containment for self-scheduled `capability` jobs (#195). The clamp that stops a run from
+# widening its own powers used to cover `agentTurn` only, so a `chat`-scoped run could pre-arm a
+# capability that fires later with powers it never had. Each entry is the capability set (see
+# `agent.loop.scopes.CAPABILITIES`) a job must already hold to be allowed to schedule it; an empty
+# set means read-only/account-level bookkeeping that grants nothing new.
+REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
+    "curate": frozenset({"memory"}),
+    "drive_scout": frozenset({"media"}),
+    "reconcile": frozenset(),
+    "routing_audit": frozenset(),
+    "social_campaign": frozenset({"media", "publish"}),
+    "social_reconcile": frozenset(),
+}
+
+
+def required_capabilities(name: str) -> frozenset[str]:
+    """Capabilities a scheduler must already hold to schedule `name`.
+
+    An UNKNOWN capability returns the full capability set, so a name we don't recognise fails
+    containment rather than sailing through unchecked.
+    """
+    from glitch_signal.agent.loop import scopes
+
+    if name not in _REGISTRY:
+        return frozenset(scopes.CAPABILITIES)
+    return REQUIRED_CAPABILITIES.get(name, frozenset(scopes.CAPABILITIES))
 
 
 def names() -> list[str]:

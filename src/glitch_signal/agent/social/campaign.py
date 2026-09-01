@@ -19,6 +19,24 @@ from glitch_signal.agent.social.spec import (
 log = structlog.get_logger(__name__)
 
 
+# The video deadline must stay strictly UNDER the cron capability cap, or the outer
+# `asyncio.wait_for` in `_run_capability` kills the whole run before our fail-soft fallback can
+# demote to image-only. This margin covers the pre-video work (ideate/reserve/image) plus the
+# post-video work (captions, conscience, fan-out, finalize) that still has to fit in the cap.
+_VIDEO_DEADLINE_MARGIN_S = 180
+_VIDEO_DEADLINE_MIN_S = 30
+
+
+def _video_deadline_s() -> int:
+    """Configured video timeout, CLAMPED so a mis-set value can never defeat the fallback."""
+    from glitch_signal.agent.cron.service import CAPABILITY_TIMEOUT_S
+    from glitch_signal.config import settings
+
+    configured = int(getattr(settings(), "agent_social_video_timeout_s", 420))
+    ceiling = max(_VIDEO_DEADLINE_MIN_S, CAPABILITY_TIMEOUT_S - _VIDEO_DEADLINE_MARGIN_S)
+    return max(_VIDEO_DEADLINE_MIN_S, min(configured, ceiling))
+
+
 def _social_on() -> bool:
     from glitch_signal.config import settings
     s = settings()
@@ -120,7 +138,7 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
         except Exception as exc:  # noqa: BLE001
             log.warning("social.image_failed", error=str(exc)[:200])
     if (await d.budget_check(brand_id))[0]:
-        deadline = int(getattr(settings(), "agent_social_video_timeout_s", 420))
+        deadline = _video_deadline_s()
         try:
             # Bound video to a deadline well under the cron capability timeout: a slow HeyGen render
             # times out to IMAGE-ONLY (progress preserved) instead of the cron killing the whole run.

@@ -49,7 +49,21 @@ async def sweep(*, now: datetime | None = None, engine=None) -> int:
         asyncio.create_task(_dispatch(job, engine=engine))
     if claimed:
         log.info("cron.sweep", claimed=len(claimed))
+
+    # Settle asynchronous (Buffer) social publishes. Rides the existing sweep cadence rather than
+    # needing its own seeded job, so a campaign's posts reach a terminal state even on an instance
+    # where nobody scheduled a reconcile. Self-contained and non-raising by contract.
+    asyncio.create_task(_sweep_social_reconcile(engine=engine))
     return len(claimed)
+
+
+async def _sweep_social_reconcile(*, engine=None) -> None:
+    from glitch_signal.agent.social.reconcile import reconcile_pending
+
+    try:
+        await reconcile_pending(engine=engine)
+    except Exception as exc:  # noqa: BLE001 — never let the reconciler break the cron sweep
+        log.warning("cron.social_reconcile_failed", error=str(exc)[:200])
 
 
 async def run_now(job_id: str, *, brand_id: str | None = None, engine=None) -> str | None:

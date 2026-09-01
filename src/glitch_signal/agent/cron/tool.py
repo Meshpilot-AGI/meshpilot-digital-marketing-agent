@@ -11,7 +11,7 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 
-from glitch_signal.agent.cron import runctx, store
+from glitch_signal.agent.cron import capabilities, runctx, store
 
 _DUR = re.compile(r"^\s*(\d+)\s*([smhd])\s*$", re.IGNORECASE)
 _UNIT_MS = {"s": 1000, "m": 60_000, "h": 3_600_000, "d": 86_400_000}
@@ -40,6 +40,47 @@ def _max_jobs() -> int:
     return int(getattr(settings(), "agent_cron_max_jobs_per_brand", 20))
 
 
+def _clamp_scope(payload_kind: str, payload: dict) -> str | None:
+    """Contain a self-scheduled job to the creating run's scope. Returns a refusal reason, or None.
+
+    `agentTurn` carries a scope name, so an over-broad one is silently CLAMPED down (the job still
+    runs, just with fewer tools). `pipelineTurn` and `capability` have no scope of their own — their
+    powers are fixed by the pipeline/registry entry — so containment can only be enforced by
+    REFUSING to create the job.
+    """
+    from glitch_signal.agent.loop import scopes
+
+    current = scopes.current()
+    if payload_kind == "agentTurn":
+        if not scopes.is_subset(payload.get("scope"), current):
+            payload["scope"] = current
+        return None
+
+    if payload_kind == "pipelineTurn":
+        from glitch_signal.agent.loop import pipelines
+
+        p = pipelines.resolve(str(payload.get("pipeline", "")))
+        if p is None:
+            return f"unknown pipeline {payload.get('pipeline')!r}"
+        if not scopes.is_subset(p.scope, current):
+            return (f"scope escalation: pipeline {p.name!r} needs scope {p.scope!r}, "
+                    f"which is not within this run's {current!r} scope")
+        return None
+
+    if payload_kind == "capability":
+        name = str(payload.get("name", ""))
+        needed = capabilities.required_capabilities(name)
+        if name not in capabilities.names():
+            return f"unknown capability {name!r}; allowed: {capabilities.names()}"
+        if not scopes.grants(current, needed):
+            missing = sorted(needed - scopes.capabilities_of(current))
+            return (f"scope escalation: capability {name!r} needs {missing}, "
+                    f"not granted by this run's {current!r} scope")
+        return None
+
+    return f"unknown payload_kind {payload_kind!r}"
+
+
 async def schedule_tool(args: dict, brand_id: str) -> str:
     """Dispatch a `schedule` action for the active brand. Returns a concise observation string."""
     action = str(args.get("action", "")).lower()
@@ -52,11 +93,13 @@ async def schedule_tool(args: dict, brand_id: str) -> str:
         if active >= _max_jobs():
             return f"ERROR: creator-cap reached ({active}/{_max_jobs()} active jobs); cancel one first"
         payload = dict(args.get("payload", {}) or {})
-        # SCOPE anti-escalation: a self-scheduled agentTurn may not exceed the CURRENT run's scope.
-        if str(args.get("payload_kind", "")) == "agentTurn":
-            from glitch_signal.agent.loop import scopes
-            if not scopes.is_subset(payload.get("scope"), scopes.current()):
-                payload["scope"] = scopes.current()
+        # SCOPE anti-escalation: a self-scheduled job may never exceed the CURRENT run's scope.
+        # This has to cover EVERY payload kind (#195) — a deferred `capability`/`pipelineTurn` job
+        # widens powers across time just as effectively as an over-scoped agentTurn, and it fires
+        # long after the run that armed it is gone.
+        denied = _clamp_scope(str(args.get("payload_kind", "")), payload)
+        if denied:
+            return f"ERROR: {denied}"
         try:
             job_id = await store.create_job(
                 brand_id=brand_id, owner=owner,

@@ -63,6 +63,10 @@ _ON_ERROR = text(
 _BRAND_PRED = "(cast(:brand as text) IS NULL OR brand_id = cast(:brand as text))"
 _DELETE_JOB = text(f"DELETE FROM scheduled_jobs WHERE id=:id AND {_BRAND_PRED} RETURNING id")
 _DELETE_JOB_SCOPED = text("DELETE FROM scheduled_jobs WHERE id=:id AND owner=:owner RETURNING id")
+# Internal teardown for `delete_after_run`: the job id is the PK and the caller (finish_run) has
+# already resolved the job, so there is no brand to re-check — and binding `_DELETE_JOB` without a
+# :brand raises "A value is required for bind parameter 'brand'", which aborted real one-shot runs.
+_DELETE_JOB_BY_ID = text("DELETE FROM scheduled_jobs WHERE id=:id RETURNING id")
 _GET_JOB = text(f"SELECT * FROM scheduled_jobs WHERE id=:id AND {_BRAND_PRED}")
 _LIST_LIMIT = 500  # bound cron inventory queries (#105 — unbounded lists)
 _LIST_ALL = text(f"SELECT * FROM scheduled_jobs WHERE brand_id=:brand ORDER BY created_at DESC LIMIT {_LIST_LIMIT}")
@@ -149,7 +153,7 @@ async def finish_run(run_id: str, job_id: str, *, status: str, result: dict | No
         if status == "done":
             await conn.execute(_ON_SUCCESS, {"id": job_id})
             if delete_after_run:
-                await conn.execute(_DELETE_JOB, {"id": job_id})
+                await conn.execute(_DELETE_JOB_BY_ID, {"id": job_id})
         elif status == "error":
             await conn.execute(_ON_ERROR, {"id": job_id, "max": max_failures,
                                            "reason": f"auto-disabled after {max_failures} failures"})

@@ -197,6 +197,7 @@ async def create_post(
     text: str,
     media_url: str | None = None,
     mode: str = "shareNow",
+    idem_key: str | None = None,
 ) -> tuple[str, str | None]:
     """Create a Buffer post to `service` (x / linkedin / tiktok / …), text and/or
     media. Returns (buffer_post_id, status). Buffer publishes asynchronously;
@@ -208,7 +209,9 @@ async def create_post(
         "schedulingType": "automatic",
         "mode": mode,
         "text": text or "",
-        "source": "glitch-social-media-agent",
+        # Carry the caller's correlation key on the provider side: if we lose the response, this is
+        # what ties an orphaned Buffer post back to the outbox row that reserved it.
+        "source": f"glitch-social-media-agent:{idem_key}" if idem_key else "glitch-social-media-agent",
     }
     if media_url:
         from urllib.parse import urlsplit
