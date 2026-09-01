@@ -335,19 +335,38 @@ async def _web_url_resolve(url: str) -> tuple[bool, str, str, str, int]:
     return True, "", host, ips[0], port
 
 
+def _bracket_if_ipv6(literal: str) -> str:
+    """RFC 3986/7230: an IPv6 literal needs square brackets in a URL authority / Host header
+    (`[::1]:8080`), or the trailing `:port` becomes ambiguous with the address's own colons."""
+    import ipaddress
+
+    try:
+        if ipaddress.ip_address(literal).version == 6:
+            return f"[{literal}]"
+    except ValueError:
+        pass                          # not an IP literal (a hostname, or already bracketed) — leave as-is
+    return literal
+
+
 def _pin_url(url: str, host: str, ip: str) -> tuple[str, str]:
     """Rewrite `url`'s netloc to the validated `ip` so an httpx client connects to EXACTLY the
     address the SSRF guard approved — no second DNS lookup, no DNS-rebinding window. Returns
     (pinned_url, host_header): pass host_header as the `Host` header and `host` as the
-    `sni_hostname` extension so TLS SNI + certificate verification stay bound to the real hostname."""
+    `sni_hostname` extension so TLS SNI + certificate verification stay bound to the real hostname.
+
+    Both `ip` (always a literal — v4 or v6) and `host` (a literal when the original URL used an IPv6
+    address, e.g. `https://[::1]:8080/x` — `urlsplit().hostname` strips the brackets) are bracketed
+    when they're IPv6, so the authority/Host header stays valid (#196: an unbracketed IPv6 host
+    produces a malformed `host:port` — the port becomes ambiguous with the address's own colons)."""
     from urllib.parse import urlsplit, urlunsplit
 
     p = urlsplit(url)
-    ip_netloc = f"[{ip}]" if ":" in ip else ip
+    ip_netloc = _bracket_if_ipv6(ip)
     if p.port:
         ip_netloc += f":{p.port}"
     pinned = urlunsplit((p.scheme, ip_netloc, p.path or "/", p.query, ""))
-    host_header = f"{host}:{p.port}" if p.port else host
+    host_literal = _bracket_if_ipv6(host)
+    host_header = f"{host_literal}:{p.port}" if p.port else host_literal
     return pinned, host_header
 
 

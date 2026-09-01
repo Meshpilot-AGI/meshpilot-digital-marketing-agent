@@ -110,3 +110,29 @@ async def test_cleanup_does_not_use_a_single_cross_scale_cutoff():
     # No caller-supplied cutoff param should reach the query — the DB computes wall-clock expiry
     # per row from its own stored window_seconds instead.
     assert eng.calls[0][1] in (None, {})
+
+
+# ── #196: the #193 backfill mislabeled every pre-existing row's scale as 60s (including 86400s
+#    daily-cap buckets), which the scale-aware cleanup then read as ancient and deleted. Fix: an
+#    unknown (NULL) window_seconds is never pruned, and the upsert repairs a row's scale on conflict.
+async def test_cleanup_never_prunes_unknown_scale_rows():
+    """The DELETE must exclude rows whose window_seconds is NULL (unknown scale) — pruning them by
+    guessing a scale is exactly the #193 cross-scale wipe this migration exists to prevent."""
+    eng = _Engine(first=(1,))
+    await cleanup(window_s=60, engine=eng)
+    rate_counters_sql = eng.calls[0][0].lower()
+    assert "window_seconds is not null" in rate_counters_sql
+
+
+async def test_check_upsert_repairs_window_seconds_on_conflict():
+    """A conflicting write (existing key+bucket row) must SET window_seconds = the caller's value,
+    not just bump count — otherwise a row stuck with a wrong/unknown stored scale (e.g. from the
+    #193 backfill) can never self-heal."""
+    eng = _Engine(first=(2,))
+    lim = SharedWindowLimiter(limit=50, window_seconds=86400.0, engine=eng)
+    await lim.check("email:brand-x")
+    sql, params = eng.calls[0]
+    sql_l = sql.lower()
+    assert "do update set" in sql_l
+    assert "window_seconds" in sql_l.split("do update set", 1)[1]  # the UPDATE branch sets it too
+    assert params["ws"] == 86400

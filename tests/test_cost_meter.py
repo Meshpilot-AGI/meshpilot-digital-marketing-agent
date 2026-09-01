@@ -71,8 +71,8 @@ def test_anthropic_cost_router_fallback_models_return_none():
 
 async def test_meter_records_zero_not_a_guessed_tier_for_router_fallback_model(monkeypatch):
     # #194 regression: when OpenRouter omits usage.cost for a non-Anthropic router-fallback model
-    # (e.g. z-ai/glm-5.3), _meter must record cost_usd=0.0 (unknown), never the Claude Haiku rate
-    # it used to fall back to via anthropic_cost's old "first price-book entry" default.
+    # (e.g. z-ai/glm-5.3), _meter must never record the Claude Haiku rate it used to fall back to
+    # via anthropic_cost's old "first price-book entry" default.
     from glitch_signal.agent.loop.llm import _meter
 
     recorded: dict = {}
@@ -86,8 +86,42 @@ async def test_meter_records_zero_not_a_guessed_tier_for_router_fallback_model(m
     usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}  # no "cost" key (OpenRouter omitted it)
     await _meter("z-ai/glm-5.3", usage, "req-1")
 
-    assert recorded["cost_usd"] == 0.0
+    # not the guessed Claude Haiku tier (would be $6.0 for this usage)
+    assert recorded["cost_usd"] != pytest.approx(6.0)
     assert recorded["model"] == "z-ai/glm-5.3"
+
+
+async def test_meter_records_nonzero_conservative_estimate_for_unknown_model(monkeypatch):
+    # #196 regression: recording cost_usd=0.0 for a model missing from the price book makes a real
+    # paid call look genuinely free to the daily-budget check and cost reconciliation
+    # (usage_events.cost_usd is their source), letting an unknown model burn budget invisibly.
+    # _meter must record a non-zero, configurable conservative estimate instead of 0.0.
+    from glitch_signal.agent.loop.llm import _meter
+
+    recorded: dict = {}
+
+    async def _fake_record_usage(**kwargs):
+        recorded.update(kwargs)
+
+    monkeypatch.setattr("glitch_signal.analytics.cost.record_usage", _fake_record_usage)
+    monkeypatch.setattr("glitch_signal.analytics.cost.get_brand", lambda: "acme")
+    monkeypatch.setenv("COST_UNKNOWN_MODEL_USD", "0.07")
+
+    usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}  # no "cost" key
+    await _meter("z-ai/glm-5.3", usage, "req-2")
+
+    assert recorded["cost_usd"] == pytest.approx(0.07)
+    assert recorded["cost_usd"] != 0.0
+
+
+def test_unknown_model_cost_usd_default_and_override(monkeypatch):
+    from glitch_signal.analytics.cost.pricing import unknown_model_cost_usd
+
+    monkeypatch.delenv("COST_UNKNOWN_MODEL_USD", raising=False)
+    assert unknown_model_cost_usd() == pytest.approx(0.05)
+
+    monkeypatch.setenv("COST_UNKNOWN_MODEL_USD", "0.13")
+    assert unknown_model_cost_usd() == pytest.approx(0.13)
 
 
 def test_higgsfield_cost_credits_to_usd(monkeypatch):

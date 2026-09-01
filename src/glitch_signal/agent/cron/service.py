@@ -93,7 +93,7 @@ async def _dispatch(job: dict, *, engine=None) -> None:
         if job["payload_kind"] == "agentTurn":
             result = await _run_agent_turn(brand, job["payload"])
         elif job["payload_kind"] == "pipelineTurn":
-            result = await _run_pipeline_turn(brand, job["payload"])
+            result = await _run_pipeline_turn(brand, job["payload"], job.get("created_scope"))
         elif job["payload_kind"] == "capability":
             result = await _run_capability(brand, job["payload"])
         else:
@@ -108,15 +108,23 @@ async def _dispatch(job: dict, *, engine=None) -> None:
                                max_failures=_max_failures(), engine=engine)
 
 
-async def _run_pipeline_turn(brand: str, payload: dict) -> dict:
+async def _run_pipeline_turn(brand: str, payload: dict, created_scope: str | None = None) -> dict:
     """Run a scheduled PIPELINE occurrence by RE-RESOLVING the pipeline at fire time.
 
     The cron job stores only the pipeline name, so scope/goal and the required kill-switches are read
     live from the registry every occurrence — a discovery schedule stays inert while
     `agent_discovery_enabled` is off, and content honors the current `agent_content_media_enabled`
     (paid media on/off) instead of a value frozen at seed time. If a requirement is unmet the run is
-    SKIPPED (recorded, not executed), mirroring the manual endpoint's 409."""
-    from glitch_signal.agent.loop import pipelines
+    SKIPPED (recorded, not executed), mirroring the manual endpoint's 409.
+
+    #196 finding 9: re-resolving live means the pipeline's SCOPE can also drift between create time
+    and fire time (e.g. `content` widens from `content_draft` to `content`, which grants media
+    tools, the moment `agent_content_media_enabled` flips on). `cron.tool._clamp_scope` only checked
+    containment once, at create time — a narrow-scoped run could pre-arm a `content` pipelineTurn
+    that passed then, and have it fire later with powers it never held. So re-check containment here
+    too, against the scope stamped on the job when it was created (`created_scope`).
+    """
+    from glitch_signal.agent.loop import pipelines, scopes
 
     p = pipelines.resolve(str(payload.get("pipeline", "")))
     if p is None:
@@ -124,6 +132,17 @@ async def _run_pipeline_turn(brand: str, payload: dict) -> dict:
     missing = p.missing_requirements()
     if missing:
         return {"pipeline": p.name, "skipped": f"requires: {', '.join(missing)}"}
+    # Jobs created before this column existed have `created_scope is None`. We cannot recover what
+    # scope actually created them, and trusting them unconditionally would reopen exactly the gap
+    # this fixes — so, fail closed, treat an unrecorded creator scope as the safe DEFAULT_SCOPE
+    # (`chat`), same posture as an unrecognised capability elsewhere in this module. A legacy job
+    # whose pipeline needs no more than `chat` still runs; one that needs more is skipped once, and
+    # an operator/agent can re-create it under the current code path to pick up a real stored scope.
+    effective_creator_scope = created_scope or scopes.DEFAULT_SCOPE
+    if not scopes.is_subset(p.scope, effective_creator_scope):
+        return {"pipeline": p.name,
+                "skipped": (f"scope escalation: pipeline now needs scope {p.scope!r}, which exceeds "
+                            f"this job's creator scope {effective_creator_scope!r}")}
     return await _run_agent_turn(
         brand, {"goal": p.render_goal(brand), "scope": p.scope, "max_steps": p.max_steps})
 

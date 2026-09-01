@@ -231,12 +231,12 @@ async def _meter(model: str, usage: dict, req_id: str | None) -> None:
     """Attribute this call's tokens + cost to the active brand (COST-METER). Never raises."""
     try:
         from glitch_signal.analytics.cost import get_brand, record_usage  # noqa: PLC0415
-        from glitch_signal.analytics.cost.pricing import anthropic_cost  # noqa: PLC0415
+        from glitch_signal.analytics.cost.pricing import anthropic_cost, unknown_model_cost_usd  # noqa: PLC0415
         cost = usage.get("cost")
         if cost is None:                        # OpenRouter didn't return cost → estimate off the price book
             cost = anthropic_cost(model.split("/")[-1], usage)
         if cost is None:                        # not a Claude model either (#194) — don't guess a vendor's
-            cost = 0.0                          # price tier; record as unknown rather than mis-attribute one
+            cost = unknown_model_cost_usd()     # price tier, but $0.0 would make a real call look free (#196)
         await record_usage(brand_id=get_brand(), vendor="openrouter", operation="chat",
                            model=model, units=usage, cost_usd=cost, request_id=req_id)
     except Exception:  # noqa: BLE001 — metering is best-effort, never breaks the LLM call

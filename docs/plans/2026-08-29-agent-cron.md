@@ -61,6 +61,7 @@ scheduler tick (per worker) ──> _scheduled_jobs_tick() ──> claim-and-adv
 | `last_run_at` | timestamptz | |
 | `pacing` | jsonb default '{}' | `{min_ms?, max_ms?}` — bounds for `next_check` |
 | `delete_after_run` | boolean default false | one-shot `at` cleanup |
+| `created_scope` | text, nullable | scope of the run that created this job (#196 finding 9); re-checked at fire time against the live-resolved pipeline scope so it can't widen between create and fire. `NULL` on pre-migration rows → treated as the default `chat` scope (fail closed), not unlimited trust |
 | `fail_count` | int default 0 | consecutive failures → auto-disable |
 | `disabled_reason` | text | |
 | `created_at`/`updated_at` | timestamptz default now() | |

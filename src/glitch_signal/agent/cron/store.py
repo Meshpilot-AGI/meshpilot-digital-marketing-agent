@@ -25,14 +25,15 @@ _JSON_COLS = ("schedule", "payload", "pacing", "result")
 _INSERT_JOB = text(
     "INSERT INTO scheduled_jobs "
     "(brand_id, name, owner, enabled, schedule_kind, schedule, payload_kind, payload, "
-    " next_run_at, pacing, delete_after_run) "
+    " next_run_at, pacing, delete_after_run, created_scope) "
     "VALUES (:brand_id, :name, :owner, :enabled, :schedule_kind, cast(:schedule as jsonb), "
-    " :payload_kind, cast(:payload as jsonb), :next_run_at, cast(:pacing as jsonb), :delete_after_run) "
+    " :payload_kind, cast(:payload as jsonb), :next_run_at, cast(:pacing as jsonb), :delete_after_run, "
+    " :created_scope) "
     "RETURNING id"
 )
 _SELECT_DUE = text(
     "SELECT id, brand_id, name, owner, schedule_kind, schedule, payload_kind, payload, "
-    " delete_after_run, pacing "
+    " delete_after_run, pacing, created_scope "
     "FROM scheduled_jobs "
     "WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= :now "
     "ORDER BY next_run_at FOR UPDATE SKIP LOCKED LIMIT :limit"
@@ -102,7 +103,8 @@ def _decode(row: Any) -> dict:
 async def create_job(*, brand_id: str, name: str, schedule_kind: str, schedule: dict,
                      payload_kind: str, payload: dict, owner: str = "operator",
                      pacing: dict | None = None, delete_after_run: bool = False,
-                     enabled: bool = True, now: datetime, engine: Any | None = None) -> str:
+                     enabled: bool = True, now: datetime, created_scope: str | None = None,
+                     engine: Any | None = None) -> str:
     sched.validate(schedule, schedule_kind)
     next_run_at = sched.compute_first_run(schedule, schedule_kind, now=now)
     eng = engine or _engine()
@@ -113,6 +115,10 @@ async def create_job(*, brand_id: str, name: str, schedule_kind: str, schedule: 
             "payload_kind": payload_kind, "payload": json.dumps(payload),
             "next_run_at": next_run_at, "pacing": json.dumps(pacing or {}),
             "delete_after_run": delete_after_run,
+            # The scope of the run that CREATED this job (#196 finding 9) — re-checked at fire time
+            # in `service._run_pipeline_turn` against the freshly-resolved pipeline scope, since a
+            # pipeline's scope can widen between create time and fire time (a kill-switch flip).
+            "created_scope": created_scope,
         })).mappings().first()
     return str(row["id"])
 

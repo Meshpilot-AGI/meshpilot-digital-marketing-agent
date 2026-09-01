@@ -21,7 +21,12 @@ _DEDUP_INSERT = text(
 )
 _RATE_UPSERT = text(
     "INSERT INTO rate_counters (key, window_start, window_seconds, count) VALUES (:k, :w, :ws, 1) "
-    "ON CONFLICT (key, window_start) DO UPDATE SET count = rate_counters.count + 1 "
+    # #196: repair `window_seconds` on every conflicting write, not just the initial INSERT — a row
+    # whose stored scale is wrong (e.g. NULL/unknown from the #193 backfill, or any other drift) then
+    # self-heals to the caller's real value the very next time its key is touched, instead of staying
+    # wrong forever because DO UPDATE only ever bumped `count`.
+    "ON CONFLICT (key, window_start) DO UPDATE SET count = rate_counters.count + 1, "
+    "window_seconds = excluded.window_seconds "
     "RETURNING count"
 )
 _CLEANUP = (
@@ -29,9 +34,15 @@ _CLEANUP = (
     # daily-cap bucket are NOT comparable as raw `window_start` integers, so cutoff must be computed
     # in wall-clock time per row (window_start * window_seconds), not against a single caller-supplied
     # window_s. Keep the last few windows of slack per row's own scale.
+    #
+    # #196: a NULL window_seconds means "unknown scale" (e.g. a row backfilled by the #193 migration
+    # before its true scale could be recorded) — such a row is never pruned here; it can only be
+    # reclaimed once `_RATE_UPSERT` repairs its scale on the next write, or by a separate, explicit
+    # unknown-row sweep. Guessing a scale for it risks re-introducing #193's cross-scale wipe.
     text(
         "DELETE FROM rate_counters "
-        "WHERE window_start * window_seconds < (extract(epoch from now())::bigint - 3 * window_seconds)"
+        "WHERE window_seconds IS NOT NULL "
+        "AND window_start * window_seconds < (extract(epoch from now())::bigint - 3 * window_seconds)"
     ),
     text("DELETE FROM webhook_dedup WHERE created_at < now() - interval '30 days'"),
 )

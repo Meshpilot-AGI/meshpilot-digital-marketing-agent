@@ -95,9 +95,13 @@ async def pending_for_reconcile(*, older_than_s: int, limit: int = 25, max_attem
                  "       p.reconcile_attempts, c.brand_id "
                  "FROM social_post p JOIN social_campaign c ON c.id = p.campaign_id "
                  "WHERE p.status = 'pending' AND p.platform_post_id IS NOT NULL "
-                 "  AND p.created_at <= now() - make_interval(secs => :age) "
+                 # Age from when the provider ACCEPTED the post, not when we reserved the outbox
+                 # row: `submitted_at` is stamped with the provider id, and the settle window is
+                 # about how long Buffer has had the post — reserving happens strictly earlier, so
+                 # created_at makes rows eligible before the vendor has had the full window.
+                 "  AND coalesce(p.submitted_at, p.created_at) <= now() - make_interval(secs => :age) "
                  "  AND p.reconcile_attempts < :max_attempts "
-                 "ORDER BY p.created_at LIMIT :k"),
+                 "ORDER BY coalesce(p.submitted_at, p.created_at) LIMIT :k"),
             {"age": older_than_s, "max_attempts": max_attempts, "k": limit})).mappings().all()
     return [dict(r) for r in rows]
 
@@ -151,3 +155,47 @@ async def finalize_campaign(campaign_id: str, status: str, cost_usd: float, *,
                  "WHERE id = CAST(:cid AS uuid)"),
             {"s": status, "c": cost_usd, "img": image_url, "vid": video_url,
              "reason": failure_reason, "cid": campaign_id})
+
+
+async def campaign_post_statuses(campaign_id: str, *, engine: Any = None) -> list[str]:
+    """Every post status for a campaign — the input to recomputing its aggregate status."""
+    eng = engine or _engine()
+    async with eng.connect() as conn:
+        rows = (await conn.execute(
+            text("SELECT status FROM social_post WHERE campaign_id = CAST(:cid AS uuid)"),
+            {"cid": campaign_id})).fetchall()
+    return [r[0] for r in rows]
+
+
+async def set_campaign_status(campaign_id: str, status: str, *, engine: Any = None) -> None:
+    """Update ONLY the aggregate status, leaving cost and media URLs untouched.
+
+    `finalize_campaign` is the end-of-run write and would clobber the recorded spend with whatever
+    the caller passed; reconciliation happens long after the run, so it needs a narrower update.
+    """
+    eng = engine or _engine()
+    async with eng.begin() as conn:
+        await conn.execute(
+            text("UPDATE social_campaign SET status = :s WHERE id = CAST(:cid AS uuid)"),
+            {"s": status, "cid": campaign_id})
+
+
+async def stranded_pending(*, older_than_s: int, limit: int = 25,
+                           engine: Any = None) -> list[dict]:
+    """Pending rows that have NO provider id — nothing to poll, so the reconciler cannot settle them.
+
+    These are the rows where the publish call succeeded but persisting its result exhausted its
+    retries. `idem_key` is the only handle: it was sent to Buffer in the post `source` field, so an
+    operator can find the real post by that tag. Surfacing them is the recovery path — silently
+    leaving them pending forever is what the outbox was built to avoid.
+    """
+    eng = engine or _engine()
+    async with eng.connect() as conn:
+        rows = (await conn.execute(
+            text("SELECT p.id, p.campaign_id, p.platform, p.idem_key, c.brand_id "
+                 "FROM social_post p JOIN social_campaign c ON c.id = p.campaign_id "
+                 "WHERE p.status = 'pending' AND p.platform_post_id IS NULL "
+                 "  AND p.created_at <= now() - make_interval(secs => :age) "
+                 "ORDER BY p.created_at LIMIT :k"),
+            {"age": older_than_s, "k": limit})).mappings().all()
+    return [dict(r) for r in rows]
