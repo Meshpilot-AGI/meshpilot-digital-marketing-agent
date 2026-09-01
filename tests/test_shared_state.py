@@ -1,7 +1,7 @@
 """Cross-worker shared state (#98): webhook dedup + shared rate limiter (fake engine, no DB)."""
 from __future__ import annotations
 
-from glitch_signal.middleware.shared_state import SharedWindowLimiter, webhook_seen
+from glitch_signal.middleware.shared_state import SharedWindowLimiter, cleanup, webhook_seen
 
 
 class _Result:
@@ -82,3 +82,31 @@ async def test_shared_limiter_fails_open():
     lim = SharedWindowLimiter(limit=5, window_seconds=60, engine=_Boom())
     allowed, retry = await lim.check("ip:1.2.3.4")
     assert allowed is True and retry == 0  # fail-open: broken DB never becomes an outage
+
+
+# ── #193: window-scale mismatch between the 60s rate limiter and e.g. the 86400s daily email cap ──
+async def test_check_persists_its_own_window_scale():
+    """Each row must record the window scale it belongs to, so cleanup can prune per-row instead of
+    comparing raw bucket numbers across incompatible scales (60s vs 86400s)."""
+    eng = _Engine(first=(1,))
+    lim = SharedWindowLimiter(limit=50, window_seconds=86400.0, engine=eng)  # e.g. daily email cap
+    await lim.check("email:brand-x")
+    _, params = eng.calls[0]
+    assert params["ws"] == 86400
+
+
+async def test_cleanup_does_not_use_a_single_cross_scale_cutoff():
+    """Regression for #193: the hourly cleanup used to delete `WHERE window_start < :cutoff` with a
+    cutoff computed from the 60s rate-limit window, which wipes any row on a larger window scale
+    (e.g. the 86400s daily email cap ends up bucketed ~20,693 vs a 60s cutoff of ~29.4M) on every
+    sweep. The fixed query must prune by each row's own `window_seconds`, not a single global cutoff
+    parameter that conflates scales.
+    """
+    eng = _Engine(first=(1,))
+    await cleanup(window_s=60, engine=eng)
+    rate_counters_sql = eng.calls[0][0].lower()
+    assert "window_start < :cutoff" not in rate_counters_sql
+    assert "window_seconds" in rate_counters_sql
+    # No caller-supplied cutoff param should reach the query — the DB computes wall-clock expiry
+    # per row from its own stored window_seconds instead.
+    assert eng.calls[0][1] in (None, {})

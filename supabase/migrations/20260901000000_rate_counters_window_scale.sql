@@ -1,0 +1,12 @@
+-- Fix #193: rate_counters conflates bucket numbers from incompatible window scales.
+--
+-- `window_start` is `floor(epoch_seconds / window_seconds)`, but the SCALE of that bucket wasn't
+-- recorded anywhere. The hourly cleanup pruned by comparing raw `window_start` values against a
+-- cutoff computed for the 60s rate-limiter window, which wiped every row using a larger window
+-- (e.g. the 86400s per-brand daily email cap) on every sweep.
+--
+-- Fix: store each row's own window scale so cleanup can prune by real wall-clock expiry
+-- (`window_start * window_seconds < now - slack`) instead of comparing bucket numbers across
+-- incompatible scales. Backfill existing rows to 60 (the scale used everywhere except the email
+-- cap, which self-heals on its next check() upsert).
+alter table rate_counters add column if not exists window_seconds integer not null default 60;

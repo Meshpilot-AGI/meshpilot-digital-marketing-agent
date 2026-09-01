@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 import glitch_signal.agent.loop.tools as tools
+from glitch_signal.agent.loop.policy import Policy
 
 
 # ── web_search ────────────────────────────────────────────────────────
@@ -17,9 +18,11 @@ async def test_web_search_calls_openrouter_web(monkeypatch):
     assert "trading platform" in d["answer"] and d["sources"] == ["https://glitchexecutor.com"]
 
 
-async def test_web_search_disabled(monkeypatch):
-    monkeypatch.setenv("AGENT_WEB_SEARCH_ENABLED", "false")
-    assert (await tools._t_web_search({"query": "x"}, "b")).startswith("ERROR: web_search is disabled")
+def test_web_search_disabled_by_default_via_policy():
+    # web_search has no in-tool kill-switch (#191) — the policy gate is the ONLY enforcement point,
+    # and it denies by default (mirrors send_email/discover_trending: safe-off until deliberately on).
+    d = Policy().check("web_search", {}, "b")
+    assert d.allow is False and "disabled" in d.reason
 
 
 async def test_web_search_missing_query():
@@ -140,9 +143,11 @@ async def test_web_fetch_refused_on_ssrf():
     assert (await tools._t_web_fetch({"url": "http://127.0.0.1/x"}, "b")).startswith("ERROR: web_fetch refused")
 
 
-async def test_web_fetch_disabled(monkeypatch):
-    monkeypatch.setenv("AGENT_WEB_FETCH_ENABLED", "false")
-    assert (await tools._t_web_fetch({"url": "https://x.com"}, "b")).startswith("ERROR: web_fetch is disabled")
+def test_web_fetch_disabled_by_default_via_policy():
+    # web_fetch has no in-tool kill-switch (#191) — the policy gate is the ONLY enforcement point,
+    # and it denies by default (mirrors send_email/discover_trending: safe-off until deliberately on).
+    d = Policy().check("web_fetch", {}, "b")
+    assert d.allow is False and "disabled" in d.reason
 
 
 async def test_web_fetch_missing_url():

@@ -79,22 +79,31 @@ async def _t_generate_media(args: dict, brand_id: str) -> str:
 
 async def _t_edit_image(args: dict, brand_id: str) -> str:
     """Deterministic native edit (resize/crop/text/format) of an existing image → stored URL."""
+    from urllib.parse import urlsplit
+
     import httpx
 
     from glitch_signal.media.generation.storage import upload_bytes
     from glitch_signal.media.imaging import apply_ops
-    from glitch_signal.media.net import assert_safe_media_url
 
     url = str(args.get("image_url", "")).strip()
     ops = args.get("ops", []) or []
     if not url:
         return "ERROR: edit_image requires image_url"
-    try:
-        assert_safe_media_url(url)  # SSRF guard: https + public IP only (#92)
-    except ValueError as exc:
-        return f"ERROR: unsafe image_url: {exc}"
-    async with httpx.AsyncClient(timeout=60, follow_redirects=False) as c:
-        r = await c.get(url)
+    if urlsplit(url).scheme != "https":
+        return "ERROR: unsafe image_url: only https URLs are allowed"
+    # SSRF guard (#92, hardened for #192): resolve the host ONCE with the async, non-blocking
+    # getaddrinfo, require every resolved address to be public, then connect to that EXACT
+    # validated IP (same pinned-connection pattern as web_fetch). This closes the DNS-rebinding
+    # TOCTOU where a plain "validate the URL, then let httpx re-resolve it" guard can be bypassed
+    # by a host that answers the guard's lookup and the fetch's lookup with different addresses.
+    ok, why, host, ip, _port = await _web_url_resolve(url)
+    if not ok:
+        return f"ERROR: unsafe image_url: {why}"
+    pinned, host_header = _pin_url(url, host, ip)
+    async with httpx.AsyncClient(timeout=60, follow_redirects=False, trust_env=False) as c:
+        r = await c.get(pinned, headers={"host": host_header, "user-agent": "Mozilla/5.0"},
+                         extensions={"sni_hostname": host})
         if r.status_code >= 400:
             return f"ERROR: could not fetch image ({r.status_code})"
         data = r.content
@@ -224,11 +233,10 @@ async def _t_read_brand_doc(args: dict, brand_id: str) -> str:
 
 
 async def _t_web_search(args: dict, brand_id: str) -> str:
-    """Search the LIVE web via OpenRouter's native web plugin. Returns {answer, sources}."""
+    """Search the LIVE web via OpenRouter's native web plugin. Returns {answer, sources}. Gated: the
+    policy denies this unless agent_web_search_enabled is on, so it only runs when deliberately enabled."""
     from glitch_signal.agent.loop import llm as agent_llm
 
-    if not _env_bool("AGENT_WEB_SEARCH_ENABLED", True):
-        return "ERROR: web_search is disabled (AGENT_WEB_SEARCH_ENABLED)"
     q = str(args.get("query", "")).strip()
     if not q:
         return "ERROR: web_search requires 'query'"
@@ -267,10 +275,12 @@ def _ip_is_public(ip_str: str) -> bool:
 
 
 def _web_url_precheck(url: str) -> tuple[bool, str, str, int]:
-    """Synchronous SSRF pre-check (no DNS): http(s) scheme, canonical host, not a blocked domain, and —
+    """Synchronous SSRF pre-check (no DNS): http(s) scheme, canonical host, not a blocked domain/host, and —
     for a literal-IP host — the IP is public. Returns (ok, why, canonical_host, port)."""
     import ipaddress
     from urllib.parse import urlsplit
+
+    from glitch_signal.media.net import _BLOCKED_HOSTS
 
     p = urlsplit(url)
     if p.scheme not in ("http", "https"):
@@ -278,6 +288,8 @@ def _web_url_precheck(url: str) -> tuple[bool, str, str, int]:
     host = _canonical_host(p.hostname or "")
     if not host:
         return False, "no host", "", 0
+    if host in _BLOCKED_HOSTS:
+        return False, f"blocked host {host!r}", "", 0
     blocked = [_canonical_host(d) for d in (os.environ.get("AGENT_WEB_BLOCKED_DOMAINS") or "").split(",")
                if d.strip()]
     if any(host == b or host.endswith("." + b) for b in blocked if b):
@@ -323,16 +335,30 @@ async def _web_url_resolve(url: str) -> tuple[bool, str, str, str, int]:
     return True, "", host, ips[0], port
 
 
+def _pin_url(url: str, host: str, ip: str) -> tuple[str, str]:
+    """Rewrite `url`'s netloc to the validated `ip` so an httpx client connects to EXACTLY the
+    address the SSRF guard approved — no second DNS lookup, no DNS-rebinding window. Returns
+    (pinned_url, host_header): pass host_header as the `Host` header and `host` as the
+    `sni_hostname` extension so TLS SNI + certificate verification stay bound to the real hostname."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    p = urlsplit(url)
+    ip_netloc = f"[{ip}]" if ":" in ip else ip
+    if p.port:
+        ip_netloc += f":{p.port}"
+    pinned = urlunsplit((p.scheme, ip_netloc, p.path or "/", p.query, ""))
+    host_header = f"{host}:{p.port}" if p.port else host
+    return pinned, host_header
+
+
 async def _t_web_fetch(args: dict, brand_id: str) -> str:
-    """Fetch a URL and return its readable text. Guarded: gated by AGENT_WEB_FETCH_ENABLED, http(s) only,
+    """Fetch a URL and return its readable text. Gated: the policy denies this unless
+    agent_web_fetch_enabled is on, so it only runs when deliberately enabled. Also http(s) only,
     SSRF-checked with the connection PINNED to a validated public IP (original Host header + TLS SNI/cert
     hostname preserved), OS/env proxies disabled, redirects NOT followed, response hard-bounded to 500KB."""
     import re as _re
-    from urllib.parse import urlsplit, urlunsplit
 
     import httpx as _httpx
-    if not _env_bool("AGENT_WEB_FETCH_ENABLED", True):
-        return "ERROR: web_fetch is disabled (AGENT_WEB_FETCH_ENABLED)"
     url = str(args.get("url", "")).strip()
     if not url:
         return "ERROR: web_fetch requires 'url'"
@@ -344,12 +370,7 @@ async def _t_web_fetch(args: dict, brand_id: str) -> str:
     # header and the sni_hostname extension keep TLS SNI + certificate verification bound to the real
     # hostname. trust_env=False stops HTTP(S)_PROXY / NO_PROXY from moving resolution or the destination
     # outside this guard.
-    p = urlsplit(url)
-    ip_netloc = f"[{ip}]" if ":" in ip else ip
-    if p.port:
-        ip_netloc += f":{p.port}"
-    pinned = urlunsplit((p.scheme, ip_netloc, p.path or "/", p.query, ""))
-    host_header = f"{host}:{p.port}" if p.port else host
+    pinned, host_header = _pin_url(url, host, ip)
     try:
         async with _httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False) as c:
             async with c.stream("GET", pinned,
@@ -479,11 +500,6 @@ def tool_defs() -> list[dict[str, Any]]:
             d["strict"] = True
         defs.append(d)
     return defs
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    v = os.environ.get(name)
-    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _env_int(name: str, default: int) -> int:

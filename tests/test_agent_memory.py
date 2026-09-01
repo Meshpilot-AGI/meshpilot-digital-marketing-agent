@@ -187,6 +187,43 @@ async def test_recall_kind_filter():
     assert "string_to_array(:kinds_csv" in sql and params["kinds_csv"] == "fact"  # invalid kind filtered
 
 
+async def test_recall_orders_candidate_ctes_by_index_eligible_expressions():
+    """Regression for #101: recall() must not ORDER BY the fused score directly over the full brand
+    partition (that defeats the `<=>` HNSW index — Postgres would have to compute the distance
+    expression for every row before it can sort). Instead it should gather semantic candidates via
+    a raw `<=>` ORDER BY and lexical candidates via a `ts_rank` ORDER BY, then only fuse-and-rank
+    that small candidate set in the outer query."""
+    eng = FakeEngine()
+    eng.queue(_Result(rows=[]))
+    await store.recall("glitch_executor", "who is GE for", k=5, embed_fn=_fake_embed, engine=eng)
+    sql, params = eng.calls[0]
+    # candidate CTEs exist and are index-eligible: ordered by the raw operator / ts_rank, not `score`
+    assert "sem_cand" in sql and "lex_cand" in sql and "candidates" in sql
+    assert "order by embedding <=> cast(:qvec as halfvec)" in sql.lower()
+    assert "order by ts_rank(" in sql.lower()
+    # the fused score is only computed (and only ORDER BY'd) in the final, small, joined result
+    assert "join candidates" in sql.lower()
+    outer_order_by = sql.lower().rsplit("order by", 1)[1]
+    assert "score desc" in outer_order_by
+    assert params["cand_k"] >= 5
+
+
+async def test_recall_skips_semantic_candidates_when_embed_fails():
+    """When query embedding fails (qvec is None), the semantic candidate CTE must be skipped
+    entirely rather than ORDER BY `<=>` against a NULL vector (which is meaningless), falling back
+    to lexical-only candidates."""
+    eng = FakeEngine()
+    eng.queue(_Result(rows=[]))
+
+    async def _boom(texts, input_type="query"):
+        raise RuntimeError("nvidia down")
+
+    await store.recall("glitch_executor", "q", embed_fn=_boom, engine=eng)
+    sql, _ = eng.calls[0]
+    assert "sem_cand" not in sql.lower()
+    assert "lex_cand" in sql.lower()
+
+
 async def test_recall_verified_only_filters_in_query():
     # The provenance filter must live in the SELECT so LIMIT applies to the *filtered* set (verified facts
     # outside the top-N window aren't dropped by the row cap).

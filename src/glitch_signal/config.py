@@ -295,6 +295,12 @@ class Settings(BaseSettings):
     # deliberately enabled — the ability ships inert.
     agent_discovery_enabled: bool = False
     agent_max_discovery_per_run: int = 5     # per-loop-run cap (policy gate, via counts)
+    # --- Web tools (web_search / web_fetch) ---
+    # Web kill-switches (mirror agent_discovery_enabled): while False, the agent's `web_search` /
+    # `web_fetch` tools are denied by the policy gate. Outbound web access + LLM-plugin cost stay
+    # OFF until deliberately enabled — the ability ships inert (#191).
+    agent_web_search_enabled: bool = False
+    agent_web_fetch_enabled: bool = False
     # SCOPE: default toolset for an un-specified run (Discord/bare). `chat` = safe read+plan only;
     # a pipeline/operator run passes a broader scope (discovery/content/orm/full).
     agent_default_scope: str = "chat"
