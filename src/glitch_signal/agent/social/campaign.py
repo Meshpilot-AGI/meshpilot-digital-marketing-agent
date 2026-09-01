@@ -9,7 +9,6 @@ import structlog
 
 from glitch_signal.agent.social.spec import (
     IMAGE_PLATFORMS,
-    IMAGE_RECIPE,
     VIDEO_PLATFORMS,
     CampaignResult,
     PostDraft,
@@ -67,14 +66,33 @@ def _default_deps() -> RunDeps:
     from glitch_signal.agent.memory.store import remember
     from glitch_signal.agent.social import captions, ideate, publish, store, video
     from glitch_signal.analytics.cost import budget
-    from glitch_signal.media.generation import generate as _generate
-    from glitch_signal.media.generation.spec import Brief
-    from glitch_signal.media.generation.storage import persist
 
     async def generate_image(brand_id: str, idea) -> str:
-        asset = await _generate(Brief(brand_id=brand_id, recipe=IMAGE_RECIPE,
-                                      inputs={"prompt": f"{idea.angle}: {idea.hook}"}))
-        return (await persist(asset, brand_id)).url
+        """Render the post card deterministically — no image model in the loop.
+
+        The previous path sent `f"{idea.angle}: {idea.hook}"` to a photorealism model with no art
+        direction at all, which is why the output was generic: the best model in the world returns
+        stock imagery from a bare topic string. And for this brand a glossy AI photograph is the
+        wrong creative regardless of quality — it reads as stock to a reader who is specifically
+        allergic to marketing. The hook, set well, IS the image.
+        """
+        from glitch_signal.agent import positioning as _pos
+        from glitch_signal.media.generation.storage import upload_bytes
+        from glitch_signal.media.render import card as _card
+
+        tokens = await _pos.get_visual(brand_id)
+        png = _card.render(_card.Card(
+            headline=idea.hook or idea.angle,
+            # The angle reads "pillar: specific topic"; only the pillar belongs in the kicker —
+            # the specific topic is already the headline right beneath it.
+            kicker=idea.angle.split(":")[0],
+            subhead=(idea.key_points[0] if idea.key_points else ""),
+            wordmark=str(tokens.get("wordmark", "")),
+            fmt=str(tokens.get("format") or _card.DEFAULT_FORMAT),
+            palette=_card.Palette.from_dict(tokens),
+        ))
+        return await upload_bytes(png, brand_id, ext="png", content_type="image/png",
+                                  prefix="social_card")
 
     async def generate_video(brand_id: str, idea) -> str:
         return await video.generate_video(brand_id, video.build_video_prompt(idea),
