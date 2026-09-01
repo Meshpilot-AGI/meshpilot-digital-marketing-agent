@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 # Fixed media mapping (spec): one image fans to these, one video fans to those.
 IMAGE_PLATFORMS = ("x", "linkedin", "facebook")
 VIDEO_PLATFORMS = ("tiktok", "instagram")
-IMAGE_RECIPE = "higgsfield-soul-image"     # existing Higgsfield recipe (image)
+# The image model for the conceptual/poster routes. nano-banana renders legible type and holds a
+# consistent look across unrelated topics when given the brand's art direction — verified live on
+# this account against the old Higgsfield path, which produced generic stock from a bare brief.
+IMAGE_MODEL = "nano-banana-pro"
 # NB: video is produced by the HeyGen Video Agent client (agent/social/video.py), NOT a
 # media-factory recipe — so there is no VIDEO_RECIPE constant.
 
@@ -16,6 +19,10 @@ class Idea:
     hook: str
     key_points: list[str]
     dedup_key: str
+    # What KIND of post this is — the agent decides, and `plan.route_for` turns it into a renderer.
+    # Routing on the content rather than defaulting to one path is what keeps the pipeline from
+    # being hardcoded to a single creative treatment.
+    asset_kind: str = "statement"
 
 
 @dataclass(frozen=True)

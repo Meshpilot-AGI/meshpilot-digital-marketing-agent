@@ -1,6 +1,6 @@
 from glitch_signal.agent.social.spec import (
     IMAGE_PLATFORMS,
-    IMAGE_RECIPE,
+    IMAGE_MODEL,
     VIDEO_PLATFORMS,
     CampaignResult,
     Idea,
@@ -37,4 +37,4 @@ def test_dataclasses_construct():
     assert r.cost_usd == 0.0 and r.skipped_reason is None
     pr = PlatformResult(platform="x", status="posted")
     assert pr.verdict is None and pr.error is None
-    assert IMAGE_RECIPE == "higgsfield-soul-image"
+    assert IMAGE_MODEL == "nano-banana-pro"        # Higgsfield is out of the image path

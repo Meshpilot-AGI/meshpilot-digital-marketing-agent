@@ -16,7 +16,12 @@ _PROMPT = (
     "probably does. If the positioning and your instincts disagree, the positioning wins. "
     "Reply with ONLY a JSON object: "
     '{{"angle": "<theme>", "hook": "<=12-word hook", "key_points": ["..."], '
+    '"asset_kind": "<one of: comparison|definition|numbered|mechanism|statement|concept|poster>", '
     '"dedup_key": "<short-stable-slug-of-the-angle>"}}.\n'
+    "Choose asset_kind by what the post IS, not by habit: contrast two rules -> comparison; explain "
+    "one term -> definition; enumerate failure modes -> numbered; show how a mechanic behaves -> "
+    "mechanism; a single sharp line -> statement; an abstract idea better shown as an object -> "
+    "concept; a concept that needs a headline burned in -> poster.\n"
     "{positioning}\n"
     "--- TREND NOTES ---\n{notes}\n\n--- BRAND FACTS ---\n{facts}\n"
 )
@@ -62,4 +67,5 @@ async def propose_idea(brand_id: str, *, complete=None, recall=None, positioning
     if not key or not obj.get("angle") or key in recent_keys:
         return None
     return Idea(angle=str(obj["angle"]), hook=str(obj.get("hook", "")),
-                key_points=[str(p) for p in (obj.get("key_points") or [])], dedup_key=key)
+                key_points=[str(p) for p in (obj.get("key_points") or [])], dedup_key=key,
+                asset_kind=str(obj.get("asset_kind") or "statement").strip().lower())
