@@ -403,6 +403,71 @@ async def internal_agent_recall(request: Request) -> dict:
     }
 
 
+@app.get("/internal/agent/memory/review", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_memory_review(request: Request, kind: str | None = None, limit: int = 100) -> dict:
+    """Operator review queue: list a brand's memories, flagging whether each currently passes the
+    verified-provenance gate (auth: x-jobs-token). There is no write path that sets operator-verified
+    provenance other than POST /internal/agent/memory/verify below — this route is how an operator
+    finds what needs it. Brand is authorized via `?brand=` (default brand when absent), never a path
+    or body value (#95)."""
+    brand = _authorized_brand(request)
+    if kind is not None and kind not in ("fact", "episode"):
+        raise HTTPException(status_code=400, detail="kind must be 'fact' or 'episode'")
+    from glitch_signal.agent.memory import is_verified_provenance, list_memories
+
+    mems = await list_memories(brand, kind=kind, limit=limit)
+    return {
+        "ok": True,
+        "memories": [
+            {
+                "id": m.id, "kind": m.kind, "key": m.key, "content": m.content,
+                "metadata": m.metadata, "importance": m.importance, "source": m.source,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "verified": is_verified_provenance(m.source, m.metadata),
+            }
+            for m in mems
+        ],
+    }
+
+
+@app.post("/internal/agent/memory/verify", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_memory_verify(request: Request) -> dict:
+    """Grant operator-verified provenance to one or more memory ids (auth: x-jobs-token).
+
+    THIS is the trust-conferring write path `recall(verified_only=True)` / `is_verified_provenance()`
+    require — the agent's own tools (source=agent_loop / curator) can never call it. Body:
+    {ids: [memory_id, ...]}. Brand is authorized via `?brand=` (default brand when absent); a body
+    `brand` must match it, and the update itself is brand-scoped in the DB layer, so one brand's
+    token can never verify another brand's memory (#95).
+    """
+    body = await _json(request)
+    brand = _authorized_brand(request, body)
+    ids = body.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+        raise HTTPException(status_code=400, detail="ids (non-empty list of memory id strings) is required")
+    from glitch_signal.agent.memory import set_verified
+
+    verified_ids = await set_verified(brand, ids, verified_by="operator")
+    return {"ok": True, "verified": verified_ids, "not_found": sorted(set(ids) - set(verified_ids))}
+
+
+@app.post("/internal/agent/memory/unverify", dependencies=[Depends(_require_jobs_auth)])
+async def internal_agent_memory_unverify(request: Request) -> dict:
+    """Revoke operator-verified provenance from one or more memory ids (auth: x-jobs-token) — the
+    operator taking trust back. Body: {ids: [memory_id, ...]}. Brand is authorized via `?brand=`
+    (default brand when absent); a body `brand` must match it, and the update is brand-scoped in the
+    DB layer (#95)."""
+    body = await _json(request)
+    brand = _authorized_brand(request, body)
+    ids = body.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+        raise HTTPException(status_code=400, detail="ids (non-empty list of memory id strings) is required")
+    from glitch_signal.agent.memory import unset_verified
+
+    revoked_ids = await unset_verified(brand, ids, revoked_by="operator")
+    return {"ok": True, "unverified": revoked_ids, "not_found": sorted(set(ids) - set(revoked_ids))}
+
+
 @app.post("/internal/brand/{brand_id}/documents", dependencies=[Depends(_require_jobs_auth)])
 async def internal_brand_document_upload(brand_id: str, file: UploadFile = File(...),
                                          kind: str = Form("doc")) -> dict:

@@ -58,9 +58,11 @@ class RunDeps:
     remember: Callable[..., Any]
     have_constitution: Callable[[], bool]
     spend_now: Callable[[str], Any]
+    positioning: Callable[..., Any] | None = None
 
 
 def _default_deps() -> RunDeps:
+    from glitch_signal.agent import positioning as _positioning
     from glitch_signal.agent.loop import conscience
     from glitch_signal.agent.memory.store import remember
     from glitch_signal.agent.social import captions, ideate, publish, store, video
@@ -91,7 +93,7 @@ def _default_deps() -> RunDeps:
                    budget_check=budget.check, fan_out=publish.fan_out,
                    store_mod=store, remember=_remember,
                    have_constitution=lambda: bool(conscience.constitution()),
-                   spend_now=_spend_now)
+                   spend_now=_spend_now, positioning=_positioning.get)
 
 
 async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
@@ -153,6 +155,9 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
     try:
         caps = await d.captions(brand_id, idea)
         facts = await d.brand_facts(brand_id)
+        # Voice + prohibitions for the critic. Fetched here (not inside review) so one campaign makes
+        # one read, and so a positioning failure lands in the same fail-soft branch as the facts.
+        pos = await d.positioning(brand_id, engine=engine) if d.positioning else ""
     except Exception as exc:  # noqa: BLE001
         log.warning("social.captions_or_facts_failed", error=str(exc)[:200])
         return await _finish("failed", image_url=image_url, video_url=video_url,
@@ -174,7 +179,8 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None,
             verdicts[dr.platform] = "pass"
             continue
         try:
-            v = await d.review(f"Social post for {brand_id} ({dr.platform})", dr.caption, facts=facts)
+            v = await d.review(f"Social post for {brand_id} ({dr.platform})", dr.caption,
+                               facts=facts, positioning=pos)
         except Exception:  # noqa: BLE001
             v = {}
         verdict = str((v or {}).get("verdict") or "").lower()

@@ -12,6 +12,7 @@ searchable) or a read (falls back to lexical-only). Both the SQLAlchemy `engine`
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Sequence
 
 import structlog
@@ -59,6 +60,19 @@ async def _embed_or_none(text_value: str, input_type: str, embed_fn: EmbedFn | N
     except Exception as exc:  # noqa: BLE001 — degrade to lexical, never block
         log.warning("agent.memory.embed_failed", input_type=input_type, error=str(exc)[:200])
         return None
+
+
+def _or_tsquery(query: str) -> str:
+    """Turn free text into an OR `to_tsquery` string: 'a b c' -> 'a | b | c'.
+
+    `to_tsquery` parses operator syntax, so raw user text would raise on `&`, `!`, `:` or a stray
+    quote. Reduce to alphanumeric word tokens and join with `|`. Returns '' when nothing survives,
+    which callers must treat as "no lexical filter" rather than passing an empty tsquery.
+    """
+    import re as _re
+
+    words = [w for w in _re.findall(r"[A-Za-z0-9]+", query or "") if len(w) > 1]
+    return " | ".join(words[:32])
 
 
 def _row_to_memory(r: Any) -> Memory:
@@ -159,10 +173,25 @@ async def recall(
     qvec = await _embed_or_none(query, "query", embed_fn)
     # :qvec bound as text (String) so asyncpg can type it; text -> halfvec via CAST.
     sem = "(CASE WHEN embedding IS NULL OR :qvec IS NULL THEN 0 ELSE 1 - (embedding <=> CAST(:qvec AS halfvec)) END)"
-    lex = "ts_rank(to_tsvector('english', content), plainto_tsquery('english', :q))"
+    # OR-semantics, not plainto_tsquery's AND. `plainto_tsquery('brand identity product pricing')`
+    # requires a row to contain EVERY term, which almost nothing does — and because the lexical CTE
+    # uses this as a hard `@@` filter for index eligibility, an AND query makes it return nothing.
+    # That silently defeats the documented "degrade to lexical, never block" fallback whenever the
+    # embedding fails: recall returns ZERO memories, and the caller sees empty grounding rather than
+    # an error. Empty grounding is precisely what let the agent invent its own brand positioning.
+    lex_expr_src = "ts_rank(to_tsvector('english', content), to_tsquery('english', :qts))"
     kind_clause = ""
     cand_k = max(k * CANDIDATE_POOL_MULTIPLIER, CANDIDATE_POOL_MIN)
-    params: dict[str, Any] = {"brand": brand_id, "qvec": qvec, "q": query, "k": k,
+    qts = _or_tsquery(query)
+    # An empty tsquery is a SYNTAX ERROR in Postgres, not an empty match — so a query that reduces to
+    # no usable tokens must drop the lexical filter entirely and fall back to recency. Combined with
+    # the OR semantics above, this makes "no candidates at all" unreachable: callers always get some
+    # grounding to work from, which is the invariant that failed here.
+    lex = lex_expr_src if qts else "0"
+    lex_filter = "AND to_tsvector('english', content) @@ to_tsquery('english', :qts)" if qts else ""
+    lex_order = ("ts_rank(to_tsvector('english', content), to_tsquery('english', :qts)) DESC"
+                 if qts else "importance DESC, created_at DESC")
+    params: dict[str, Any] = {"brand": brand_id, "qvec": qvec, "q": query, "k": k, "qts": qts,
                               "w_sem": W_SEM, "w_lex": W_LEX, "cand_k": cand_k}
     if kinds:
         valid = [k2 for k2 in kinds if k2 in ("fact", "episode")]
@@ -188,10 +217,8 @@ async def recall(
         WITH {sem_cand}
         lex_cand AS (
             SELECT id FROM agent_memory
-            WHERE brand_id = :brand
-                  AND to_tsvector('english', content) @@ plainto_tsquery('english', :q)
-                  {kind_clause} {verified_clause}
-            ORDER BY ts_rank(to_tsvector('english', content), plainto_tsquery('english', :q)) DESC
+            WHERE brand_id = :brand {lex_filter} {kind_clause} {verified_clause}
+            ORDER BY {lex_order}
             LIMIT :cand_k
         ),
         candidates AS ({candidates_union})
@@ -224,3 +251,126 @@ async def forget(memory_id: str, *, engine: Any = None) -> bool:
     async with eng.begin() as conn:
         res = await conn.execute(text("DELETE FROM agent_memory WHERE id = :id"), {"id": memory_id})
     return res.rowcount > 0
+
+
+# ── Operator verification (the only write path allowed to confer verified provenance) ─────────
+#
+# `recall(verified_only=True)` and `is_verified_provenance()` above deliberately trust nothing the
+# agent itself writes (source=agent_loop / curator). These three functions are THE key to that
+# lock: they are meant to be called only from an operator-authenticated /internal route (never from
+# agent tools), and every write is brand-scoped so one brand's operator call can never read or
+# mutate another brand's rows (mirrors the `_BRAND_PRED` IDOR fix, #95, in agent/cron/store.py).
+
+_MEM_LIST_LIMIT = 500  # bound operator review-queue listing, same guard as cron's _LIST_LIMIT (#105)
+
+
+async def list_memories(
+    brand_id: str,
+    *,
+    kind: str | None = None,
+    limit: int = 100,
+    engine: Any = None,
+) -> list[Memory]:
+    """List a brand's memories (operator review queue) — brand-scoped, never another brand's rows.
+
+    Callers determine pass/fail of the verified gate themselves via `is_verified_provenance(m.source,
+    m.metadata)`; this function does no filtering on that dimension so the operator can see what is
+    currently un-trusted (the whole point of a review queue) alongside what already qualifies.
+    """
+    if kind is not None and kind not in ("fact", "episode"):
+        raise ValueError(f"kind must be 'fact' or 'episode', got {kind!r}")
+    limit = max(1, min(int(limit), _MEM_LIST_LIMIT))
+    kind_clause = "AND kind = :kind" if kind else ""
+    sql = text(f"""
+        SELECT id, brand_id, kind, key, content, metadata, importance, source, created_at, last_used_at
+        FROM agent_memory
+        WHERE brand_id = :brand {kind_clause}
+        ORDER BY created_at DESC
+        LIMIT :limit
+    """)
+    params: dict[str, Any] = {"brand": brand_id, "limit": limit}
+    if kind:
+        params["kind"] = kind
+    eng = engine or _engine()
+    async with eng.connect() as conn:
+        rows = (await conn.execute(sql, params)).fetchall()
+    return [_row_to_memory(r) for r in rows]
+
+
+# `original_source` preserves the pre-verification `source` value (jsonb_build_object reads the row's
+# own `source` column) so we never lose provenance history when an operator overrides it.
+_VERIFY_MEMORIES = text("""
+    UPDATE agent_memory
+    SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+            'verified', true,
+            'verified_by', :verified_by,
+            'verified_at', :verified_at,
+            'original_source', source
+        ),
+        updated_at = now()
+    WHERE brand_id = :brand AND id = ANY(string_to_array(:ids_csv, ',')::uuid[])
+    RETURNING id
+""").bindparams(bindparam("ids_csv", type_=String))
+
+# Revoke: drop the verification breadcrumbs (so `metadata->>'verified'` no longer reads true) and
+# stamp who/when took trust back. `original_source`/`verified_by`/`verified_at` are removed rather
+# than left stale; a fresh revoke breadcrumb replaces them.
+_UNVERIFY_MEMORIES = text("""
+    UPDATE agent_memory
+    SET metadata = (coalesce(metadata, '{}'::jsonb) - 'verified' - 'verified_by' - 'verified_at' - 'original_source')
+                   || jsonb_build_object('revoked_by', :revoked_by, 'revoked_at', :revoked_at),
+        updated_at = now()
+    WHERE brand_id = :brand AND id = ANY(string_to_array(:ids_csv, ',')::uuid[])
+    RETURNING id
+""").bindparams(bindparam("ids_csv", type_=String))
+
+
+async def set_verified(
+    brand_id: str,
+    memory_ids: Sequence[str],
+    *,
+    verified_by: str = "operator",
+    engine: Any = None,
+) -> list[str]:
+    """Grant operator-verified provenance to the given memory ids for ONE brand.
+
+    This is the write path the recall(verified_only=True) gate exists to require — the agent's own
+    tools never call it. Brand-scoped: `WHERE brand_id = :brand AND id = ANY(...)` means an id that
+    belongs to a different brand is silently excluded from the result rather than acted on (#95).
+    Returns the ids actually updated (a subset of `memory_ids` when some don't exist or belong to
+    another brand).
+    """
+    if not memory_ids:
+        return []
+    eng = engine or _engine()
+    async with eng.begin() as conn:
+        rows = (await conn.execute(_VERIFY_MEMORIES, {
+            "brand": brand_id,
+            "ids_csv": ",".join(memory_ids),
+            "verified_by": verified_by,
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+        })).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+async def unset_verified(
+    brand_id: str,
+    memory_ids: Sequence[str],
+    *,
+    revoked_by: str = "operator",
+    engine: Any = None,
+) -> list[str]:
+    """Revoke operator-verified provenance from the given memory ids for ONE brand (the operator
+    taking trust back). Brand-scoped the same way as `set_verified` (#95). Returns the ids actually
+    updated."""
+    if not memory_ids:
+        return []
+    eng = engine or _engine()
+    async with eng.begin() as conn:
+        rows = (await conn.execute(_UNVERIFY_MEMORIES, {
+            "brand": brand_id,
+            "ids_csv": ",".join(memory_ids),
+            "revoked_by": revoked_by,
+            "revoked_at": datetime.now(timezone.utc).isoformat(),
+        })).fetchall()
+    return [str(r[0]) for r in rows]
