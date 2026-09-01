@@ -178,3 +178,90 @@ def test_authorized_brand_uses_configured_default(monkeypatch):
     monkeypatch.setattr(srv, "brand_ids", lambda: ["glitch_executor", "other_brand"])
     req = SimpleNamespace(query_params={})               # no ?brand=
     assert srv._authorized_brand(req) == "other_brand"   # authenticated default, not the literal
+
+
+# ── #197 follow-up: the PATH brand must not bypass the authorized brand either ──────────────
+#
+# `_require_jobs_auth` validates the token against `?brand=` (default brand when absent), but the
+# /internal/brand/{brand_id}/documents handlers then acted on the PATH segment with no cross-check.
+# Same BFLA shape as the body-brand hole #95 closed — it just arrived through the URL instead.
+def _patch_docs(monkeypatch, captured):
+    async def _list(brand):
+        captured["list"] = brand
+        return []
+
+    async def _add(brand, *a, **k):
+        captured["add"] = brand
+        return {"id": "d1", "filename": "f.txt"}
+
+    async def _delete(brand, doc_id):
+        captured["delete"] = brand
+        return "file-1"
+
+    async def _upload_file(data, name, mime):
+        return {"id": "file-1", "filename": name, "mime_type": mime, "size_bytes": len(data)}
+
+    async def _delete_file(file_id):
+        captured["file_deleted"] = file_id
+
+    monkeypatch.setattr("glitch_signal.agent.documents.list_for_brand", _list)
+    monkeypatch.setattr("glitch_signal.agent.documents.add", _add)
+    monkeypatch.setattr("glitch_signal.agent.documents.delete", _delete)
+    monkeypatch.setattr("glitch_signal.agent.files.upload_file", _upload_file)
+    monkeypatch.setattr("glitch_signal.agent.files.delete_file", _delete_file)
+
+
+def test_document_list_path_brand_cannot_override_default(client, monkeypatch):
+    """The default brand's token + another brand in the PATH → 403, nothing read."""
+    captured: dict = {}
+    _patch_docs(monkeypatch, captured)
+    r = client.get("/internal/brand/someone_else/documents", headers=H)
+    assert r.status_code == 403, r.text
+    assert "list" not in captured                       # the handler never reached the store
+
+
+def test_document_list_path_brand_cannot_override_query(client, monkeypatch):
+    """?brand=glitch_executor + a differing PATH brand → 403, nothing read."""
+    captured: dict = {}
+    _patch_docs(monkeypatch, captured)
+    r = client.get("/internal/brand/someone_else/documents?brand=glitch_executor", headers=H)
+    assert r.status_code == 403, r.text
+    assert "list" not in captured
+
+
+def test_document_list_allows_the_authorized_brand(client, monkeypatch):
+    """The fix must not break the legitimate single-brand call."""
+    captured: dict = {}
+    _patch_docs(monkeypatch, captured)
+    r = client.get("/internal/brand/glitch_executor/documents?brand=glitch_executor", headers=H)
+    assert r.status_code == 200, r.text
+    assert captured["list"] == "glitch_executor"
+
+
+def test_document_delete_path_brand_cannot_override(client, monkeypatch):
+    """A cross-brand DELETE is the most damaging of the three — it must not reach the store."""
+    captured: dict = {}
+    _patch_docs(monkeypatch, captured)
+    r = client.delete("/internal/brand/someone_else/documents/doc-1", headers=H)
+    assert r.status_code == 403, r.text
+    assert "delete" not in captured and "file_deleted" not in captured
+
+
+def test_document_upload_path_brand_cannot_override(client, monkeypatch):
+    """A cross-brand upload would plant a document the OTHER brand's agent then treats as ground
+    truth via read_brand_doc — grounding poisoning, not just data leakage."""
+    captured: dict = {}
+    _patch_docs(monkeypatch, captured)
+    r = client.post("/internal/brand/someone_else/documents", headers=H,
+                    files={"file": ("f.txt", b"hello", "text/plain")})
+    assert r.status_code == 403, r.text
+    assert "add" not in captured
+
+
+def test_unknown_path_brand_is_still_rejected(client, monkeypatch):
+    """A nonexistent brand must not 500 its way through — it simply isn't the authorized brand."""
+    captured: dict = {}
+    _patch_docs(monkeypatch, captured)
+    r = client.get("/internal/brand/no_such_brand/documents", headers=H)
+    assert r.status_code == 403, r.text
+    assert "list" not in captured
