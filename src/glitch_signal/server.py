@@ -289,6 +289,28 @@ def _authorized_brand(request: Request, body: dict | None = None) -> str:
     return brand
 
 
+def _authorized_path_brand(request: Request, brand_id: str) -> str:
+    """Cross-check a PATH `{brand_id}` against the brand the token actually authorized (#95).
+
+    `_require_jobs_auth` validates `x-jobs-token` against the brand in `?brand=` (the default brand
+    when absent). A handler that then acts on a brand taken from the URL PATH is authorizing one
+    brand and operating on another — the same BFLA shape #95 closed for body-supplied brands, just
+    arriving through the path instead. With no `?brand=` at all, the default brand's token would
+    authorize a request against ANY brand's path segment.
+
+    The path segment is kept (it is the public URL shape) but must now MATCH the authorized brand;
+    a mismatch is 403 — authenticated, but not authorized for this brand — rather than 400, which
+    would read as a malformed request.
+    """
+    authorized = _authorized_brand(request)
+    if brand_id != authorized:
+        raise HTTPException(
+            status_code=403,
+            detail="path brand does not match the authorized ?brand= query param",
+        )
+    return authorized
+
+
 @app.post("/internal/facebook/test-post", dependencies=[Depends(_require_jobs_auth)])
 async def internal_facebook_test_post(request: Request) -> dict:
     """Publish one post to a brand's Facebook Page (verification / manual).
@@ -469,15 +491,15 @@ async def internal_agent_memory_unverify(request: Request) -> dict:
 
 
 @app.post("/internal/brand/{brand_id}/documents", dependencies=[Depends(_require_jobs_auth)])
-async def internal_brand_document_upload(brand_id: str, file: UploadFile = File(...),
+async def internal_brand_document_upload(request: Request, brand_id: str,
+                                         file: UploadFile = File(...),
                                          kind: str = Form("doc")) -> dict:
     """Upload a brand document (PDF/text) to the Anthropic Files API and record it (auth: x-jobs-token).
 
     Multipart: file=<the document>, kind?=doc|style_guide|brief|deck. The file_id is stored per-brand
     so `read_brand_doc` can ground the agent in it. Only PDF or text/* accepted, ≤25MB.
     """
-    if brand_id not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand_id!r}")
+    brand_id = _authorized_path_brand(request, brand_id)
     data = await file.read()
     if len(data) > 25 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="file too large (max 25MB)")
@@ -492,15 +514,17 @@ async def internal_brand_document_upload(brand_id: str, file: UploadFile = File(
 
 
 @app.get("/internal/brand/{brand_id}/documents", dependencies=[Depends(_require_jobs_auth)])
-async def internal_brand_document_list(brand_id: str) -> dict:
-    """List a brand's uploaded documents (auth: x-jobs-token)."""
+async def internal_brand_document_list(request: Request, brand_id: str) -> dict:
+    """List a brand's uploaded documents (auth: x-jobs-token, brand-scoped)."""
+    brand_id = _authorized_path_brand(request, brand_id)
     from glitch_signal.agent import documents
     return {"ok": True, "documents": await documents.list_for_brand(brand_id)}
 
 
 @app.delete("/internal/brand/{brand_id}/documents/{doc_id}", dependencies=[Depends(_require_jobs_auth)])
-async def internal_brand_document_delete(brand_id: str, doc_id: str) -> dict:
+async def internal_brand_document_delete(request: Request, brand_id: str, doc_id: str) -> dict:
     """Delete a brand document (row + the Anthropic file). Brand-scoped (auth: x-jobs-token)."""
+    brand_id = _authorized_path_brand(request, brand_id)
     from glitch_signal.agent import documents, files
     file_id = await documents.delete(brand_id, doc_id)
     if file_id is None:
