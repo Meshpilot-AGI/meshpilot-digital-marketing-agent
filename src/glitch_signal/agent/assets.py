@@ -1,0 +1,86 @@
+"""Brand asset library — the real image files the creative pipeline composites in.
+
+An image model cannot render a third-party mark. Asked for the FTMO or MT5 logo it produces a
+mangled approximation: worse-looking than no logo, and a misrepresentation of a real trademark. So
+logos are never generated — they are stored files, placed by code.
+
+That constraint is what makes the composite route load-bearing rather than a stylistic preference:
+a post comparing two firms' drawdown rules needs both real marks positioned precisely, which
+generation cannot do and a plain typographic card has no way to show.
+
+Assets are scoped to an OWNER brand (the tenant) while the `slug`/`name` identify the DEPICTED
+brand, which is usually a third party we integrate with.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+import structlog
+from sqlalchemy import text
+
+from glitch_signal.db.session import _engine
+
+log = structlog.get_logger(__name__)
+
+KINDS = ("logo", "product_shot", "icon", "backdrop")
+
+
+async def register(owner_brand: str, *, kind: str, slug: str, name: str, url: str,
+                   width: int | None = None, height: int | None = None,
+                   accent: str | None = None, usage_note: str | None = None,
+                   engine: Any = None) -> None:
+    """Upsert one asset. Re-registering the same (owner, kind, slug) replaces the file."""
+    if kind not in KINDS:
+        raise ValueError(f"unknown asset kind {kind!r}; allowed: {KINDS}")
+    eng = engine or _engine()
+    async with eng.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO brand_asset (owner_brand, kind, slug, name, url, width, height, "
+                 "accent, usage_note) VALUES (:o, :k, :s, :n, :u, :w, :h, :a, :note) "
+                 "ON CONFLICT (owner_brand, kind, slug) DO UPDATE SET "
+                 "name = excluded.name, url = excluded.url, width = excluded.width, "
+                 "height = excluded.height, accent = excluded.accent, "
+                 "usage_note = excluded.usage_note"),
+            {"o": owner_brand, "k": kind, "s": slug, "n": name, "u": url,
+             "w": width, "h": height, "a": accent, "note": usage_note})
+
+
+async def find(owner_brand: str, *, kind: str | None = None, slug: str | None = None,
+               engine: Any = None) -> list[dict]:
+    """Look assets up. Never raises — a missing library degrades to no imagery, not a failed run."""
+    try:
+        eng = engine or _engine()
+        async with eng.connect() as conn:
+            rows = (await conn.execute(
+                text("SELECT slug, name, kind, url, width, height, accent, usage_note "
+                     "FROM brand_asset WHERE owner_brand = :o "
+                     "  AND (cast(:k as text) IS NULL OR kind = cast(:k as text)) "
+                     "  AND (cast(:s as text) IS NULL OR slug = cast(:s as text)) "
+                     "ORDER BY name"),
+                {"o": owner_brand, "k": kind, "s": slug})).mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brand.assets_lookup_failed", owner_brand=owner_brand, error=str(exc)[:200])
+        return []
+
+
+async def resolve_named(owner_brand: str, names: list[str], *, kind: str = "logo",
+                        engine: Any = None) -> list[dict]:
+    """Match free-text names the agent used ("FTMO", "Apex") onto real assets.
+
+    The agent writes a post about firms by NAME, so the lookup has to tolerate what it wrote rather
+    than demand a slug. Matching is case-insensitive on both name and slug, and unmatched names are
+    simply dropped — a post that mentions a firm we hold no mark for still renders, just without it.
+    """
+    have = await find(owner_brand, kind=kind, engine=engine)
+    out: list[dict] = []
+    for n in names:
+        key = (n or "").strip().lower()
+        if not key:
+            continue
+        for a in have:
+            if key == a["slug"].lower() or key == a["name"].lower() or key in a["name"].lower():
+                if a not in out:
+                    out.append(a)
+                break
+    return out
