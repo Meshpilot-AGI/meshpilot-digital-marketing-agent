@@ -18,7 +18,7 @@ remembers what happened, and gets *better on its own* as it runs.
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Stars](https://img.shields.io/github/stars/Meshpilot-AGI/meshpilot-digital-marketing-agent?style=social)](../../stargazers)
 
-**[Live API](https://api.meshpilot.app)** · **[Vision](docs/VISION.md)** · **[Architecture](#how-it-works-the-architecture)** · **[Quickstart](#quickstart)** · **[Ecosystem](#ecosystem)** · **[Contributing](CONTRIBUTING.md)**
+**[Live API](https://meshpilot.app)** · **[Vision](docs/VISION.md)** · **[Architecture](#how-it-works-the-architecture)** · **[Quickstart](#quickstart)** · **[Ecosystem](#ecosystem)** · **[Contributing](CONTRIBUTING.md)**
 
 </div>
 
