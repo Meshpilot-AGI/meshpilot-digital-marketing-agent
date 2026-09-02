@@ -273,11 +273,11 @@ Read the balance from **`GET /v2/user/remaining_quota` → `details.plan_credit`
 The USD `wallet` (billing_type `wallet`, $1.05, auto-reload off) exists but is **not** what renders
 draw on. Do not gate video on it.
 
-> ⚠️ **`COST_HEYGEN_CREDIT_USD` (default 0.30) is almost certainly wrong and needs the real plan
-> price.** At $0.30 the 600-credit monthly grant would imply ~$180/month, and 26 credits/render
-> prices a 30s video at **$7.80** — implausible. The right figure is (monthly plan price) / (monthly
-> credit grant), roughly $0.05 for a ~$30 plan. Until it is set from the actual invoice, every
-> HeyGen cost in `usage_events` is inflated and the balance-delta reconcile will read it as drift.
+**Credit rate: $0.065** — the plan costs **$39/month** for **600 credits** (operator, 2026-09-02),
+so 39/600 = $0.065/credit. At the measured 26 credits/render that is **~$1.69 per video**, which
+independently matches the v1 monorepo UGC lane's "~$1–2 per ad" after 22 iterations. Override with
+`COST_HEYGEN_CREDIT_USD` if the plan changes. (It defaulted to 0.30 — a pay-as-you-go assumption
+that priced a 30s render at $7.80 and implied ~$180/month of value inside a $39 plan.)
 
 `heygen_cost()` now defaults to the measured **26 credits/render** (it defaulted to 1, understating
 every render 26x — same class of error as the MUapi unit mistake, found the same way: by reading the
