@@ -1349,3 +1349,42 @@ asserts no industry term survives in executable code.
 
 **Remains:** TARGET-2 (surface + surface_score tables, scoring from outcome ingestion). The write
 side stays blocked on account standing, not on capability.
+
+
+## TARGET-2 — surfaces — 2026-09-02
+
+**Built:** migration `20260902100000_surface.sql` + `agent/social/surfaces.py` + the `rank_surfaces`
+loop tool. Surfaces are the rooms a brand could speak in, discovered by sensing and **scored**, so
+something finally answers "where" — the content matrix only ever answered "what format".
+
+**The scoring opinion, stated so it can be argued with:**
+`fit = relevance_density × (0.5 + 0.5 × reach_norm)`. Relevance dominates; reach only modulates,
+logarithmically. **A small room full of your audience beats a large room that merely contains them** —
+a reach-ranked list would send every brand to the biggest generic room, which is the broadcast
+behaviour this replaces. Verified: a room with 30/32 signals and 20k members scores 0.348 against
+2/32 signals and 547k members at 0.020.
+
+**Honesty carried in the data:** scores are `provisional` until `MIN_SAMPLES_TO_RANK` measured
+outcomes exist on that surface — the same threshold and discipline as the matrix curator, imported
+rather than duplicated. Nothing has been posted to these rooms, so today EVERY surface is
+provisional, and the tool says so in its response instead of letting a ranking read as evidence.
+Score components are stored alongside the score, so a ranking is always explainable without
+re-deriving it.
+
+**Posting gate:** `self_promo_allowed IS NULL` means UNKNOWN, and `postable_only` excludes it —
+unknown is not permission. A room whose rules forbid self-promotion becomes `read_only`: still worth
+listening to, never posted into, decided from the room's own stated rules.
+
+**A second measured trap, encoded.** Community search degrades catastrophically with query length.
+Same intent, top-5 combined subscribers: `prop firm` (2 words) → **5,799,721**;
+`prop firm challenge` → 616,658; `traders running funded prop-firm challenges` (5 words) → **3,053**
+(r/PropFirmUsers 14 members, r/YourTradeJournal 12). ~1,900x. Feeding a brand's declared audience
+sentence straight in — the obvious implementation — finds a pile of dead rooms, and the result LOOKS
+fine. Now documented in the client, warned in the tool description, and returned as a `hint` in the
+response so the model self-corrects. Test covers it.
+
+**Verified:** 824 pass / 1 skip (+16). `rank_surfaces` is deliberately NOT policy-gated — it makes no
+external call and spends nothing; only the pulls are gated.
+
+**Remains:** TARGET-3 (Reddit read: rules capture into `surface.rules` via Zernio, thread ingestion).
+The write side stays blocked on account standing, not capability.

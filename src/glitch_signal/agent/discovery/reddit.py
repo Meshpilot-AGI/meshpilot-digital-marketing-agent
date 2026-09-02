@@ -117,6 +117,18 @@ async def search_communities(query: str, *, limit: int = 25) -> dict:
 
     Returns subscriber counts, which is the first input to scoring a surface: a room's size bounds
     how much reach participating there can ever be worth.
+
+    ⚠️ **Use SHORT keyword queries, not a sentence.** Community search degrades catastrophically with
+    query length. Measured 2026-09-02, same intent, top-5 combined subscribers:
+
+    | query | words | reach found |
+    |---|---|---|
+    | `prop firm` | 2 | **5,799,721** — r/propfirm (39k), r/PropFirmTester (28k), r/Forex (547k) |
+    | `prop firm challenge` | 3 | 616,658 |
+    | `traders running funded prop-firm challenges` | 5 | **3,053** — r/PropFirmUsers (14), r/YourTradeJournal (12) |
+
+    A ~1,900x difference. The obvious move — feeding a brand's declared audience sentence straight in
+    — finds a pile of near-empty rooms. Reduce the audience to two or three keyword terms first.
     """
     data = await _get("/api/reddit/search/communities", {
         "q": query, "limit": max(1, min(int(limit), 100)),
