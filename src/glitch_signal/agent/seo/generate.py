@@ -31,6 +31,20 @@ log = structlog.get_logger(__name__)
 # problem is the brief or the model, and more attempts just spend tokens making the same mistake.
 MAX_REPAIRS = 2
 
+# A full structured post is several thousand tokens of JSON. `llm.complete()` hardcodes max_tokens to
+# 2048, which truncates one mid-object and yields an unparseable response — so this path uses
+# `complete_messages`, which exposes the limit. Found by running it for real: the unit tests used a
+# fake accepting **kwargs, which cannot catch a signature or a budget mismatch.
+_MAX_OUTPUT_TOKENS = 8000
+
+
+async def _default_complete(prompt: str, *, tier: str = "complex") -> str:
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    return await agent_llm.complete_messages(
+        [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": prompt}],
+        tier=tier, max_tokens=_MAX_OUTPUT_TOKENS, timeout_s=180)
+
 _SYSTEM = (
     "You write technical explainers for a specialist audience. You write like a practitioner "
     "explaining something to a peer: specific, concrete, and willing to say what a thing does NOT "
@@ -48,9 +62,13 @@ AUTHOR: {author}
 
 {positioning}
 
+{links}
+
 HARD RULES
 - Every quantitative claim about a named firm MUST come from VERIFIED FACTS above, quoted exactly.
   If a figure you want is not there, write around it or omit the claim. Do NOT supply your own.
+- Internal links MUST be chosen from SITE PAGES above, copied exactly. A path that looks plausible
+  but does not exist is a broken link. Do NOT invent one.
 - No "guaranteed pass", no promised outcomes, no invented testimonials or funded numbers.
 - The lede is at most 60 words and contains the direct answer. It is also the meta description.
 - `tldr` is the direct answer in 2-3 sentences — the passage an AI search engine will quote.
@@ -87,13 +105,21 @@ JSON SHAPE
 }}
 """
 
-_REPAIR = """Your previous post was rejected by the automated editorial checks.
+# The repair prompt CARRIES THE FULL ORIGINAL BRIEF. An earlier version sent only the violations and
+# the previous attempt, and the model repaired blind: told "add a stat callout", it rewrote wholesale,
+# dropped the FAQ and internal links it had already got right, then invented block type names
+# (`stat_callout`, `anti_pattern`) because the schema was no longer in front of it. Each repair made
+# the post worse. Violations are a diff, not a specification — the spec has to stay on the table.
+_REPAIR = """{original}
 
-Fix EXACTLY these problems and return the complete corrected JSON object. Change nothing else:
+--- YOUR PREVIOUS ATTEMPT WAS REJECTED ---
+
+The automated checks found these problems. Fix exactly these, keep everything else that already
+satisfies the brief above, and return the COMPLETE corrected JSON object:
 
 {violations}
 
-Previous attempt:
+Your previous attempt:
 {previous}
 """
 
@@ -133,6 +159,30 @@ def to_post(data: dict, *, author_slug: str) -> Post | None:
         return None
 
 
+def unsupported_links(post: Post, site_links: list[str]) -> list[str]:
+    """Internal links the site does not have.
+
+    The first generated post cited `/tools/drawdown-calculator`, `/prop-firms/apex-trader-funding`
+    and `/brokers/execution-comparison`; only one of its four internal links resolved. The real page
+    is `/tools/firm-drawdown-calculator` — plausible-but-wrong, which is worse than obviously wrong,
+    because it reads as correct.
+
+    The contract already required internal links to be present and spread across clusters; it never
+    required them to EXIST. An invented link is the same class of error as an invented figure, and it
+    gets the same treatment: the model is given the real vocabulary and checked against it. The
+    site's own `links:audit` gate would eventually catch these, but only after a PR is opened —
+    catching them here means the post is fixed by the repair loop instead.
+    """
+    if not site_links:
+        return []
+    allowed = {link.rstrip("/") for link in site_links}
+    return sorted({u for u in post.internal_links()
+                   if u.rstrip("/") not in allowed
+                   # A detail page under a real section is legitimate (/prop-firms/<firm>); an
+                   # invented SECTION is not.
+                   and not any(u.rstrip("/").startswith(a + "/") for a in allowed if a.count("/") == 1)})
+
+
 def unsupported_figures(post: Post, facts_block: str) -> list[str]:
     """Figures in the post that do not appear in the grounded facts.
 
@@ -159,6 +209,7 @@ async def author(
     audience: str,
     author_slug: str = "ryan",
     facts_block: str = "",
+    site_links: list[str] | None = None,
     positioning: str = "",
     today: str = "",
     complete: Any = None,
@@ -171,10 +222,13 @@ async def author(
     structurally publishable, which is what lets `publish.py` treat its own contract check as a
     belt-and-braces assertion rather than a filter.
     """
-    from glitch_signal.agent.loop import llm as agent_llm
-
-    complete = complete or agent_llm.complete
+    complete = complete or _default_complete
+    site_links = site_links or []
+    links_block = ("SITE PAGES (the only internal links you may use, copied exactly):\n"
+                   + "\n".join(f"- {p}" for p in site_links)) if site_links else \
+                  "SITE PAGES: none supplied — use only internal links you are certain exist."
     prompt = _PROMPT.format(topic=topic, audience=audience, author=author_slug, today=today,
+                            links=links_block,
                             facts=f"VERIFIED FACTS (the only figures you may cite):\n{facts_block}"
                                   if facts_block.strip() else
                                   "VERIFIED FACTS: none supplied — do not cite firm-specific figures.",
@@ -184,9 +238,10 @@ async def author(
 
     for attempt in range(max_repairs + 1):
         raw = await complete(prompt if attempt == 0 else
-                             _REPAIR.format(violations="\n".join(f"- {p}" for p in problems),
+                             _REPAIR.format(original=prompt,
+                                            violations="\n".join(f"- {p}" for p in problems),
                                             previous=previous),
-                             tier=tier, system=_SYSTEM, max_tokens=4000, timeout_s=120)
+                             tier=tier)
         data = _parse(raw)
         post = to_post(data, author_slug=author_slug)
         if post is None:
@@ -201,8 +256,13 @@ async def author(
             problems.append(
                 f"these figures appear nowhere in the verified facts and must be removed or "
                 f"replaced with a verified one: {', '.join(invented)}")
+        bad_links = unsupported_links(post, site_links)
+        if bad_links:
+            problems.append(
+                f"these internal links do not exist on the site and must be replaced with ones "
+                f"from SITE PAGES: {', '.join(bad_links)}")
 
-        if ok and not invented:
+        if ok and not invented and not bad_links:
             log.info("seo.authored", slug=post.slug, attempt=attempt + 1,
                      blocks=len(post.blocks), faq=len(post.faq))
             return post, []
