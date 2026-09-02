@@ -106,12 +106,23 @@ def video_prompt(subject: str, *, style: str, palette: str, banned: str = "",
 # handing it the HEADLINE as the subject is what produced literal metaphor objects — a post about
 # trailing drawdown came back as a pulley and cable, which says nothing about trading. The reader is
 # a trader; the frame should look like the room they work in.
+# Every entry must read as a TRADING desk, not merely a desk. A generic workstation is
+# interchangeable with any software brand — it builds no identity. The distinguishing element is
+# always a screen carrying a trading interface, kept heavily defocused so it reads as "a trading
+# terminal" in silhouette without ever resolving into legible figures (see _NO_INVENTED_FIGURES:
+# any number the model painted would be one we invented).
 BACKDROP_SUBJECTS = (
-    "the bottom bezel of a widescreen monitor and the top row of a dark mechanical keyboard",
-    "a dark trading desk surface with a monitor edge and a small desk clock",
-    "the edge of a laptop and a mechanical keyboard on a dark desk, screen glow spilling across",
-    "a monitor stand and cable run behind a dark desk, lit only by screen glow",
-    "a dark desk with a mouse, keyboard edge and the base of a monitor arm",
+    "the bottom bezel of a widescreen trading monitor showing a heavily blurred dark trading "
+    "terminal — soft rectangular panel shapes and a faint out-of-focus price ladder, no legible "
+    "text or numbers — above the top row of a dark mechanical keyboard",
+    "two stacked trading screens seen edge-on and far out of focus, their dark interface panels "
+    "reduced to soft glowing blocks, beside a desk clock on a dark desk",
+    "a curved ultrawide trading monitor cropped at the frame edge, its charting interface rendered "
+    "as an unreadable blur of dark panels and one faint rising line, keyboard edge below",
+    "a trading terminal screen reflected in the dark glossy surface of a desk, the reflection soft "
+    "and unreadable, with a mouse and keyboard edge catching the screen glow",
+    "a multi-monitor trading setup shot from behind and below, only the glowing edges and cable run "
+    "visible, the interface an indistinct wash of dark panels",
 )
 
 

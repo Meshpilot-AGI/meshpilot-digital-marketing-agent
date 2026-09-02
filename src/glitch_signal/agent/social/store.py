@@ -244,12 +244,18 @@ async def posts_due_for_metrics(*, min_age_s: int, max_age_s: int, bucket: str,
     is the same post read at comparable ages — not a stream of readings whose spacing depends on
     how often the sweep happened to run. The `unique (post_id, age_bucket)` constraint plus this
     NOT EXISTS makes each reading exactly-once and re-runnable.
+
+    Returns `measured_from` (the timestamp age is measured against) alongside each row so the
+    caller can re-check freshness right before writing — this SELECT bounds age as of query time,
+    but a slow fetch (network stalls, a long batch) can let real age drift past the window before
+    `record_metrics` runs, and the unique constraint would lock that late value in permanently.
     """
     eng = engine or _engine()
     async with eng.connect() as conn:
         rows = (await conn.execute(
             text("SELECT p.id, p.platform, p.platform_post_id, p.media_kind, c.brand_id, "
-                 "       c.idea, c.id AS campaign_id "
+                 "       c.idea, c.id AS campaign_id, "
+                 "       coalesce(p.submitted_at, p.created_at) AS measured_from "
                  "FROM social_post p JOIN social_campaign c ON c.id = p.campaign_id "
                  "WHERE p.status = 'posted' AND p.platform_post_id IS NOT NULL "
                  "  AND p.platform = ANY(string_to_array(:plats, ',')) "
