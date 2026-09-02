@@ -151,7 +151,7 @@ async def test_delete_job_scoped_requires_owner_match():
 def test_capability_registry():
     assert set(capabilities.names()) == {"curate", "drive_scout", "reconcile", "routing_audit",
                                          "social_campaign", "social_reconcile",
-                                         "social_outcomes"}
+                                         "social_outcomes", "learn_performance"}
     assert capabilities.get("nope") is None
 
 
