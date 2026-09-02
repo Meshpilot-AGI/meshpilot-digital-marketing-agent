@@ -77,6 +77,17 @@ async def _cap_social_reconcile(brand_id: str, args: dict) -> dict:
     return await reconcile_pending()
 
 
+async def _cap_social_outcomes(brand_id: str, args: dict) -> dict:
+    """AGENT-SOCIAL: read back per-post performance for any reading that is due.
+
+    Account-level (the sweep is keyed on post age, not brand), so `brand_id` is ignored. Also runs
+    from the cron sweep — this entry exists so it can be forced out-of-band.
+    """
+    from glitch_signal.agent.social.outcomes import collect
+
+    return await collect()
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "drive_scout": _cap_drive_scout,
@@ -84,6 +95,7 @@ _REGISTRY: dict[str, CapFn] = {
     "routing_audit": _cap_routing_audit,
     "social_campaign": _cap_social_campaign,
     "social_reconcile": _cap_social_reconcile,
+    "social_outcomes": _cap_social_outcomes,
 }
 
 
@@ -99,6 +111,7 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "routing_audit": frozenset(),
     "social_campaign": frozenset({"media", "publish"}),
     "social_reconcile": frozenset(),
+    "social_outcomes": frozenset(),
 }
 
 
