@@ -1,13 +1,10 @@
 """Per-platform audience and register — what the caption writer was missing.
 
-Until now one caption was written per MEDIUM and reused across every platform of that medium: the
-identical text went to X, LinkedIn and Facebook. Those are different rooms. A caption tuned for none
-of them is tuned for all of them badly, and on a brand whose entire positioning is "sounds like
-someone who has been there", generic copy is the specific thing that breaks it.
+Previously one caption was written per medium and reused verbatim across X, LinkedIn and Facebook —
+different rooms, so copy tuned for none of them is tuned for all of them badly.
 
-This is knowledge, not strategy: it says who is in the room and how to speak there. WHAT to say
-still comes from the positioning doc and the matrix, and nothing here can loosen a prohibition —
-the profile is additive context, the positioning remains authoritative.
+Knowledge, not strategy: it says who is in the room and how to speak there. WHAT to say still comes
+from the positioning doc and the matrix; nothing here can loosen a prohibition.
 """
 from __future__ import annotations
 
@@ -38,11 +35,8 @@ async def profile(brand_id: str, platform: str, *, engine: Any = None) -> dict:
 
 
 def section(p: dict) -> str:
-    """Render a profile as prompt context, or '' when there is none.
-
-    '' rather than an empty header, for the same reason as everywhere else in this pipeline: an
-    empty labelled block invites the model to fill it from its own priors.
-    """
+    """Render a profile as prompt context, or '' when there is none — an empty labelled block would
+    invite the model to fill it from its own priors."""
     if not p:
         return ""
     lines = [f"\n--- WRITING FOR {str(p.get('platform', '')).upper()} ---",
@@ -60,11 +54,8 @@ def section(p: dict) -> str:
 
 
 def mention_line(handles: list[str], platform: str) -> str:
-    """Instruction to tag the accounts we hold VERIFIED handles for, or '' when we hold none.
-
-    Never guessed. A wrong handle tags a real stranger's account in public — a worse outcome than
-    not tagging at all — so an unknown handle simply means the post names the company in plain text.
-    """
+    """Instruction to tag verified handles, or '' when we hold none — never guessed, since a wrong
+    handle tags a real stranger's account in public, worse than not tagging at all."""
     real = [h for h in handles if h]
     if not real:
         return ""

@@ -1,15 +1,13 @@
 """Prop-firm rule knowledge base — the only source of firm thresholds the agent may publish.
 
-A firm rule is a precise, dated, attributable claim about a THIRD PARTY's product, published under
-an affiliate relationship. If the model is left to supply the number it will invent one confidently,
-and the conscience critic will not catch it: the critic's prohibitions cover OUR invented figures,
-and a competitor's threshold reads to it as a legitimate fact. So rules come from this table or the
-post does not state them.
+A firm rule is a precise, dated claim about a third party's product. Left unconstrained, the model
+invents plausible numbers the conscience critic won't catch — its prohibitions cover our own
+invented figures, not a competitor's threshold stated as fact. So rules come from this table or not
+at all.
 
-The `publishable` flag matters more than the numbers. The upstream engine table this is seeded from
-holds values that are CORRECT for backtesting and WRONG as public claims — synthetic gates, sentinel
-zeros meaning "no such rule", and historical rules for a firm that is not currently selling. Each
-would produce a fluent, plausible, false sentence.
+The `publishable` flag matters more than the numbers: the upstream engine table this is seeded from
+also holds backtesting values that are wrong as public claims (synthetic gates, sentinel zeros for
+"no such rule", rules for firms no longer selling) — each would read as a fluent, false sentence.
 """
 from __future__ import annotations
 
@@ -42,12 +40,8 @@ async def publishable_rules(firm_id: str | None = None, *, engine: Any = None) -
 
 
 async def rules_for_names(names: list[str], *, engine: Any = None) -> dict[str, list[dict]]:
-    """Map the firm NAMES the agent wrote in copy onto their publishable rules.
-
-    Matching mirrors `assets.resolve_named`: the agent writes "FTMO" or "Apex", not a firm_id, so
-    the lookup has to meet the copy where it is. A firm with no publishable rules simply yields
-    nothing — the post can still name it, it just cannot quote a threshold for it.
-    """
+    """Map the firm names the agent wrote in copy (e.g. "FTMO", not a firm_id) onto their
+    publishable rules — mirrors `assets.resolve_named`. No rules just means no threshold quoted."""
     have = await publishable_rules(engine=engine)
     out: dict[str, list[dict]] = {}
     for n in names:
@@ -61,12 +55,8 @@ async def rules_for_names(names: list[str], *, engine: Any = None) -> dict[str, 
 
 
 def rules_block(by_firm: dict[str, list[dict]]) -> str:
-    """Render the rules as an authoritative prompt section, or '' when there are none.
-
-    Returning '' rather than an empty header matters: an empty "VERIFIED FIRM RULES" block invites
-    the model to fill the gap from its own priors, which is the exact failure this table exists to
-    prevent.
-    """
+    """Render the rules as an authoritative prompt section, or '' when there are none — an empty
+    header would invite the model to fill the gap from its own priors."""
     if not by_firm:
         return ""
     lines = ["\n--- VERIFIED FIRM RULES (the ONLY firm thresholds you may state) ---"]
@@ -79,9 +69,9 @@ def rules_block(by_firm: dict[str, list[dict]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-# Names the agent is likely to write, mapped to what the table calls them. Kept explicit rather than
-# fuzzy-matched: a loose match that pulled the wrong firm's thresholds into a post would be the
-# exact failure this module exists to prevent.
+# Names the agent is likely to write, mapped to what the table calls them. Kept explicit, not
+# fuzzy-matched — a loose match pulling the wrong firm's thresholds into a post is the failure
+# this module exists to prevent.
 _ALIASES: dict[str, str] = {
     "ftmo": "ftmo",
     "apex": "apex", "apex trader": "apex", "apex trader funding": "apex",

@@ -1,19 +1,13 @@
 """Per-brand narrative positioning — the ground truth the content pipeline writes FROM.
 
-Why this exists as its own thing, separate from `agent_memory` facts:
+Separate from `agent_memory` facts (atomic "what is true" — pricing, features, brokers) because
+voice, the never-say list, and positioning rationale are judgements, not facts. Without this, the
+agent once generated prop-firm payout content for a brand that is not a prop firm — every individual
+claim was plausible, but off-brand. Facts stop the agent being wrong; this stops it being off-brand.
+Read by the ideator, the caption writer, and the conscience critic.
 
-`agent_memory` facts are atomic and answer *"what is true about this brand"* — pricing, features,
-which brokers are supported. They cannot express VOICE, the never-say list, or the reasoning behind
-a positioning choice, because those aren't facts, they're judgements. That gap is not academic: with
-no voice or never-say guidance reaching it, the agent generated prop-firm payout content for a brand
-that is emphatically not a prop firm, and every claim in it was individually plausible.
-
-Facts stop the agent being WRONG. This stops it being OFF-BRAND. Both are needed, and they are read
-by the same three places: the ideator (what to say), the caption writer (how to say it), and the
-conscience critic (whether it should have been said at all).
-
-Stored in the DB rather than on disk because the repo is open-core — brand-specific content must
-never be committed — and gitignored files under `brand/prompts/` do not survive a deploy.
+Stored in the DB, not on disk: the repo is open-core, so brand-specific content must never be
+committed, and gitignored files under `brand/prompts/` don't survive a deploy.
 """
 from __future__ import annotations
 
@@ -26,19 +20,14 @@ from glitch_signal.db.session import _engine
 
 log = structlog.get_logger(__name__)
 
-# Hard cap on what we splice into a prompt. A real positioning doc with voice, prohibitions AND
-# visual direction runs well past a few thousand characters — the first cap silently TRUNCATED the
-# doc mid-section, which for a document whose whole job is stating prohibitions means quietly
-# dropping the rules at the bottom. Bounded so a runaway row still can't blow the context window.
+# Cap on what we splice into a prompt. Must stay large enough not to silently truncate mid-section —
+# for a doc whose job is stating prohibitions, that means quietly dropping the rules at the bottom.
 MAX_LEN = 20000
 
 
 async def get(brand_id: str, *, engine: Any = None) -> str:
-    """This brand's positioning doc, or '' if none is set. Never raises.
-
-    A missing doc must degrade to "no extra guidance", NOT to a failed campaign — the pipeline still
-    has verified facts to work from.
-    """
+    """This brand's positioning doc, or '' if none is set. Never raises — a missing doc degrades to
+    "no extra guidance", not a failed campaign."""
     try:
         eng = engine or _engine()
         async with eng.connect() as conn:
@@ -54,8 +43,8 @@ async def get(brand_id: str, *, engine: Any = None) -> str:
 async def get_visual(brand_id: str, *, engine: Any = None) -> dict:
     """This brand's design tokens for the card renderer ({} when unset). Never raises.
 
-    Kept as VALUES rather than parsed out of the prose doc: the renderer needs an exact hex, and
-    scraping markdown for it would be fragile and would silently drift from what the doc says.
+    Kept as values rather than parsed from the prose doc — scraping markdown for an exact hex would
+    be fragile and could silently drift from what the doc says.
     """
     try:
         eng = engine or _engine()
@@ -76,9 +65,8 @@ async def get_visual(brand_id: str, *, engine: Any = None) -> dict:
 async def get_guardrails(brand_id: str, *, engine: Any = None) -> dict:
     """Machine-checkable guardrails: prohibited phrases + banned imagery. {} when unset.
 
-    The prose doc states these for the models; this states them for CODE, so a prohibited phrase
-    fails the draft deterministically BEFORE any paid generation rather than depending on a critic
-    noticing it afterwards.
+    States for CODE what the prose doc states for the models, so a prohibited phrase fails the draft
+    deterministically before any paid generation instead of relying on a critic to catch it after.
     """
     try:
         eng = engine or _engine()
@@ -97,11 +85,8 @@ async def get_guardrails(brand_id: str, *, engine: Any = None) -> dict:
 
 
 async def get_strategy(brand_id: str, *, engine: Any = None) -> dict:
-    """Content strategy for the brand ({} when unset) — currently the matrix's pillars.
-
-    Lives with the brand rather than in code: a second brand has different pillars and must not
-    need a deploy to say so.
-    """
+    """Content strategy for the brand ({} when unset) — currently the matrix's pillars. Lives with
+    the brand, not in code, since a second brand's different pillars shouldn't need a deploy."""
     try:
         eng = engine or _engine()
         async with eng.connect() as conn:
@@ -132,10 +117,7 @@ async def put(brand_id: str, content: str, *, updated_by: str = "operator",
 
 
 def section(doc: str) -> str:
-    """Render the doc as a labelled prompt section, or '' when there is none.
-
-    Returning '' rather than an empty header matters: an empty '--- BRAND POSITIONING ---' block
-    reads to the model as "this brand has no positioning", which is worse than staying silent.
-    """
+    """Render the doc as a labelled prompt section, or '' when there is none — an empty header still
+    reads to the model as "this brand has no positioning", worse than omitting the section."""
     doc = (doc or "").strip()
     return f"\n--- BRAND POSITIONING (authoritative) ---\n{doc}\n" if doc else ""
