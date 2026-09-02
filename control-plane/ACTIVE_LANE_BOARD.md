@@ -3,14 +3,46 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### DB-OPT — optimize the schema for the current workflow (drop old-SaaS tables)          [PARKED]
-Owner: unassigned        Opened: 2026-08-28        Parked: 2026-08-29 (operator)
-Parked: not ready to start — blocked on the operator's generation-vs-publish scope call below
-(decides whether signal/scout_checkpoint/video_asset/video_job stay). Unpark once that's decided.
-Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/db/models.py, alembic/versions/
-Acceptance: schema holds only what source→publish needs; orphaned old-SaaS tables (ORM: comment_reply/strategic_reply/mention_event/orm_response; + whatever else the pruned code no longer uses — video/scout/metrics pending the AI-generation scope call) dropped via one consolidation migration; migration app-driven; app boots; /healthz 200.
+### DB-OPT — drop the tables the code no longer uses                              [OPEN — surveyed]
+Owner: unassigned        Opened: 2026-08-28        Unparked + surveyed: 2026-09-02
+Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/db/models.py, supabase/migrations/
+Acceptance: the tiers below actioned per the operator's call on Tier 2; app boots; /healthz 200; suite green.
 Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.md
-Notes: The 14 tables were copied from the old Mesh Pilot SaaS. Schema FOLLOWS code — do this AFTER PRUNE-1/VENDOR-1 remove the subsystems. Open scope question: does the current workflow include AI content GENERATION (scout→LLM→video) or ONLY source→publish of provided content? That decides whether signal/scout_checkpoint/video_asset/video_job stay. DECIDED 2026-08-28: also adopt Supabase-native SQL migrations + enable native Branching (preview DBs) here, retiring Alembic + the db-migrate*.yml workflows — do it while rewriting the lean schema, not before.
+
+**SURVEY (2026-09-02, live DB + code cross-reference).** 32 tables. Each was checked three ways:
+raw-SQL reference, ORM `__tablename__`, and whether the ORM class is used anywhere outside
+`db/models.py` — a model that is only *declared* is dead.
+
+**Tier 1 — dead by every measure. 0 rows, never queried. Safe to drop now (6):**
+`comment_reply`, `mention_event`, `orm_response`, `strategic_reply` (the four the original lane
+named — confirmed declared-only), plus two the lane did NOT know about:
+- `brand_document` — **newly orphaned by PR #216**, which removed `read_brand_doc` and the three
+  brand-document endpoints. No reference of any kind remains.
+- `alembic_version` — Alembic is fully gone (**0 files** under `alembic/versions/`, CI never
+  references it; the repo moved to Supabase-native migrations). Pure vestige.
+
+**Tier 2 — the legacy LangGraph pipeline. All 0 rows, but the code still imports them (9):**
+`signal`, `scout_checkpoint`, `video_asset`, `video_job`, `content_script`, `published_post`,
+`scheduled_post`, `metrics_snapshot`, `platform_auth` — referenced from `agent/nodes/scout.py`,
+`scheduler/queue.py`, `platforms/youtube.py`, `brain.py`, `shared_context.py`, `oauth/youtube.py`.
+Reachable only via the `drive_scout` cron capability, which **no-ops for GE** (`content_source` is
+`ai_generated`, not `drive_footage`); the graph is otherwise just constructed at startup
+(`server.py:131`). Schema follows code, so these come out only when that pipeline does.
+
+**Tier 3 — actively used, keep (17):** `agent_memory`, `agent_runs`, `balance_snapshots`,
+`brand_asset`, `brand_positioning`, `firm_rule`, `oauth_tokens`, `platform_profile`, `rate_counters`,
+`scheduled_jobs`, `scheduled_runs`, `social_campaign`, `social_post`, `social_post_metric`,
+`usage_events`, `waitlist`, `webhook_dedup`.
+
+⚠️ **The original blocking question is answered, and it was the wrong question.** The lane was parked
+on "does the workflow include AI GENERATION or only source→publish?". It includes generation — but
+through the **new `agent/social/` path** (`social_campaign` / `social_post` / `social_post_metric`,
+all carrying live rows), not the legacy `signal → scout → video_job` chain, every table of which is
+empty. The real decision is therefore: **do we retire the legacy LangGraph pipeline?** That is an
+operator call, and it gates Tier 2 only — Tier 1 needs no decision.
+
+Also stale in the original lane text: it specified "migration app-driven" and Alembic. Migrations are
+now Supabase-native SQL applied by the GitHub integration, independent of CI.
 
 ## Recently closed
 

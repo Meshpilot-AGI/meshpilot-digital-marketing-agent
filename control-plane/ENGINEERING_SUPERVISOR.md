@@ -1159,3 +1159,26 @@ positive-framing rule a bare prohibition would break.
 
 **Verified:** 867 pass / 1 skip. ⚠️ **NOT verified on a real render** — every attempt since died in
 the credit-starved window. The prompt change is a hypothesis until a render lands.
+
+
+## DB-OPT-SURVEY — 2026-09-02
+
+**Read:** live `information_schema` + row counts for all 32 public tables; every table cross-checked
+against raw SQL, ORM `__tablename__`, and ORM-class usage outside `db/models.py`.
+
+**Found:** three tiers (full list on the board). Tier 1 = 6 tables dead by every measure, including
+**two the original lane did not know about**: `brand_document`, orphaned by PR #216 when
+`read_brand_doc` and the brand-document endpoints were removed, and `alembic_version` — Alembic is
+entirely gone (0 files in `alembic/versions/`, CI never references it). Tier 2 = 9 legacy
+LangGraph-pipeline tables, all 0 rows, still imported by `agent/nodes/scout.py`, `scheduler/queue.py`,
+`platforms/youtube.py`, `brain.py`, `shared_context.py`, `oauth/youtube.py`; reachable only via the
+`drive_scout` capability, which no-ops for GE (`content_source: ai_generated`). Tier 3 = 17 in use.
+
+**The lane's blocking question was the wrong one.** It was parked on "generation vs source→publish".
+The answer is generation — but via the NEW `agent/social/` path (live rows in `social_campaign` /
+`social_post` / `social_post_metric`), while every legacy `signal`/`scout`/`video_*` table is empty.
+The real decision is whether to RETIRE THE LEGACY LANGGRAPH PIPELINE, which gates Tier 2 only.
+
+**Changed:** board lane unparked and rewritten with the survey; stale Alembic/"app-driven migration"
+acceptance criteria corrected to the Supabase-native flow. **No schema changes made** — dropping
+tables is destructive and Tier 2 needs an operator decision first.
