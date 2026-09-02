@@ -53,8 +53,12 @@ _MIN_CREDITS = 26.0
 _SESSION_DONE = "completed"
 _SESSION_FAILED = "failed"
 _SESSION_STUCK = "waiting_for_input"   # `chat`-mode pause; nobody is listening on a cron run
-# How many times a flapping session is nudged before we call it dead.
+# How many times a flapping or stalled session is nudged before we call it dead.
 _MAX_RESUMES = 3
+# No change in (status, progress, video_id) for this long counts as a stall. Sized above the longest
+# LEGITIMATE quiet stretch we have measured — a real render sat in `thinking` for 285s before moving
+# to `generating` — so a slow-but-healthy render is never nudged out of turn.
+_STALL_S = 420
 
 
 class HeyGenError(RuntimeError):
@@ -295,30 +299,60 @@ async def _default_resume(session_id: str) -> None:
         r.raise_for_status()
 
 
-async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 900,
-                        resume: Any = None, max_resumes: int = _MAX_RESUMES) -> str:
+async def _default_stop(session_id: str) -> None:
+    """Halt a session we are giving up on. Never raises.
+
+    HeyGen counts **10 concurrent jobs** per account across Video Agent sessions, avatar renders and
+    translations. A session abandoned mid-flight keeps holding its slot, so a few stuck nightly runs
+    would quietly starve everything else. Best-effort: failing to stop must not mask the real error.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.post(f"{_API}/video-agents/{session_id}/stop", headers=_heygen_headers())
+            r.raise_for_status()
+    except Exception:  # noqa: BLE001
+        log.warning("social.video_stop_failed", session_id=session_id)
+
+
+async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 1500,
+                        resume: Any = None, max_resumes: int = _MAX_RESUMES,
+                        stall_s: int = _STALL_S, stop: Any = None) -> str:
     """Poll session -> video until a URL, exhausted resumes, or the deadline.
 
-    ⚠️ **`failed` is TRANSIENT, not terminal.** This is the defect that produced a month of empty
-    nightly campaigns. Observed live on a real session:
+    Two things go wrong with a Video Agent session, and neither is visible from the status word
+    alone, so this watches for **motion** rather than trusting any single state:
 
-        failed -> thinking -> generating (2 -> 31 -> 97) -> completed
+    1. **`failed` is TRANSIENT, not terminal.** Observed live:
+       `failed -> thinking -> generating (2 -> 31 -> 97) -> completed`, flapping back through
+       `failed` mid-run. The old code raised on the first `failed` and abandoned a render that then
+       completed vendor-side with nobody listening — that is why a video we had already been billed
+       for went uncollected (2026-08-31) and why five nightly runs produced nothing.
+    2. **A session can stall in a HEALTHY-looking state.** One sat in `thinking` at `progress: 0`
+       for 25+ minutes. Nudging only on `failed`/`waiting_for_input` never touches it, so it just
+       burns the deadline.
 
-    — it even flapped back through `failed` a second time mid-run before finishing. The old code
-    raised on the first `failed` and abandoned the render, which then completed vendor-side with
-    nobody listening; that is why a video we had already been billed for sat unused (2026-08-31),
-    and why five nightly runs produced nothing while HeyGen was working fine.
+    So a nudge fires when the session is `failed`/`waiting_for_input`, OR when
+    `(status, progress, video_id)` has not changed for `stall_s`. Any follow-up message resumes the
+    agent — there is no `auto_proceed` — and both cases use the same `max_resumes` budget.
 
-    So a `failed` (or `waiting_for_input`) session is nudged with a follow-up message and polling
-    continues, up to `max_resumes` times. Only an exhausted budget is a real failure. The VIDEO's
-    status is never terminal on its own either — it mirrors the session's flapping — so it is read
-    for the finished URL only.
+    ⚠️ A nudge reliably revives a **`failed`** session (three recovered live). It does **not** unstick
+    a session hard-stalled in `thinking` at `progress: 0` — one was nudged and sat unmoved for
+    195s+. The stall rule still earns its place there: it bounds the wait and reports
+    "no progress for Ns" instead of an anonymous timeout, and the session is stopped on the way out
+    so it stops holding one of the account's 10 concurrent job slots.
+
+    The VIDEO's status is never terminal on its own either (it mirrors the session's flapping), so
+    it is read only to collect the finished URL.
     """
     import httpx
 
     resume = resume or _default_resume
+    stop = stop or _default_stop
     headers = _heygen_headers()
-    waited = resumes = 0
+    waited = resumes = still_for = 0
+    seen: tuple | None = None
     async with httpx.AsyncClient(timeout=60) as c:
         while waited < timeout_s:
             r = await c.get(f"{_API}/video-agents/{session_id}", headers=headers)
@@ -334,18 +368,27 @@ async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_
                 if str(v.get("status", "")).lower() == "completed" and v.get("video_url"):
                     return v["video_url"]
 
-            if status in (_SESSION_FAILED, _SESSION_STUCK):
+            sig = (status, s.get("progress"), video_id)
+            still_for = 0 if sig != seen else still_for + 10
+            seen = sig
+
+            broken = status in (_SESSION_FAILED, _SESSION_STUCK)
+            if broken or still_for >= stall_s:
+                why = status if broken else f"no progress for {still_for}s"
                 if resumes >= max_resumes:
+                    await stop(session_id)   # release the concurrency slot before bailing
                     raise HeyGenError(
-                        f"heygen session {session_id} still {status} after {resumes} resume "
+                        f"heygen session {session_id} still stuck ({why}) after {resumes} resume "
                         f"attempts: {_reason(s)}")
                 resumes += 1
-                log.info("social.video_resumed", session_id=session_id, status=status,
+                log.info("social.video_resumed", session_id=session_id, reason=why,
                          attempt=resumes, progress=s.get("progress"))
                 await resume(session_id)
+                still_for = 0
 
             await sleep(10)
             waited += 10
+    await stop(session_id)       # same reasoning on the deadline path
     raise TimeoutError(f"heygen session {session_id} timed out after {timeout_s}s")
 
 
