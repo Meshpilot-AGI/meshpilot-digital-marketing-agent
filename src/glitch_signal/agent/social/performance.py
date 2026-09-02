@@ -71,16 +71,33 @@ async def by_cell(brand_id: str, *, bucket: str = DEFAULT_BUCKET,
 def summarise(cells: list[dict]) -> dict[str, Any]:
     """Turn per-cell rows into a verdict about what, if anything, may be concluded.
 
-    Cells below `MIN_SAMPLES_TO_RANK` are reported but not ranked — ordering a mean of one or two
-    posts is superstition. `can_conclude` needs at least two ranked cells (one has nothing to beat).
+Cells below `MIN_SAMPLES_TO_RANK` are reported but not ranked — ordering a mean of one or two
+    posts is superstition.
+
+    Ranking never crosses platforms: absolute engagement on Facebook and Instagram is not
+    comparable, and the matrix controls asset_kind and pillar, not platform. So cells are ranked
+    within a platform, and `can_conclude` needs two rankable cells on the SAME one.
     """
-    ranked = [c for c in cells if (c.get("n") or 0) >= MIN_SAMPLES_TO_RANK]
-    ranked.sort(key=lambda c: (c.get("mean_engagement") or 0.0), reverse=True)
+    rankable = [c for c in cells if (c.get("n") or 0) >= MIN_SAMPLES_TO_RANK]
+
+    by_platform: dict[Any, list[dict]] = {}
+    for c in rankable:
+        by_platform.setdefault(c.get("platform"), []).append(c)
+
+    ranked: list[dict] = []
+    can_conclude = False
+    for platform in sorted(by_platform, key=lambda p: (p is None, str(p))):
+        group = by_platform[platform]
+        group.sort(key=lambda c: (c.get("mean_engagement") or 0.0), reverse=True)
+        if len(group) >= 2:
+            can_conclude = True
+        ranked.extend(group)                    # still surfaced, just never compared cross-platform
+
     return {
         "cells_observed": len(cells),
-        "cells_rankable": len(ranked),
+        "cells_rankable": len(rankable),
         "min_samples_to_rank": MIN_SAMPLES_TO_RANK,
-        "can_conclude": len(ranked) >= 2,
+        "can_conclude": can_conclude,
         "ranked": ranked,
         "under_sampled": sorted(
             (c for c in cells if (c.get("n") or 0) < MIN_SAMPLES_TO_RANK),

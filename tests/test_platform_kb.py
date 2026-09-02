@@ -5,9 +5,25 @@ identical text went to X, LinkedIn and Facebook. Different rooms, different leng
 caption tuned for none of them is tuned for all of them badly. On a brand whose positioning is
 "sounds like someone who has been there", generic copy is the specific thing that breaks it.
 """
+import pathlib
+
 from glitch_signal.agent.social import captions, platforms_kb as kb
 from glitch_signal.agent.social.spec import Idea
 from tests.test_agent_memory import FakeEngine, _Result, _Row
+
+_MIGRATIONS = pathlib.Path(__file__).resolve().parents[1] / "supabase" / "migrations"
+
+
+# ── the migration must not ship an empty table (finding: "Platform profiles ship empty") ──────────
+def test_platform_profile_defaults_are_seeded_for_every_advertised_platform():
+    """The table-creating migration inserted no rows, so a fresh install had no profiles at all and
+    every caption silently fell back to generic per-medium copy. A later migration must seed a
+    generic default for every platform this feature advertises."""
+    seed_files = [p for p in _MIGRATIONS.glob("*.sql") if "platform_profile" in p.name]
+    assert seed_files, "no platform_profile migration found"
+    combined = "\n".join(p.read_text() for p in seed_files)
+    for platform in ("x", "linkedin", "facebook", "instagram", "tiktok"):
+        assert f"'{platform}'" in combined, f"no seeded default profile for {platform!r}"
 
 
 def _prof(platform="x"):
@@ -48,6 +64,21 @@ async def test_profile_is_scoped_to_brand_and_platform():
     await kb.profile("ge", "X", engine=eng)
     _sql, params = eng.calls[0]
     assert params["b"] == "ge" and params["p"] == "x"      # platform normalised
+
+
+async def test_profile_falls_back_to_the_reserved_default_brand():
+    """A brand that never set its own profile must not be left with an empty one: the migration
+    seeds five generic profiles under the reserved '_default' brand_id, and the query has to
+    consider that id — not just the caller's own — so a fresh brand still gets platform context."""
+    eng = FakeEngine()
+    eng.queue(_Result(rows=[]))
+    await kb.profile("brand-new-and-unconfigured", "x", engine=eng)
+    sql, params = eng.calls[0]
+    assert params["default_brand"] == "_default"
+    assert "_default" not in params["p"]                    # never confused for a platform
+    assert " in (" in sql.lower() or " IN (" in sql
+    # the brand's own row must win when both exist
+    assert "order by" in sql.lower() and "desc" in sql.lower()
 
 
 # ── tagging: verified handles only ──────────────────────────────────────────────────────────────
@@ -122,6 +153,39 @@ async def test_medium_keys_stay_populated_for_older_callers(monkeypatch):
         "ge", Idea("a", "h", ["p"], "k"), platforms={"x": "image"},
         complete=complete, positioning=lambda *a, **k: _blank())
     assert out["image"] == out["x"]
+
+
+async def test_caption_is_truncated_to_the_platforms_hard_limit(monkeypatch):
+    """max_chars is described as a hard platform limit but was only ever placed in the prompt — a
+    model response (or the polishing pass after it) could still overrun it and be sent unchanged to
+    the publisher. The 2,200 global cap is not narrow enough to catch X's 280."""
+    async def complete(prompt, *, system=None, **k):
+        return "x" * 500                        # well over X's 280, under the global 2200 cap
+
+    async def prof(brand, platform, *, engine=None):
+        return _prof(platform)                  # max_chars=280
+
+    monkeypatch.setattr(kb, "profile", prof)
+    monkeypatch.setattr(kb, "handles_for", lambda *a, **k: _empty())
+    out = await captions.write_captions(
+        "ge", Idea("a", "h", ["p"], "k"), platforms={"x": "image"},
+        complete=complete, positioning=lambda *a, **k: _blank())
+    assert len(out["x"]) <= 280
+
+
+async def test_caption_without_a_platform_limit_keeps_the_global_cap(monkeypatch):
+    async def complete(prompt, *, system=None, **k):
+        return "x" * 3000
+
+    async def prof(brand, platform, *, engine=None):
+        return {**_prof(platform), "max_chars": None}
+
+    monkeypatch.setattr(kb, "profile", prof)
+    monkeypatch.setattr(kb, "handles_for", lambda *a, **k: _empty())
+    out = await captions.write_captions(
+        "ge", Idea("a", "h", ["p"], "k"), platforms={"x": "image"},
+        complete=complete, positioning=lambda *a, **k: _blank())
+    assert len(out["x"]) == 2200
 
 
 async def test_without_platforms_it_falls_back_to_per_medium():

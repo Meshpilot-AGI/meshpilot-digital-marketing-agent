@@ -9,9 +9,9 @@ from glitch_signal.agent.social import performance
 from glitch_signal.agent.social.matrix import MIN_SAMPLES_TO_RANK
 
 
-def _cell(kind, pillar, n, mean):
+def _cell(kind, pillar, n, mean, platform=None):
     return {"asset_kind": kind, "pillar": pillar, "n": n, "mean_engagement": mean,
-            "total_engagement": n * mean}
+            "total_engagement": n * mean, "platform": platform}
 
 
 # ── the evidence gate ───────────────────────────────────────────────────────────────────────────
@@ -167,6 +167,21 @@ async def test_curator_clamps_non_finite_importance_to_the_default():
                                             remember=remember)
     assert out["wrote"] == 1
     assert written[0] == ("perf:nan", 0.5)
+
+
+async def test_curator_ranked_summary_names_the_platform():
+    """A rankable Facebook and Instagram row for the same (asset_kind, pillar) choice must remain
+    distinguishable in the curator's returned summary, or a caller cannot tell which platform a
+    ranked entry applies to."""
+    async def by_cell(brand, *, engine=None):
+        return [_cell("comparison", "p", 6, 4.0, platform="facebook"),
+                _cell("statement", "p", 5, 1.0, platform="facebook")]
+
+    async def complete(*a, **k):
+        return "[]"
+
+    out = await outcomes.curate_performance("ge", by_cell=by_cell, complete=complete)
+    assert out["ranked"][0] == "comparison×p×facebook"
 
 
 async def test_curator_caps_the_number_of_lessons():

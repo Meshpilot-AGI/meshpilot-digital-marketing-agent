@@ -86,3 +86,45 @@ async def test_by_cell_raises_a_typed_error_on_query_failure_instead_of_returnin
     eng = _FakeEngine(exc=RuntimeError("connection refused"))
     with pytest.raises(performance.PerformanceQueryError):
         await performance.by_cell("ge", engine=eng)
+
+
+def _cell(kind, pillar, platform, n, mean):
+    return {"asset_kind": kind, "pillar": pillar, "platform": platform, "n": n,
+            "mean_engagement": mean, "total_engagement": n * mean}
+
+
+# ── ranking never crosses platforms (finding: "Rank incomparable platform cells") ──────────────────
+def test_summarise_never_concludes_from_two_different_platforms_alone():
+    """A Facebook cell and an Instagram cell for the same (asset_kind, pillar) choice have
+    incomparable absolute engagement scales — one rankable cell per platform must not satisfy
+    can_conclude just because two platforms are present."""
+    s = performance.summarise([
+        _cell("comparison", "p", "facebook", 5, 50.0),
+        _cell("comparison", "p", "instagram", 5, 5.0),
+    ])
+    assert s["can_conclude"] is False
+
+
+def test_summarise_ranks_within_a_platform_once_two_choices_exist_there():
+    """Two distinct content choices measured on the SAME platform are a valid comparison."""
+    s = performance.summarise([
+        _cell("comparison", "p", "facebook", 5, 50.0),
+        _cell("statement", "p", "facebook", 5, 5.0),
+        _cell("comparison", "p", "instagram", 5, 999.0),   # lone Instagram cell: not comparable
+    ])
+    assert s["can_conclude"] is True
+    facebook_ranked = [c for c in s["ranked"] if c["platform"] == "facebook"]
+    assert [c["asset_kind"] for c in facebook_ranked] == ["comparison", "statement"]
+
+
+def test_summarise_never_ranks_an_instagram_cell_above_a_facebook_cell():
+    """Guards the exact shape of the bug: a single, much larger Instagram mean must never be
+    reported ahead of a smaller Facebook mean as though the platforms were interchangeable."""
+    s = performance.summarise([
+        _cell("comparison", "p", "facebook", 5, 10.0),
+        _cell("statement", "p", "facebook", 5, 1.0),
+        _cell("comparison", "p", "instagram", 5, 1000.0),
+    ])
+    # the Instagram cell has no same-platform partner, so it must never lead the ranked list
+    assert s["ranked"][0]["platform"] == "facebook"
+    assert s["ranked"][0]["asset_kind"] == "comparison"

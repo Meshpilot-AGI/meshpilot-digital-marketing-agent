@@ -8,11 +8,25 @@ MUapi's balance is denominated in DOLLARS. It was being treated as credits at $0
 spend by 100. Once corrected, our estimate was revealed to be HALF the true cost — the dangerous
 direction, since the daily cap was permitting about twice the spend it was configured for.
 """
+import pytest
+
 from glitch_signal.analytics.cost import pricing, reconcile
 
 # The observed window: balance 6.4324 -> 5.4625 across 24 generations.
 BALANCE_DROP = 0.9699
 CALLS = 24
+
+# Every env var these pricing functions read. Cleared before each test in this module so a
+# developer shell or CI environment that happens to export one of these cannot make a test that
+# asserts the COMMITTED DEFAULT pass or fail for the wrong reason — `pricing.muapi_cost`/
+# `muapi_credit_usd` read straight from `os.environ` on every call.
+_MUAPI_ENV_VARS = ("COST_MUAPI_CREDIT_USD", "COST_MUAPI_DEFAULT_USD", "COST_MUAPI_MODEL_USD")
+
+
+@pytest.fixture(autouse=True)
+def _clean_muapi_env(monkeypatch):
+    for var in _MUAPI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
 
 
 def test_muapi_balance_is_treated_as_dollars_not_credits():
