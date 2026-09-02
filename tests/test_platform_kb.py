@@ -1,0 +1,141 @@
+"""Per-platform audience and register.
+
+Until this, one caption was written per MEDIUM and reused across every platform of that medium — the
+identical text went to X, LinkedIn and Facebook. Different rooms, different lengths and registers; a
+caption tuned for none of them is tuned for all of them badly. On a brand whose positioning is
+"sounds like someone who has been there", generic copy is the specific thing that breaks it.
+"""
+from glitch_signal.agent.social import captions, platforms_kb as kb
+from glitch_signal.agent.social.spec import Idea
+from tests.test_agent_memory import FakeEngine, _Result, _Row
+
+
+def _prof(platform="x"):
+    return {"platform": platform, "audience": "traders", "register": "one idea, stated flat",
+            "max_chars": 280, "hashtags": "None.", "avoid": "emoji"}
+
+
+# ── the profile section ─────────────────────────────────────────────────────────────────────────
+def test_section_is_empty_without_a_profile():
+    """An empty labelled block invites the model to fill it from its priors — same rule as every
+    other grounding section in this pipeline."""
+    assert kb.section({}) == ""
+
+
+def test_section_carries_audience_register_and_limits():
+    s = kb.section(_prof())
+    assert "traders" in s and "one idea, stated flat" in s
+    assert "280" in s and "emoji" in s
+
+
+def test_section_subordinates_the_platform_to_the_positioning():
+    """The platform shapes HOW to say it. It must never be read as licence to relax a prohibition —
+    otherwise 'that works on TikTok' becomes a route around the brand's claim limits."""
+    s = kb.section(_prof())
+    assert "must never be relaxed" in s
+
+
+async def test_profile_degrades_to_empty_on_db_failure():
+    class _Boom:
+        def connect(self):
+            raise RuntimeError("db down")
+    assert await kb.profile("ge", "x", engine=_Boom()) == {}
+
+
+async def test_profile_is_scoped_to_brand_and_platform():
+    eng = FakeEngine()
+    eng.queue(_Result(rows=[]))
+    await kb.profile("ge", "X", engine=eng)
+    _sql, params = eng.calls[0]
+    assert params["b"] == "ge" and params["p"] == "x"      # platform normalised
+
+
+# ── tagging: verified handles only ──────────────────────────────────────────────────────────────
+def test_no_handles_means_no_tagging_instruction():
+    """A wrong handle tags a real stranger's account in public — worse than not tagging. Absence
+    must mean 'name them in plain text', never 'guess'."""
+    assert kb.mention_line([], "x") == ""
+    assert kb.mention_line([None, ""], "x") == ""
+
+
+def test_mention_line_forbids_inventing_other_handles():
+    line = kb.mention_line(["@FTMO"], "x")
+    assert "@FTMO" in line
+    assert "Do not invent any other handle" in line
+    assert "companies the post does not discuss" in line
+
+
+async def test_handles_lookup_returns_nothing_when_unverified(monkeypatch):
+    """The library ships with no handles; until they are verified, tagging stays off."""
+    async def _resolve(brand, names, *, kind="logo", engine=None):
+        return [{"slug": "ftmo", "name": "FTMO", "handles": {}}]
+    monkeypatch.setattr("glitch_signal.agent.assets.resolve_named", _resolve)
+    assert await kb.handles_for("ge", ["FTMO"], "x") == []
+
+
+async def test_handles_lookup_returns_a_verified_handle(monkeypatch):
+    async def _resolve(brand, names, *, kind="logo", engine=None):
+        return [{"slug": "ftmo", "name": "FTMO", "handles": {"x": "@FTMO"}}]
+    monkeypatch.setattr("glitch_signal.agent.assets.resolve_named", _resolve)
+    assert await kb.handles_for("ge", ["FTMO"], "x") == ["@FTMO"]
+
+
+async def test_handles_are_per_platform(monkeypatch):
+    """A company's X handle is not its LinkedIn one; using the wrong one tags nobody, or worse."""
+    async def _resolve(brand, names, *, kind="logo", engine=None):
+        return [{"slug": "ftmo", "name": "FTMO", "handles": {"x": "@FTMO"}}]
+    monkeypatch.setattr("glitch_signal.agent.assets.resolve_named", _resolve)
+    assert await kb.handles_for("ge", ["FTMO"], "linkedin") == []
+
+
+# ── captions are now per platform ───────────────────────────────────────────────────────────────
+async def test_one_caption_is_written_per_platform(monkeypatch):
+    seen: list[str] = []
+
+    async def complete(prompt, *, system=None, **k):
+        seen.append(prompt)
+        return f"caption {len(seen)}"
+
+    async def prof(brand, platform, *, engine=None):
+        return _prof(platform)
+
+    monkeypatch.setattr(kb, "profile", prof)
+    monkeypatch.setattr(kb, "handles_for", lambda *a, **k: _empty())
+    out = await captions.write_captions(
+        "ge", Idea("a", "h", ["p"], "k"), platforms={"x": "image", "linkedin": "image"},
+        complete=complete, positioning=lambda *a, **k: _blank())
+    assert out["x"] != out["linkedin"]                    # genuinely distinct copy
+    assert len(seen) == 2
+    assert "WRITING FOR X" in seen[0] and "WRITING FOR LINKEDIN" in seen[1]
+
+
+async def test_medium_keys_stay_populated_for_older_callers(monkeypatch):
+    async def complete(prompt, *, system=None, **k):
+        return "c"
+
+    async def prof(brand, platform, *, engine=None):
+        return {}
+
+    monkeypatch.setattr(kb, "profile", prof)
+    monkeypatch.setattr(kb, "handles_for", lambda *a, **k: _empty())
+    out = await captions.write_captions(
+        "ge", Idea("a", "h", ["p"], "k"), platforms={"x": "image"},
+        complete=complete, positioning=lambda *a, **k: _blank())
+    assert out["image"] == out["x"]
+
+
+async def test_without_platforms_it_falls_back_to_per_medium():
+    """An unprofiled brand must still post."""
+    async def complete(prompt, *, system=None, **k):
+        return "c"
+    out = await captions.write_captions("ge", Idea("a", "h", ["p"], "k"), complete=complete,
+                                        positioning=lambda *a, **k: _blank())
+    assert set(out) == {"image", "video"}
+
+
+async def _empty():
+    return []
+
+
+async def _blank():
+    return ""
