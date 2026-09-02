@@ -828,3 +828,39 @@ Four valid findings on #166 (the internal-surface BFLA sweep), all fixed here (c
 **Fixed (13):** **security** — conscience bypass (#175.2: `brand_facts` feeds only `source`-verified facts; agent/curator facts can't suppress escalation; instruction softened — facts establish identity, don't authorize claims); web_fetch **SSRF** (#176.2: http(s)-only, blocks private/loopback/link-local/reserved/metadata IPs, no redirects); web kill-switches re-honored (#176.3); 500KB stream cap (#176.4); HTTP≥400 not returned as content (#176.5); sanitized log (#175.1); `.env.example` OPENROUTER_API_KEY (#176.1). **correctness/observability** — `complete_tools` honors `AGENT_LLM_MODEL` (#177.1, the loop override was ignored under the default tier); metrics + audit override-aware via `resolve()` (#177.3/#178.2); `primary_not_serving`→soft `primary_idle` (#178.1, usage_events lacks tier context → a fallback model may be pinned); audit endpoint param validation (#178.3).
 **Acknowledged, not fixed:** #177.2 — OpenRouter does failover internally and hides the failed attempts, so the per-worker SAMPLE metric can't attribute them; durable per-model billing (usage_events) records the actual served model correctly.
 **Verified:** +tests (SSRF-guard/kill-switch/redirect/HTTP-error web tools, verified-provenance brand-facts, AGENT_LLM_MODEL loop override, override-aware audit). Suite **552 pass**; CI green; redeployed.
+
+
+## HEYGEN-HARDEN — 2026-09-02
+
+**Read:** v1 monorepo archived UGC lane (`archive/ugc-2026-06-05/`: `integrations/heygen.py`,
+`scripts/render_v18_video_agent.py`, `.claude/skills/glitch-ugc-pro/SKILL.md` — 22 iterations of
+prior art); HeyGen dev docs crawled systematically off the `llms.txt` index (Video Agent contract +
+OpenAPI, prompting guide, writing-effective-video-prompts, brand kits/glossary/styles, upload
+assets, interactive sessions, error codes, usage limits, webhooks, version comparison, social
+cookbook) via 4 parallel read-only agents; `agent/social/{video,campaign}.py`,
+`analytics/cost/reconcile.py`, `docs/vendors/heygen.md`.
+
+**Changed:** `agent/social/video.py` — `preflight()`/`wallet_balance()` credit gate +
+`HeyGenError`/`HeyGenCreditError`; `_reason()` failure ladder; `_default_poll()` rewritten to poll
+the session as the authority (6 statuses, 900s); `build_video_prompt()` rebuilt on HeyGen's
+14-experiment findings; `session_options()` for brand/avatar/voice/style pins.
+`campaign.py` passes those options. `analytics/cost/reconcile.py::_fetch_heygen` v2→v3 wallet,
+`BALANCE_UNIT["heygen"]` credits→usd. `docs/vendors/heygen.md` rewritten as the knowledge base.
+
+**Verified:** full suite **857 pass / 1 skip** (was 852+5F mid-lane; the 5 were my own signature and
+unit changes, each fixed by updating the test's stated assumption, not the assertion's intent).
+19 tests in `tests/test_social_video.py`, incl. `httpx.MockTransport` coverage of the exact
+production shape (`status: failed`, `progress: 0`, `video_id: None` → fails fast instead of
+burning the timeout). LIVE probe of the account confirmed the diagnosis: 50 sessions listed, the
+5 most recent (2026-09-01/02) all `failed` at `progress 0` with `failure_code`/`failure_message`
+**null on both session and video**; wallet `remaining_balance: 1.05`, `auto_reload.enabled: false`;
+`/v2/user/remaining_quota` still 200s but now returns a removal warning naming AI agents.
+
+**Docs updated:** `docs/vendors/heygen.md` (full rewrite), `control-plane/ACTIVE_LANE_BOARD.md`.
+
+**Remains:** ⚠️ **operator must top up the HeyGen wallet + enable auto-reload** — code now names the
+failure but cannot fund it. Then: create the GE brand kit from `glitchexecutor.com` and a brand
+glossary, set `GE_HEYGEN_BRAND_KIT_ID`/`GE_HEYGEN_BRAND_GLOSSARY_ID` (biggest remaining lever on
+video quality); finish the push-completion webhook (`callback_url` + `video_agent.success|fail` —
+receiver exists and verifies fail-closed, but completion still comes from our poll); no reference
+assets are configured (`GE_SOCIAL_REFERENCE_URLS` empty locally), so renders carry no brand imagery.

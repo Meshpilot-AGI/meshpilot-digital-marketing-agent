@@ -132,12 +132,16 @@ async def test_reconcile_baseline_when_no_prev(monkeypatch):
 
 
 async def test_reconcile_computes_drift(monkeypatch):
-    monkeypatch.setitem(reconcile._FETCHERS, "heygen", _fake_fetcher(90.0))
-    monkeypatch.setenv("COST_HEYGEN_CREDIT_USD", "0.30")
+    """The credit->USD conversion path, on a vendor whose balance really is credits.
+
+    (This used HeyGen until its balance moved to the wallet's USD figure — see the heygen test
+    below and `docs/vendors/heygen.md`.)"""
+    monkeypatch.setitem(reconcile._FETCHERS, "higgsfield", _fake_fetcher(90.0))
+    monkeypatch.setenv("COST_HIGGSFIELD_CREDIT_USD", "0.30")
     prev = {"balance": 100.0, "created_at": NOW - timedelta(hours=1)}
     summ = {"usd": 2.40, "n": 4}  # our estimate; vendor_actual = 10 credits * 0.30 = 3.00
     eng = _Engine(prev=prev, summ=summ)
-    out = await reconcile.run(["heygen"], now=NOW, engine=eng)
+    out = await reconcile.run(["higgsfield"], now=NOW, engine=eng)
     v = out["vendors"][0]
     assert v["status"] == "reconciled"
     assert v["delta_credits"] == 10.0
@@ -164,18 +168,21 @@ async def test_reconcile_muapi_reports_a_usd_delta_not_credits(monkeypatch):
     assert v["delta_usd"] == pytest.approx(0.9699, abs=1e-4)
 
 
-async def test_reconcile_heygen_still_reports_delta_credits(monkeypatch):
-    """Credit vendors are unaffected — compatibility for existing consumers of this field."""
+async def test_reconcile_heygen_reports_a_usd_delta_from_the_wallet(monkeypatch):
+    """HeyGen bills a USD wallet, so its balance is dollars and needs no credit conversion.
+
+    The legacy `/v2/user/remaining_quota` reported a healthy `remaining_quota: 63` while the wallet
+    held $1.05 and every render was failing — reconciling against that pool watched the wrong
+    number. `_fetch_heygen` now reads `wallet.remaining_balance` from `GET /v3/users/me`."""
     monkeypatch.setitem(reconcile._FETCHERS, "heygen", _fake_fetcher(90.0))
-    monkeypatch.setenv("COST_HEYGEN_CREDIT_USD", "0.30")
     prev = {"balance": 100.0, "created_at": NOW - timedelta(hours=1)}
     summ = {"usd": 2.40, "n": 4}
     eng = _Engine(prev=prev, summ=summ)
     out = await reconcile.run(["heygen"], now=NOW, engine=eng)
     v = out["vendors"][0]
-    assert v["balance_unit"] == "credits"
-    assert v["delta_credits"] == 10.0
-    assert "delta_usd" not in v
+    assert v["balance_unit"] == "usd"
+    assert v["delta_usd"] == pytest.approx(10.0)
+    assert "delta_credits" not in v
 
 
 async def test_reconcile_unavailable_is_graceful(monkeypatch):

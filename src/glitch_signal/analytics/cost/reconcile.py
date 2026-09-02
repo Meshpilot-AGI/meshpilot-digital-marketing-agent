@@ -47,7 +47,7 @@ _SUM_EVENTS = text(
 # What a vendor's reported balance is actually denominated in. MUapi reports DOLLARS; the others
 # report credits. Recording this per vendor stops the snapshot table asserting "credits" for a
 # balance that is nothing of the sort — which is what hid the unit error until a real spend appeared.
-BALANCE_UNIT = {"muapi": "usd", "heygen": "credits", "higgsfield": "credits"}
+BALANCE_UNIT = {"muapi": "usd", "heygen": "usd", "higgsfield": "credits"}
 
 _CREDIT_USD = {
     "muapi": pricing.muapi_credit_usd,
@@ -61,11 +61,20 @@ async def _fetch_heygen(client: httpx.AsyncClient) -> tuple[float | None, dict]:
     key = os.environ.get("HEYGEN_API_KEY", "").strip()
     if not key:
         return None, {"error": "HEYGEN_API_KEY unset"}
-    # v2 remaining_quota is Legacy (sunset 2026-10-31) but stable; migrate to GET /v3/users/me later.
-    r = await client.get("https://api.heygen.com/v2/user/remaining_quota", headers={"X-Api-Key": key})
-    data = (r.json() or {}).get("data") or {}
-    q = data.get("remaining_quota")
-    return (float(q) if q is not None else None), {"remaining_quota": q}
+    # `GET /v3/users/me` replaces the legacy `/v2/user/remaining_quota`, which HeyGen removes on
+    # 2026-10-31 and whose live response now warns agents off it by name. The wallet is also the
+    # TRUTHFUL number for us: this account bills `wallet` (USD), and the v2 endpoint's headline
+    # `remaining_quota`/`plan_credit` counts a pool the Video Agent does not draw from — it read a
+    # comfortable 63/1091 while the wallet held $1.05 and every render was failing.
+    r = await client.get("https://api.heygen.com/v3/users/me", headers={"X-Api-Key": key})
+    if r.status_code >= 400:
+        return None, {"error": f"{r.status_code}: {r.text[:120]}"}
+    wallet = ((r.json() or {}).get("data") or {}).get("wallet") or {}
+    bal, currency = wallet.get("remaining_balance"), str(wallet.get("currency", "")).lower()
+    if bal is None or currency != "usd":
+        return None, {"error": f"unexpected wallet shape (currency={currency!r})"}
+    return float(bal), {"remaining_balance": bal, "currency": currency,
+                        "auto_reload": (wallet.get("auto_reload") or {}).get("enabled")}
 
 
 async def _fetch_muapi(client: httpx.AsyncClient) -> tuple[float | None, dict]:
