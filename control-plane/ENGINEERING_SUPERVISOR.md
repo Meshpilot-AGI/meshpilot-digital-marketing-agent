@@ -1504,3 +1504,40 @@ and free of the `\'` hand-escaping the existing single-quoted file is full of.
 **Remains:** SEO-2 (generation + the commit/PR path into `glitch-trade-app`, running the program's own
 gates: typecheck, schemas:validate, links:audit, sitemap, Lighthouse). The autonomy conflict in
 `ai-seo-program.md` ("every page human-edited") is still unresolved and is an operator decision.
+
+
+## SEO-2 — publish path (stage S0) — 2026-09-02
+
+**Built:** `agent/seo/publish.py` — `insert_post`, `run_gates`, `publish`. The site is a Vite app on
+Cloudflare Pages, so publishing is a CODE CHANGE: insert the typed post into `src/data/blog.ts`, run
+the site's own gates, open a PR; CF Pages builds on merge.
+
+**Order is the design.** The editorial contract is checked BEFORE the file is touched — writing a
+failing post and then reverting leaves a dirty tree and a confusing branch. A failed *gate*, by
+contrast, deliberately leaves the file in place: a human debugging a typecheck failure needs the file
+that produced it, not a reverted repo. Gates stop at the first failure, since later ones run against
+a build the earlier already called broken.
+
+**The gates are the site's own** (`npm run typecheck | lint | schemas:validate | links:audit`), not
+invented here. The agent is held to the same bar as a human contributor, and a gate that changes
+there changes here for free.
+
+**S0 is the default and it does not merge.** Autonomy is earned per the amended program — five
+consecutive posts with zero human edits to the body promotes to S1. `stage` is a parameter with a
+conservative default, not a flag to flip early. Tests assert it never commits to `main`, always
+branches, and never calls `pr merge`.
+
+**Guardrail amended** in `glitch-trade-app` (PR #543): *"AI-generated thin content at scale; every
+page human-edited"* bundled a QUALITY FLOOR with a PROCESS RULE. The floor stands — "no thin content
+whoever writes it" — and only the process rule is replaced, defensibly here because posts are typed
+data so the bar is executable. The amendment keeps explicit that a post clearing every automated gate
+and still being thin should not ship, and that judgement stays human.
+
+**Verified:** 866 pass / 1 skip (+12). `insert_post` exercised against the REAL 811-line `blog.ts`:
+inserts newest-first, array opened exactly once, `blogBySlug` intact, emitted object parses as JSON.
+Duplicate slugs are refused rather than written — `blogBySlug` is built with `Object.fromEntries` and
+would silently drop one.
+
+**Remains:** generation itself (an LLM writing a post that satisfies the contract) and SEO-3
+(measuring the zero-edit track record that promotes S0 -> S1). Nothing here generates content yet —
+this is the path a generated post travels.
