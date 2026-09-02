@@ -864,3 +864,31 @@ glossary, set `GE_HEYGEN_BRAND_KIT_ID`/`GE_HEYGEN_BRAND_GLOSSARY_ID` (biggest re
 video quality); finish the push-completion webhook (`callback_url` + `video_agent.success|fail` —
 receiver exists and verifies fail-closed, but completion still comes from our poll); no reference
 assets are configured (`GE_SOCIAL_REFERENCE_URLS` empty locally), so renders carry no brand imagery.
+
+
+## HEYGEN-BRANDKIT — 2026-09-02
+
+**Changed:** provisioned the HeyGen brand kit (`b73d4216…`, imported from `glitchexecutor.com`),
+brand glossary (`ee366552…`, 9 audio-only respellings) and pinned avatar look (`ea2627db…`,
+"Trader Avatar", portrait, trained). Wired as `GE_HEYGEN_{BRAND_KIT_ID,BRAND_GLOSSARY_ID,AVATAR_ID}`
+in local `.env`; **cloud env still pending** (`fastapi cloud env set` needs an interactive login).
+Corrected `video.py` preflight wording + `docs/vendors/heygen.md` §0.
+
+**Verified / CORRECTION:** the previous lane reported the $1.05 wallet as *the* root cause of the
+dead renders. **That was an inference, not a proven diagnosis, and this lane could not confirm it.**
+Eliminated by direct experiment, each a real submitted session: the prompt (old and new fail
+identically), reference files (none configured), the brand kit (failures predate it; same with and
+without), bespoke-avatar minting (a pinned pre-trained look fails identically), avatar training (all
+50 private looks `completed`, `error: null`), and credit consumption (wallet $1.05 / api 63 /
+plan_credit 1091 **unchanged** across a failed render — nothing is billed). Every failure is
+`status: failed`, `progress: 0`, 50–70s, `failure_code`/`failure_message` **null** on session AND
+video, session-videos list empty. The account is on a Creator plan and holds BOTH a wallet and plan
+pools, so `/v2/user/remaining_quota` looking healthy proves nothing about the wallet.
+
+**Remains:** two candidates survive — the wallet genuinely gating renders (consistent with nothing
+being charged, since an insufficient-funds abort never bills) or a HeyGen-side regression from
+2026-09-01 (last success 2026-08-31). **One action distinguishes them: fund the wallet and retry.**
+If it still fails at progress 0 when funded, it is vendor-side → support ticket quoting the failed
+session ids (`a5c50c16`, `b8374692`, `a718fa61`, `abbb6ec9`, `f6777656`, `a2f56d52`, `2dc60d2f`),
+not more code. Also open: the brand kit reproducibly settles at `status: error` with no roles
+assigned (PATCH 409s while `error`), so role assignment awaits a kit that reaches `completed`.

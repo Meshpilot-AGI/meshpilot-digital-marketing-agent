@@ -31,10 +31,40 @@ Three separate defects stacked up, none of which was the prompt:
 | 2 | We read `error`/`message` off the video — **fields HeyGen does not define** | every failure logged an empty reason |
 | 3 | We polled only the **video**, but a session can die before a `video_id` exists | a dead run still burned the full poll timeout |
 
-The cron then retried "Drawdown Explained" **four times in one day** against an empty wallet. All
-three are now closed; the rules below are the generalisation.
+The cron then retried "Drawdown Explained" **four times in one day**. Defects 2 and 3 are closed and
+the rules below are the generalisation.
 
-> **Check the wallet first.** When video stops working, `GET /v3/users/me` before reading any code.
+### ⚠️ Defect 1 is a SUSPECT, not a diagnosis (corrected 2026-09-02)
+
+The wallet was first reported here as *the* root cause. Direct testing does not support that, and
+the correction matters more than the original claim. **Eliminated by experiment**, each with a real
+submitted session:
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| Bad prompt | old prompt vs. new experiment-backed prompt | both fail identically |
+| Reference files unreachable | `GE_SOCIAL_REFERENCE_URLS` is **empty** | not a factor |
+| Broken brand kit | failures predate the kit; ran with and without | no difference |
+| Agent minting a *bespoke* avatar | pinned an existing **trained** look | fails identically |
+| Avatar training failure | `GET /v3/avatars/looks?ownership=private` | all 50 `completed`, `error: null` |
+| Credits exhausted | balances before/after a failed render | **unchanged** — nothing is charged |
+
+Every failure looks the same: `status: failed`, `progress: 0`, within 50–70s, `failure_code` and
+`failure_message` **null on both session and video**, the session-videos list empty, and the video
+record a bare stub. HeyGen surfaces no diagnosable reason at all.
+
+What remains is either (a) the wallet genuinely gating the render — consistent with "nothing was
+charged", since an insufficient-funds abort would never bill — or (b) a HeyGen-side regression that
+began 2026-09-01 (last success 2026-08-31). **These are distinguished by one action: fund the wallet
+and retry.** If renders still fail at `progress: 0` when funded, it is vendor-side and the next step
+is a support ticket quoting the failed `session_id`s — not more code.
+
+`preflight()` is kept because it is cheap and names a real risk, but it asserts a *cost floor*, not
+a cause. Set `HEYGEN_MIN_WALLET_USD=0` to disable it.
+
+> **Check the wallet first,** but do not stop there — `GET /v3/users/me` reports the wallet while
+> `/v2/user/remaining_quota` reports plan pools the Video Agent may not draw from. This account has
+> **both**: wallet $1.05 *and* `plan_credit: 1091` / `api: 63` on a Creator plan.
 
 ---
 
@@ -179,8 +209,32 @@ id is rejected at request time with `400 invalid_parameter` and **consumes no cr
 Per-brand pins are read from env by `video.session_options()` and omitted when unset:
 `<PREFIX>_HEYGEN_{AVATAR_ID,VOICE_ID,STYLE_ID,BRAND_KIT_ID,BRAND_GLOSSARY_ID}`.
 
-**Not yet set for Glitch Executor** — creating the brand kit from `glitchexecutor.com` and a
-glossary for the brand name is the next concrete upgrade to video quality.
+**Provisioned for Glitch Executor (2026-09-02)** — set these three pins (`env set` only CREATES,
+it will not update an existing var):
+
+| Env var | Value | What it is |
+|---|---|---|
+| `GE_HEYGEN_BRAND_KIT_ID` | `b73d42167efa4ea8a6d9375f26884f97` | imported from `glitchexecutor.com` |
+| `GE_HEYGEN_BRAND_GLOSSARY_ID` | `ee36655213ca4bfb8708d287eafb7576` | 9 terms, audio-only respellings |
+| `GE_HEYGEN_AVATAR_ID` | `ea2627db57f24e9fb137c826bdb29a38` | "Trader Avatar" look, portrait, trained |
+
+The kit imported the real brand — `#93FF00` (neon), `#0a0d12` (near-black), `#FFFFFF`; JetBrains
+Mono + Space Grotesk; one logo.
+
+⚠️ **The kit settles at `status: "error"`, reproducibly** (two independent imports of the same URL).
+All assets land correctly but **no roles are assigned**, and `PATCH` returns `409` while a kit is
+`loading` or `error`, so roles cannot be set by hand. HeyGen **still accepts the id** on
+`POST /v3/video-agents` (no `400`), which matches the documented "kit still exists/usable with
+whatever assembled". Assigning roles needs the kit to reach `completed` first.
+
+Glossary terms cover the brand name and the platform names TTS mangles: `Glitch Executor` /
+`GlitchExecutor` / `glitchexecutor.com`, `cTrader`, `DXtrade`, `MT4`, `MT5`, `FTMO`, `P&L`.
+
+⚠️ **`avatar_id` needs a LOOK id, not a group id.** `GET /v3/avatars` returns avatar *groups*;
+passing one is rejected with `400 invalid_parameter — Avatar not found or you don't have access`.
+Resolve the look with **`GET /v3/avatars/looks?ownership=private&group_id=…`** and pass its `id`.
+That endpoint also carries per-look `status` / `error` (training state), which is the only place
+avatar training failures are visible.
 
 Voices: `GET /v3/voices` (filter `language`, `gender`, `type`, audition via `preview_audio_url`),
 then pin `voice_id`. Music: `GET /v3/audio/sounds?query=…` is semantic search; how a chosen track
