@@ -1,20 +1,16 @@
 """Prompt TECHNIQUE — pure functions that turn a loose idea into a model-ready brief.
 
-Adapted (not copied) from the monorepo's `media/prompt_recipes.py`, which distilled the
-Generative-Media-Skills recipes into prompt builders. The principle it encodes, and the reason the
-last campaign's imagery was generic: a model is only as good as the structure of its brief. A bare
-topic string produces stock; an explicit Subject / Style / Palette / Composition / Lighting brief in
-full sentences produces something art-directed.
+Adapted from the monorepo's `media/prompt_recipes.py`. A bare topic string produces stock imagery;
+an explicit Subject / Style / Palette / Composition / Lighting brief in full sentences produces
+something art-directed.
 
-Everything here is a pure function — no I/O, no config — so it unit-tests trivially and the LLM step
-that precedes it (see `plan.py`) stays optional rather than load-bearing.
+Pure functions only (no I/O, no config), so the LLM step that precedes this (`plan.py`) stays
+optional rather than load-bearing.
 
-ONE DELIBERATE DIVERGENCE from the original: `prompt_recipes` appended a hard "no on-image text"
-directive to every diffusion prompt, because the diffusion models of the time could not set type and
-copy was always composited downstream. Current models can — verified live on this brand's own
-account. So the no-text rule now belongs to the ILLUSTRATIVE route only, and a POSTER route exists
-where the model is asked to set a short headline itself. Choosing per route keeps the original's
-intent (never let a model invent copy it wasn't given) without inheriting a limit that has expired.
+Divergence from the original: `prompt_recipes` banned on-image text everywhere because older
+diffusion models couldn't set type. Current models can (verified live), so the no-text rule now
+applies only to the ILLUSTRATIVE route; a POSTER route lets the model set a supplied headline
+verbatim instead — same intent (never let the model invent copy), without the expired limitation.
 """
 from __future__ import annotations
 
@@ -49,8 +45,8 @@ def illustrative_prompt(subject: str, *, style: str, palette: str,
                         banned: str = "") -> str:
     """A TEXT-FREE conceptual still. Copy lives in the caption or is composited on top.
 
-    Structured brief over keyword soup: models reason about full descriptive sentences and ignore
-    stacked adjectives like "8k, masterpiece, trending".
+    Full descriptive sentences over keyword soup — models reason about the former and ignore stacked
+    adjectives like "8k, masterpiece, trending".
     """
     parts = [
         f"Subject: {subject}.",
@@ -67,11 +63,8 @@ def illustrative_prompt(subject: str, *, style: str, palette: str,
 
 def poster_prompt(subject: str, headline: str, *, style: str, palette: str,
                   banned: str = "") -> str:
-    """A conceptual still where the MODEL sets a short headline.
-
-    The headline is passed in double quotes and marked verbatim: current models honour quoted copy,
-    and the point of supplying it is that the model must never invent the words itself.
-    """
+    """A conceptual still where the MODEL sets a short headline, passed quoted and verbatim — current
+    models honour quoted copy, so the words are always supplied, never invented."""
     parts = [
         f"Subject: {subject}.",
         f'Set this exact headline in the image, verbatim, spelled precisely: "{headline}".',
@@ -102,15 +95,10 @@ def video_prompt(subject: str, *, style: str, palette: str, banned: str = "",
     return " ".join(p for p in parts if p)
 
 
-# The subject vocabulary a backdrop may draw from. Explicit rather than left to the model, because
-# handing it the HEADLINE as the subject is what produced literal metaphor objects — a post about
-# trailing drawdown came back as a pulley and cable, which says nothing about trading. The reader is
-# a trader; the frame should look like the room they work in.
-# Every entry must read as a TRADING desk, not merely a desk. A generic workstation is
-# interchangeable with any software brand — it builds no identity. The distinguishing element is
-# always a screen carrying a trading interface, kept heavily defocused so it reads as "a trading
-# terminal" in silhouette without ever resolving into legible figures (see _NO_INVENTED_FIGURES:
-# any number the model painted would be one we invented).
+# Fixed subject vocabulary, not left to the model — handing it the headline as subject produced
+# literal metaphor objects (a post about trailing drawdown came back as a pulley and cable). Every
+# entry reads as a TRADING desk specifically (a generic workstation builds no brand identity), via a
+# screen carrying a trading interface kept too defocused to resolve into figures (_NO_INVENTED_FIGURES).
 BACKDROP_SUBJECTS = (
     "the bottom bezel of a widescreen trading monitor showing a heavily blurred dark trading "
     "terminal — soft rectangular panel shapes and a faint out-of-focus price ladder, no legible "
@@ -129,20 +117,12 @@ BACKDROP_SUBJECTS = (
 def backdrop_prompt(seed: int, *, style: str, palette: str, banned: str = "") -> str:
     """A text-free backdrop built to CARRY TYPE, not to illustrate the headline.
 
-    Two failures this exists to prevent, both observed live:
+    Two failures observed live and fixed here: passing the headline as subject made the model
+    illustrate the words (a stock-metaphor look the brand direction rules out) — subject is now
+    drawn only from the fixed workstation vocabulary; and a soft "sits low and small" clause was
+    ignored, putting the subject through the type — now stated as a repeated PROPORTION, which holds.
 
-    1. Subject drift. The first version passed the headline text in as the subject, so the model
-       illustrated the words — "trailing and static drawdown" became a pulley on a concrete plinth.
-       Generic object photography, unrelated to trading, and exactly the stock-metaphor look the
-       brand's visual direction rules out. The subject is now drawn from a fixed workstation
-       vocabulary and never from the copy.
-
-    2. Composition drift. The first version said the subject "sits low and small" — one soft clause,
-       which the model ignored, putting the subject through the middle of the type. The constraint
-       is now stated as a PROPORTION and repeated, which it obeys.
-
-    `seed` rotates the subject so consecutive posts do not share a frame; it is the caller's, so
-    rendering is reproducible.
+    `seed` (caller-supplied, for reproducibility) rotates the subject across posts.
     """
     subject = BACKDROP_SUBJECTS[seed % len(BACKDROP_SUBJECTS)]
     parts = [

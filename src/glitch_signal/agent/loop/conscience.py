@@ -29,11 +29,25 @@ log = structlog.get_logger(__name__)
 CompleteFn = Callable[..., Awaitable[str]]
 
 
-def _model() -> str:
-    """Model for the conscience critic. `AGENT_DELIBERATION_MODEL` overrides; else the loop model
-    (not every key/org can call every model — the cloud key couldn't call Haiku 4.5, which silently
-    emptied this pass, so default to what the loop uses and make a cheaper model opt-in)."""
-    return (os.environ.get("AGENT_DELIBERATION_MODEL") or "").strip() or agent_llm._model(None)
+# The critic is the last gate before anything reaches the public, so it runs on the CRITICAL tier —
+# the strongest model available, with the router's fallbacks behind it.
+#
+# It previously pinned a model instead, which had two costs beyond capability. Passing `model=` to
+# `complete()` overrides the tier entirely (`_resolve_models` returns just that one model), so the
+# critic also lost the router's cross-provider failover: if that single model was rate-limited the
+# review returned {} and — correctly, but expensively — every post was held. And the pinned id was a
+# date-suffixed variant, which is not a form the API guarantees.
+CRITIC_TIER = "critical"
+
+
+def _model() -> str | None:
+    """An explicit override, or None to let the router pick the CRITICAL tier.
+
+    `AGENT_DELIBERATION_MODEL` remains an escape hatch for pinning a specific model, but it is no
+    longer the default path — an unset variable now means "use the best available", not "use
+    whatever the loop happens to use".
+    """
+    return (os.environ.get("AGENT_DELIBERATION_MODEL") or "").strip() or None
 
 
 # Sits beside SOUL.md in the agent package (parents[1] == …/agent from …/agent/loop/).
@@ -137,7 +151,8 @@ async def review(goal: str, output: str | None, *, facts: str = "", positioning:
     prompt = (f"Run goal (context only): {goal}\n\nProposed output to review:\n{text[:3000]}"
               f"{facts_block}{pos_block}\n\nYour verdict JSON:")
     try:
-        raw = await complete(prompt, system=system, model=model or _model(), timeout_s=40)
+        raw = await complete(prompt, system=system, model=model or _model(),
+                             tier=CRITIC_TIER, timeout_s=40)
     except Exception as exc:  # noqa: BLE001 — deliberation must never fail the run
         log.warning("agent.conscience.review_failed", error=str(exc)[:200])
         return {}

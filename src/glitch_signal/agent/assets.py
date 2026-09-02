@@ -1,18 +1,14 @@
 """Brand asset library — the real image files the creative pipeline composites in.
 
-An image model cannot render a third-party mark. Asked for the FTMO or MT5 logo it produces a
-mangled approximation: worse-looking than no logo, and a misrepresentation of a real trademark. So
-logos are never generated — they are stored files, placed by code.
+An image model asked for a third-party mark (FTMO, MT5) produces a mangled, trademark-misrepresenting
+approximation — so logos are never generated, only stored files placed by code.
 
-That constraint is what makes the composite route load-bearing rather than a stylistic preference:
-a post comparing two firms' drawdown rules needs both real marks positioned precisely, which
-generation cannot do and a plain typographic card has no way to show.
-
-Assets are scoped to an OWNER brand (the tenant) while the `slug`/`name` identify the DEPICTED
-brand, which is usually a third party we integrate with.
+Assets are scoped to an OWNER brand (the tenant), while `slug`/`name` identify the DEPICTED brand,
+usually a third party we integrate with.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import structlog
@@ -28,21 +24,43 @@ KINDS = ("logo", "product_shot", "icon", "backdrop")
 async def register(owner_brand: str, *, kind: str, slug: str, name: str, url: str,
                    width: int | None = None, height: int | None = None,
                    accent: str | None = None, usage_note: str | None = None,
+                   handles: dict[str, str] | None = None,
                    engine: Any = None) -> None:
-    """Upsert one asset. Re-registering the same (owner, kind, slug) replaces the file."""
+    """Upsert one asset. Re-registering the same (owner, kind, slug) replaces the file.
+
+    `handles` is the reproducible write path for `brand_asset.handles` (verified per-platform
+    handles for the depicted firm). Without this, the only way to populate that column was a manual,
+    out-of-repository database edit that no migration, seed, or code path could reproduce — which
+    left the tagging feature permanently dependent on someone remembering to do that by hand.
+    Omitted, the row's existing handles (or the column default `{}`) are left untouched, so a caller
+    updating other asset fields can never accidentally wipe verified handles it does not know about.
+    """
     if kind not in KINDS:
         raise ValueError(f"unknown asset kind {kind!r}; allowed: {KINDS}")
     eng = engine or _engine()
     async with eng.begin() as conn:
-        await conn.execute(
-            text("INSERT INTO brand_asset (owner_brand, kind, slug, name, url, width, height, "
-                 "accent, usage_note) VALUES (:o, :k, :s, :n, :u, :w, :h, :a, :note) "
-                 "ON CONFLICT (owner_brand, kind, slug) DO UPDATE SET "
-                 "name = excluded.name, url = excluded.url, width = excluded.width, "
-                 "height = excluded.height, accent = excluded.accent, "
-                 "usage_note = excluded.usage_note"),
-            {"o": owner_brand, "k": kind, "s": slug, "n": name, "u": url,
-             "w": width, "h": height, "a": accent, "note": usage_note})
+        if handles is None:
+            await conn.execute(
+                text("INSERT INTO brand_asset (owner_brand, kind, slug, name, url, width, height, "
+                     "accent, usage_note) VALUES (:o, :k, :s, :n, :u, :w, :h, :a, :note) "
+                     "ON CONFLICT (owner_brand, kind, slug) DO UPDATE SET "
+                     "name = excluded.name, url = excluded.url, width = excluded.width, "
+                     "height = excluded.height, accent = excluded.accent, "
+                     "usage_note = excluded.usage_note"),
+                {"o": owner_brand, "k": kind, "s": slug, "n": name, "u": url,
+                 "w": width, "h": height, "a": accent, "note": usage_note})
+        else:
+            await conn.execute(
+                text("INSERT INTO brand_asset (owner_brand, kind, slug, name, url, width, height, "
+                     "accent, usage_note, handles) "
+                     "VALUES (:o, :k, :s, :n, :u, :w, :h, :a, :note, cast(:handles as jsonb)) "
+                     "ON CONFLICT (owner_brand, kind, slug) DO UPDATE SET "
+                     "name = excluded.name, url = excluded.url, width = excluded.width, "
+                     "height = excluded.height, accent = excluded.accent, "
+                     "usage_note = excluded.usage_note, handles = excluded.handles"),
+                {"o": owner_brand, "k": kind, "s": slug, "n": name, "u": url,
+                 "w": width, "h": height, "a": accent, "note": usage_note,
+                 "handles": json.dumps(handles)})
 
 
 async def find(owner_brand: str, *, kind: str | None = None, slug: str | None = None,
@@ -78,11 +96,8 @@ async def find(owner_brand: str, *, kind: str | None = None, slug: str | None = 
 
 async def resolve_named(owner_brand: str, names: list[str], *, kind: str = "logo",
                         engine: Any = None) -> list[dict]:
-    """Match free-text names the agent used ("FTMO", "Apex") onto real assets.
-
-    The agent writes a post about firms by NAME, so the lookup has to tolerate what it wrote rather
-    than demand a slug. Matching is case-insensitive on both name and slug, and unmatched names are
-    simply dropped — a post that mentions a firm we hold no mark for still renders, just without it.
+    """Match free-text names the agent used ("FTMO", "Apex") onto real assets. Case-insensitive on
+    both name and slug; unmatched names are dropped so the post still renders, just without a mark.
     """
     have = await find(owner_brand, kind=kind, engine=engine)
     out: list[dict] = []

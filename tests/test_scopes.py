@@ -8,7 +8,7 @@ from glitch_signal.agent.loop.runner import run
 # ── registry / resolver ───────────────────────────────────────────────
 def test_resolve_and_allows():
     chat = scopes.resolve("chat")
-    assert chat.allows("recall") and chat.allows("polish_copy") and chat.allows("read_brand_doc")
+    assert chat.allows("recall") and chat.allows("polish_copy") and chat.allows("read_playbook")
     assert not chat.allows("discover_trending") and not chat.allows("generate_media")
     assert not chat.allows("publish") and not chat.allows("send_email")
     assert not chat.allows("mcp__higgsfield__generate_image")     # no mcp in chat
@@ -60,7 +60,7 @@ async def test_runner_scope_filters_offered_tools():
     cap = {}
     await run("b", "g", llm=_capturing_llm(cap), execute=_exec, scope="chat")
     t = cap["tools"]
-    assert {"recall", "polish_copy", "read_brand_doc"} <= t
+    assert {"recall", "polish_copy", "read_playbook"} <= t
     assert "discover_trending" not in t and "generate_media" not in t and "publish" not in t
 
     await run("b", "g", llm=_capturing_llm(cap), execute=_exec, scope="content")

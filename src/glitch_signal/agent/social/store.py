@@ -21,11 +21,8 @@ async def recent_dedup_keys(brand_id: str, *, limit: int = 20, engine: Any = Non
 
 
 async def recent_choices(brand_id: str, *, limit: int = 40, engine: Any = None) -> list[dict]:
-    """The choices behind recent campaigns — the matrix's sampling history.
-
-    Recent rather than all-time on purpose: an all-time count would let the earliest posts pin the
-    schedule forever and stop the matrix re-exploring after a strategy change.
-    """
+    """The choices behind recent campaigns — the matrix's sampling history. Recent, not all-time, so
+    the matrix can re-explore after a strategy change instead of letting early posts pin it forever."""
     try:
         eng = engine or _engine()
         async with eng.connect() as conn:
@@ -51,11 +48,11 @@ async def recent_choices(brand_id: str, *, limit: int = 40, engine: Any = None) 
 
 async def reserve_campaign(brand_id: str, idea: Idea, *, choices: dict | None = None,
                            engine: Any = None) -> str | None:
-    """Atomically RESERVE a campaign row BEFORE any paid work — the DB is the dedup authority.
+    """Atomically reserve a campaign row before any paid work — the DB is the dedup authority.
 
     `ON CONFLICT (brand_id, dedup_key) DO NOTHING` (unique index from 20260831010000) means two
-    concurrent runs of the same idea can never both reserve it: the loser gets no row back and the
-    caller cleanly skips. Media URLs are filled in later via `finalize_campaign`.
+    concurrent runs of the same idea can never both reserve it. Media URLs come later via
+    `finalize_campaign`.
     """
     eng = engine or _engine()
     async with eng.begin() as conn:
@@ -72,15 +69,13 @@ async def reserve_campaign(brand_id: str, idea: Idea, *, choices: dict | None = 
 
 async def mark_pending(campaign_id: str, platform: str, media_kind: str, caption: str,
                        verdict: str, *, idem_key: str | None = None, engine: Any = None) -> bool:
-    """Durable OUTBOX: reserve the per-platform row (status='pending') BEFORE the external publish.
+    """Durable outbox: reserve the per-platform row (status='pending') before the external publish.
 
-    Returns True if newly inserted (caller should proceed to publish); False if a row already
-    exists for (campaign_id, platform) — an already-attempted/uncertain request that must NOT be
-    blindly republished (idempotency).
+    Returns True if newly inserted (proceed to publish); False if a row already exists for
+    (campaign_id, platform) — an already-attempted/uncertain request that must not be republished.
 
-    `idem_key` is the caller's pre-generated correlation key. It is persisted BEFORE the provider is
-    called and echoed to the provider in the post `source` field, so a submission whose response is
-    lost can still be tied back to this row.
+    `idem_key` is persisted before the provider call and echoed to it in the post `source` field, so
+    a submission whose response is lost can still be tied back to this row.
     """
     eng = engine or _engine()
     async with eng.begin() as conn:
@@ -96,20 +91,15 @@ async def mark_pending(campaign_id: str, platform: str, media_kind: str, caption
 
 async def mark_result(campaign_id: str, platform: str, status: str, *, platform_post_id: str | None,
                       post_url: str | None, error: str | None, engine: Any = None) -> None:
-    """Update the outbox row AFTER the publish call resolves (terminal or pending-terminal).
-
-    Stamps `submitted_at` whenever a provider id came back, which is what makes the row eligible
-    for the reconciler — see `reconcile.py`.
-    """
+    """Update the outbox row after the publish call resolves. Stamps `submitted_at` whenever a
+    provider id came back — that's what makes the row eligible for the reconciler."""
     eng = engine or _engine()
     async with eng.begin() as conn:
         await conn.execute(
             text("UPDATE social_post SET status = :s, platform_post_id = :ppid, post_url = :url, "
-                 # CAST is load-bearing: asyncpg infers parameter types from context, and a bare
-                 # `:ppid IS NULL` gives it nothing to infer from — it raises
-                 # AmbiguousParameterError and the whole UPDATE never runs. The FakeEngine used in
-                 # unit tests does not type-check parameters, so this passed every test and failed
-                 # on the first real publish.
+                 # CAST is load-bearing: asyncpg can't infer a type from bare `:ppid IS NULL` and
+                 # raises AmbiguousParameterError. FakeEngine in unit tests doesn't type-check
+                 # params, so this passed every test and failed on the first real publish.
                  "error = :err, submitted_at = CASE WHEN CAST(:ppid AS text) IS NULL "
                  "THEN submitted_at ELSE COALESCE(submitted_at, now()) END "
                  "WHERE campaign_id = CAST(:cid AS uuid) AND platform = :p"),
@@ -121,9 +111,8 @@ async def pending_for_reconcile(*, older_than_s: int, limit: int = 25, max_attem
                                 engine: Any = None) -> list[dict]:
     """Outbox rows still 'pending' past the settle window — the reconciler's working set.
 
-    Only rows that carry a provider id are returned: without one there is nothing to poll. A row
-    that has burned through `max_attempts` is left alone so a permanently unresolvable post cannot
-    spin the sweep forever.
+    Only rows with a provider id are returned (nothing to poll without one); a row past
+    `max_attempts` is left alone so an unresolvable post can't spin the sweep forever.
     """
     eng = engine or _engine()
     async with eng.connect() as conn:
@@ -132,10 +121,8 @@ async def pending_for_reconcile(*, older_than_s: int, limit: int = 25, max_attem
                  "       p.reconcile_attempts, c.brand_id "
                  "FROM social_post p JOIN social_campaign c ON c.id = p.campaign_id "
                  "WHERE p.status = 'pending' AND p.platform_post_id IS NOT NULL "
-                 # Age from when the provider ACCEPTED the post, not when we reserved the outbox
-                 # row: `submitted_at` is stamped with the provider id, and the settle window is
-                 # about how long Buffer has had the post — reserving happens strictly earlier, so
-                 # created_at makes rows eligible before the vendor has had the full window.
+                 # Age from provider acceptance (submitted_at), not outbox reservation (created_at)
+                 # which happens strictly earlier — else rows go eligible before the settle window.
                  "  AND coalesce(p.submitted_at, p.created_at) <= now() - make_interval(secs => :age) "
                  "  AND p.reconcile_attempts < :max_attempts "
                  "ORDER BY coalesce(p.submitted_at, p.created_at) LIMIT :k"),
@@ -205,11 +192,8 @@ async def campaign_post_statuses(campaign_id: str, *, engine: Any = None) -> lis
 
 
 async def set_campaign_status(campaign_id: str, status: str, *, engine: Any = None) -> None:
-    """Update ONLY the aggregate status, leaving cost and media URLs untouched.
-
-    `finalize_campaign` is the end-of-run write and would clobber the recorded spend with whatever
-    the caller passed; reconciliation happens long after the run, so it needs a narrower update.
-    """
+    """Update only the aggregate status, leaving cost and media URLs untouched — `finalize_campaign`
+    would clobber recorded spend, and reconciliation happens long after the run."""
     eng = engine or _engine()
     async with eng.begin() as conn:
         await conn.execute(
@@ -219,12 +203,9 @@ async def set_campaign_status(campaign_id: str, status: str, *, engine: Any = No
 
 async def stranded_pending(*, older_than_s: int, limit: int = 25,
                            engine: Any = None) -> list[dict]:
-    """Pending rows that have NO provider id — nothing to poll, so the reconciler cannot settle them.
-
-    These are the rows where the publish call succeeded but persisting its result exhausted its
-    retries. `idem_key` is the only handle: it was sent to Buffer in the post `source` field, so an
-    operator can find the real post by that tag. Surfacing them is the recovery path — silently
-    leaving them pending forever is what the outbox was built to avoid.
+    """Pending rows with no provider id — publish succeeded but persisting the result exhausted its
+    retries. `idem_key` (sent to Buffer in the post `source` field) is the only handle an operator
+    has to find the real post; surfacing these is the recovery path.
     """
     eng = engine or _engine()
     async with eng.connect() as conn:
@@ -245,15 +226,12 @@ async def posts_due_for_metrics(*, min_age_s: int, max_age_s: int, bucket: str,
                                 engine: Any = None) -> list[dict]:
     """Delivered posts old enough for this reading, that have not had it yet.
 
-    Bucketed rather than polled continuously: engagement accrues over days, so what the loop needs
-    is the same post read at comparable ages — not a stream of readings whose spacing depends on
-    how often the sweep happened to run. The `unique (post_id, age_bucket)` constraint plus this
-    NOT EXISTS makes each reading exactly-once and re-runnable.
+    Bucketed, not polled continuously — engagement needs to be read at comparable ages, and the
+    `unique (post_id, age_bucket)` constraint plus this NOT EXISTS makes each reading exactly-once.
 
-    Returns `measured_from` (the timestamp age is measured against) alongside each row so the
-    caller can re-check freshness right before writing — this SELECT bounds age as of query time,
-    but a slow fetch (network stalls, a long batch) can let real age drift past the window before
-    `record_metrics` runs, and the unique constraint would lock that late value in permanently.
+    Returns `measured_from` alongside each row so the caller can re-check freshness right before
+    writing: this SELECT bounds age as of query time, but a slow fetch can let real age drift past
+    the window before `record_metrics` runs, and the unique constraint would lock that value in.
     """
     eng = engine or _engine()
     async with eng.connect() as conn:
@@ -276,11 +254,8 @@ async def posts_due_for_metrics(*, min_age_s: int, max_age_s: int, bucket: str,
 
 async def record_metrics(post_id: str, platform: str, bucket: str, m: dict, *,
                          engine: Any = None) -> None:
-    """Persist one reading. Absent metrics stay NULL — never coerced to 0.
-
-    A fabricated zero is worse than a gap: it makes "nobody engaged" indistinguishable from "we
-    could not measure", and the loop would learn from the difference.
-    """
+    """Persist one reading. Absent metrics stay NULL, never coerced to 0 — a fabricated zero would
+    make "nobody engaged" indistinguishable from "we could not measure"."""
     import json as _json
 
     eng = engine or _engine()

@@ -208,30 +208,6 @@ async def _t_discover_trending(args: dict, brand_id: str) -> str:
                        "count": len(trimmed), "trending": trimmed})
 
 
-async def _t_read_brand_doc(args: dict, brand_id: str) -> str:
-    """Answer a question grounded ONLY in THIS brand's uploaded documents (Files API).
-
-    Isolation: file_ids come from the brand's own `brand_document` store (scoped by brand_id) —
-    never from the tool input — so the agent can only ever read its own brand's files.
-    """
-    from glitch_signal.agent import documents
-    from glitch_signal.agent.loop.llm import complete_messages
-
-    docs = await documents.list_for_brand(brand_id)
-    if not docs:
-        return "No brand documents have been uploaded for this brand yet."
-    query = str(args.get("query", "")).strip() or "Summarize this brand's documents."
-    content: list[dict] = [{"type": "document", "source": {"type": "file", "file_id": d["file_id"]}}
-                           for d in docs]
-    content.append({"type": "text", "text": query})
-    msgs = [
-        {"role": "system", "content": "Answer using ONLY the attached brand document(s). "
-                                      "If the answer is not in them, say so plainly."},
-        {"role": "user", "content": content},
-    ]
-    return await complete_messages(msgs, max_tokens=800)
-
-
 async def _t_web_search(args: dict, brand_id: str) -> str:
     """Search the LIVE web via OpenRouter's native web plugin. Returns {answer, sources}. Gated: the
     policy denies this unless agent_web_search_enabled is on, so it only runs when deliberately enabled."""
@@ -485,11 +461,6 @@ TOOLS: dict[str, dict[str, Any]] = {
                                                 "kind": {"type": "string",
                                                          "enum": ["reels", "feed", "hashtags", "songs", "creators"]},
                                                 "country": {"type": "string"}}, ["platform"], closed=False)},
-    "read_brand_doc": {"fn": _t_read_brand_doc, "strict": True,
-                       "description": "Consult THIS brand's uploaded documents (style guide / brief / "
-                                      "deck) to answer a question or ground content in the real brand "
-                                      "guidelines. Returns an answer drawn only from those documents.",
-                       "input_schema": _obj({"query": {"type": "string"}}, ["query"])},
     "web_search": {"fn": _t_web_search, "strict": True,
                    "description": "Search the LIVE web for current information (trends, examples, facts). "
                                   "Returns {answer, sources}.",

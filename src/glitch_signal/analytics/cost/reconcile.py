@@ -125,18 +125,24 @@ async def _reconcile_vendor(vendor: str, client: httpx.AsyncClient, now: datetim
         result["status"] = "baseline"  # first snapshot — nothing to diff yet
         return result
 
-    delta_credits = float(prev["balance"]) - float(balance)  # spend since last snapshot
-    vendor_actual = round(max(delta_credits, 0.0) * _CREDIT_USD[vendor](), 6)
+    delta_native = float(prev["balance"]) - float(balance)  # spend since last snapshot, native units
+    vendor_actual = round(max(delta_native, 0.0) * _CREDIT_USD[vendor](), 6)
     async with (engine or _engine()).connect() as conn:
         row = (await conn.execute(_SUM_EVENTS, {
             "vendor": vendor, "from_ts": prev["created_at"], "to_ts": now,
         })).mappings().first()
     our_estimate = round(float(row["usd"]), 6)
     drift = (our_estimate - vendor_actual) / vendor_actual if vendor_actual > 0 else None
+    unit = BALANCE_UNIT.get(vendor, "credits")
     result.update({
         "status": "reconciled",
         "window_from": prev["created_at"].isoformat() if hasattr(prev["created_at"], "isoformat") else str(prev["created_at"]),
-        "delta_credits": round(delta_credits, 4),
+        "balance_unit": unit,
+        # MUapi's balance (and therefore its delta) is already USD, not credits — labelling it
+        # `delta_credits` would expose a false unit to every consumer of this result. Vendors that
+        # genuinely bill in credits (HeyGen, Higgsfield) keep `delta_credits` for compatibility.
+        **({"delta_usd": round(delta_native, 4)} if unit == "usd"
+           else {"delta_credits": round(delta_native, 4)}),
         "vendor_actual_usd": vendor_actual,
         "our_estimate_usd": our_estimate,
         "our_events": int(row["n"]),

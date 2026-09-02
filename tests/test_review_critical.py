@@ -1,4 +1,5 @@
 """Critical review findings — the ones that would misbehave in public."""
+import os
 import subprocess
 import sys
 
@@ -33,10 +34,17 @@ def test_redaction_also_catches_bearer_form():
 def test_str_hash_really_is_unstable_across_processes():
     """Establishes the premise rather than asserting it: Python randomises str.__hash__ per process,
     so the original `abs(hash(headline))` gave a different backdrop on every restart while the
-    docstring claimed reproducibility."""
+    docstring claimed reproducibility.
+
+    Both subprocesses must NOT inherit a fixed `PYTHONHASHSEED` from the test runner's own
+    environment — if the runner (CI or a developer shell) pins that variable, both children would
+    reuse the identical seed and produce identical hashes, failing this premise test despite
+    correct production behaviour. The env passed to each child is scrubbed of it so each interpreter
+    starts up with its own randomised seed, same as production."""
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONHASHSEED"}
     code = 'print(abs(hash("a-headline")))'
-    a = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout
-    b = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout
+    a = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env).stdout
+    b = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env).stdout
     assert a != b
 
 

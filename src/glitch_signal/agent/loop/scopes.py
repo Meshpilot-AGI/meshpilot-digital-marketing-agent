@@ -15,7 +15,7 @@ from dataclasses import dataclass
 # capability -> tool names ('name*' = mcp prefix match)
 CAPABILITIES: dict[str, frozenset[str]] = {
     "memory": frozenset({"recall", "remember"}),
-    "knowledge": frozenset({"list_playbooks", "read_playbook", "read_brand_doc"}),
+    "knowledge": frozenset({"list_playbooks", "read_playbook"}),
     "quality": frozenset({"polish_copy"}),
     "media": frozenset({"list_recipes", "generate_media", "edit_image"}),
     "discovery": frozenset({"discover_trending"}),

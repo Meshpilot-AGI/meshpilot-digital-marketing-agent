@@ -36,14 +36,18 @@ async def _polish(brand_id: str, text: str) -> str:
 
 
 async def _one(brand_id: str, idea: Idea, medium: str, complete, positioning: str = "",
-               platform_ctx: str = "") -> str:
+               platform_ctx: str = "", max_chars: int | None = None) -> str:
     raw = await complete(
         _ASK.format(angle=idea.angle, hook=idea.hook,
                     points="; ".join(idea.key_points), medium=medium) + platform_ctx,
-        system=_SYS.format(brand=brand_id, positioning=positioning), tier="complex", timeout_s=40)
+        system=_SYS.format(brand=brand_id, positioning=positioning), tier="complex", timeout_s=40)   # the copy IS the product; not a tier to economise on
     text = (raw or idea.hook).strip()
     text = await _polish(brand_id, text)
-    return text[:_MAX]
+    # `max_chars` is a HARD platform limit (e.g. X's 280) stated in the prompt, but the model can
+    # still overrun it and polishing can also change the length — the prompt is advisory, this is
+    # the enforcement. The tighter of the platform limit and the global safety cap always wins.
+    limit = min(_MAX, max_chars) if max_chars else _MAX
+    return text[:limit]
 
 
 async def write_captions(brand_id: str, idea: Idea, *, platforms: dict[str, str] | None = None,
@@ -74,12 +78,20 @@ async def write_captions(brand_id: str, idea: Idea, *, platforms: dict[str, str]
     from glitch_signal.agent import firms as _firms
 
     named = _firms.mentioned(f"{idea.angle} {idea.hook} {' '.join(idea.key_points or [])}")
-    out: dict[str, str] = {}
-    for platform, medium in platforms.items():
+
+    async def _for(platform: str, medium: str) -> tuple[str, str]:
         prof = await _kb.profile(brand_id, platform, engine=engine)
         handles = await _kb.handles_for(brand_id, named, platform, engine=engine)
         ctx = _kb.section(prof) + _kb.mention_line(handles, platform)
-        out[platform] = await _one(brand_id, idea, medium, complete, pos_txt, ctx)
+        return platform, await _one(brand_id, idea, medium, complete, pos_txt, ctx,
+                                    max_chars=prof.get("max_chars"))
+
+    # Concurrent: the platforms are independent, and in series this was N model round-trips end to
+    # end — the largest single contributor to campaign wall-clock.
+    import asyncio
+
+    out: dict[str, str] = dict(await asyncio.gather(
+        *(_for(p, m) for p, m in platforms.items())))
     # keep medium keys populated so any caller still asking for them keeps working
     for medium in ("image", "video"):
         if medium not in out:

@@ -380,18 +380,22 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: b
     # conscience gate — fail CLOSED: with a constitution loaded, a critic error/empty/unparseable
     # verdict HOLDS the post (escalate). No constitution → documented allow.
     have_constitution = d.have_constitution()
-    verdicts: dict[str, str] = {}
-    for dr in drafts:
-        if not have_constitution:
-            verdicts[dr.platform] = "pass"
-            continue
-        try:
-            v = await d.review(f"Social post for {brand_id} ({dr.platform})", dr.caption,
-                               facts=facts, positioning=pos)
-        except Exception:  # noqa: BLE001
-            v = {}
-        verdict = str((v or {}).get("verdict") or "").lower()
-        verdicts[dr.platform] = verdict if verdict in ("pass", "concerns", "escalate") else "escalate"
+    if not have_constitution:
+        verdicts: dict[str, str] = {dr.platform: "pass" for dr in drafts}
+    else:
+        async def _verdict(dr) -> tuple[str, str]:
+            try:
+                v = await d.review(f"Social post for {brand_id} ({dr.platform})", dr.caption,
+                                   facts=facts, positioning=pos)
+            except Exception:  # noqa: BLE001 — an error is not consent; fail closed below
+                v = {}
+            got = str((v or {}).get("verdict") or "").lower()
+            return dr.platform, got if got in ("pass", "concerns", "escalate") else "escalate"
+
+        # Concurrently: each draft is reviewed independently, and in series this was one model
+        # round-trip per platform stacked on top of the captions. Fail-closed behaviour is
+        # unchanged — an exception or unparseable verdict still becomes "escalate".
+        verdicts = dict(await asyncio.gather(*(_verdict(dr) for dr in drafts)))
 
     if dry_run:
         # Structurally cannot publish: fan_out is never called on this path.

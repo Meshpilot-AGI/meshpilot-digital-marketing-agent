@@ -44,8 +44,8 @@ dependencies = [
   "langgraph>=0.2",
   "langchain-core>=0.3",
   "litellm>=1.52",
-  # LLM providers
-  "anthropic>=0.40",
+  # LLM providers — OpenRouter only. The Anthropic SDK was never imported (the loop has always
+  # spoken raw HTTP to OpenRouter); it sat in the manifest as an unused dependency.
   "google-genai>=0.3",
   # MCP client — the agent connects to external tools' MCP servers (AGENT-MCP)
   "mcp>=1.2",
