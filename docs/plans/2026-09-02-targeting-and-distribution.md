@@ -128,6 +128,43 @@ and it keeps the account's activity sanctioned and attributable.
 `web_fetch`. **Posting** via Reddit's official OAuth API — no third party publishes to Reddit, which
 is why `_PUBLISH_PRIORITY` excludes it.
 
+### ⚠️ The real blocker is ACCOUNT STANDING, not API access (measured 2026-09-02)
+
+The Mac is authenticated to Devvit as **`u/glitchExecutor`** (`~/.devvit/token`, `devvit whoami`).
+That token publishes Devvit apps; it is **not** Data API auth and does not let the agent comment in
+`r/propfirm`.
+
+More importantly, the account itself was measured via `GET /api/reddit/user/glitchExecutor`:
+
+| Field | Value |
+|---|---|
+| created | **2026-05-02** (~4 months old) |
+| total_karma | **1** |
+| comment_karma | **0** |
+| link_karma | 1 |
+| has_verified_email | true |
+
+**A 4-month-old account with zero comment karma cannot participate.** Most of the target rooms
+(`r/Forex`, `r/Daytrading`, the larger prop-firm subs) enforce karma and age minimums via AutoModerator;
+posts and comments from an account like this are removed before a human sees them. Automating it
+would spend the account's one chance and achieve nothing.
+
+So the sequencing changes. **TARGET-4 (Reddit write) is not blocked on OAuth — it is blocked on
+standing**, and standing is earned by genuine participation, which is the one thing that cannot be
+shortcut. Concretely:
+
+1. **Do now:** TARGET-1..3 (discovery + listening). Works today, ~$12/month, zero account risk, and
+   it produces the thread queue a human can answer.
+2. **In parallel, by a human:** build `u/glitchExecutor` standing — or use an existing personal
+   account with real history. The agent drafts; a person posts. This is the S0 of Reddit, and it is
+   the same "earn it, then automate" shape as the SEO graduation in §4.
+3. **Gate TARGET-4 on a measured threshold** — comment karma and account age minimums recorded on
+   the brand's config, checked before any automated action. The account-standing check already
+   specified below stops being a formality and becomes the actual gate.
+
+This also strengthens the DEVVIT lane: **publishing a useful app does not depend on karma.** It is
+the one Reddit surface open to us today.
+
 ### The constraint that actually decides success
 
 Reddit removes and bans promotional automation regardless of API compliance. "Penetrate hard" is

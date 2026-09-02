@@ -32,7 +32,15 @@ would not have guessed, plus a competitor launching in `r/SideProject`.
 Reddit **username and password**. Reads risk nothing of ours; writes hand a third party our
 credentials and act through an unofficial API — against Reddit's User Agreement, risking the exact
 account whose standing the strategy depends on. Post through Reddit's own OAuth API instead.
-**Original answer stands:** no third party for posting. Reddit's free API tier is **non-commercial only** and names brand/social monitoring as
+**Original answer stands:** no third party for posting.
+⚠️ **The real blocker is ACCOUNT STANDING, not API access.** Measured 2026-09-02:
+`u/glitchExecutor` (the account the Mac's Devvit CLI is logged in as) was created 2026-05-02 with
+**total karma 1, comment karma 0**. Target subs enforce karma/age minimums via AutoModerator, so
+automated participation would be removed before a human saw it and would burn the account. Therefore
+TARGET-1..3 (discovery, ~$12/mo, zero account risk) proceed now; **TARGET-4 gates on a measured
+karma/age threshold**, and standing is earned by human participation first — the same
+earn-it-then-automate shape as the SEO graduation. This also strengthens DEVVIT: publishing an app
+does not depend on karma. Reddit's free API tier is **non-commercial only** and names brand/social monitoring as
 commercial; commercial is **~$0.24/1k calls from ~$12k/month**, and self-service client registration
 **closed in late 2025**. So: discover threads through the **SERP** (Bright Data, already paid for),
 read them with the existing hardened `web_fetch`, and post through **Reddit's own OAuth API** — no
