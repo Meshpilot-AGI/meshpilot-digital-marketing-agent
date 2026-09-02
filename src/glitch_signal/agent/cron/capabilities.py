@@ -88,6 +88,18 @@ async def _cap_social_outcomes(brand_id: str, args: dict) -> dict:
     return await collect()
 
 
+async def _cap_learn_performance(brand_id: str, args: dict) -> dict:
+    """AGENT-LEARN: revise strategy from MEASURED post performance.
+
+    Distinct from `curate`, which distils the agent's own episodes — this one reads outcomes. It
+    declines explicitly (`wrote: 0`) until enough posts exist per cell to support a conclusion, and
+    that refusal is the expected result for most of the loop's life.
+    """
+    from glitch_signal.agent.learn.outcomes import curate_performance
+
+    return await curate_performance(brand_id)
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "drive_scout": _cap_drive_scout,
@@ -96,6 +108,7 @@ _REGISTRY: dict[str, CapFn] = {
     "social_campaign": _cap_social_campaign,
     "social_reconcile": _cap_social_reconcile,
     "social_outcomes": _cap_social_outcomes,
+    "learn_performance": _cap_learn_performance,
 }
 
 
@@ -112,6 +125,7 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "social_campaign": frozenset({"media", "publish"}),
     "social_reconcile": frozenset(),
     "social_outcomes": frozenset(),
+    "learn_performance": frozenset({"memory"}),
 }
 
 
