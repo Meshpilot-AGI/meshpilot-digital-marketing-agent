@@ -184,11 +184,11 @@ async def _backdrop_for(brand_id: str, plan, voice, tokens):
     try:
         from glitch_signal.media.generation.engines.muapi import MuapiEngine
 
-        subject = plan.fields.get("headline") or plan.fields.get("kicker") or ""
-        prompt = technique.illustrative_prompt(
-            f"A backdrop for headline typography. {subject}. The upper two thirds of the frame is "
-            f"empty unlit near-black space reserved for text; the subject sits low and small.",
-            style=voice.style, palette=voice.palette, banned=voice.banned_imagery)
+        # Seeded by the idea, not random: the same idea always renders the same frame, so a
+        # re-run is reproducible and consecutive posts still differ.
+        seed = abs(hash(plan.fields.get("headline") or plan.fields.get("kicker") or ""))
+        prompt = technique.backdrop_prompt(seed, style=voice.style, palette=voice.palette,
+                                           banned=voice.banned_imagery)
         fmt = str(tokens.get("format") or DEFAULT_FORMAT)
         url = await MuapiEngine().generate(IMAGE_MODEL, prompt, params={"aspect_ratio": fmt})
         img = await _fetch_image(url)
