@@ -295,6 +295,7 @@ class Settings(BaseSettings):
     # --- Discovery (CaptAPI) — trending social content signals ---
     captapi_key: str = ""                    # capt_live_… (Bearer); the discover_trending tool
     redditapis_token: str = ""       # redditapis.com — Reddit discovery reads ($0.002/call), TARGET-1
+    zernio_api_key: str = ""         # zernio.com — OAuth social surface: subreddit rules, posting
     # Discovery kill-switch (mirrors agent_email_enabled): while False the agent's
     # `discover_trending` tool is denied by the policy gate. Stays OFF (no external pulls) until
     # deliberately enabled — the ability ships inert.

@@ -178,7 +178,14 @@ async def test_bookkeeping_failures_never_break_discovery():
     assert await surfaces.rescore("b", engine=_Boom()) == []
 
 
-def test_module_names_no_industry_or_platform():
+def test_module_names_no_industry_or_brand():
+    """Multi-BRAND, not platform-agnostic — a deliberate distinction.
+
+    Being platform-aware is fine and unavoidable: rules capture is a Reddit call, and the codebase is
+    already platform-shaped (`platforms/buffer.py`, per-platform profiles). What must never appear is
+    an INDUSTRY or a BRAND — those are what stop a second tenant reusing this. A subreddit NAME would
+    also fail this, since rooms are discovered, never listed in code.
+    """
     import ast
     import inspect
 
@@ -191,5 +198,82 @@ def test_module_names_no_industry_or_platform():
                     and isinstance(body[0].value.value, str)):
                 node.body = body[1:]
     code = ast.unparse(tree).lower().replace("glitch_signal", "")
-    for term in ("reddit", "propfirm", "prop firm", "trading", "glitchexecutor"):
-        assert term not in code, f"surface scoring hardcodes {term!r}"
+    for term in ("propfirm", "prop firm", "trading", "trader", "glitchexecutor", "r/"):
+        assert term not in code, f"surfaces hardcodes an industry/brand/room: {term!r}"
+
+
+# ── rules capture: the permission gate (TARGET-3) ──
+# Real rule text, quoted from what the live API returned 2026-09-02.
+_FOREX = {"rules": [{"shortName": "No Promotional Activity or Advertisements",
+                     "description": "Do not self promote here. Doing so risks your brand being "
+                                    "blacklisted by our spam filters."}],
+          "siteRules": ["Spam"]}
+_DAYTRADING = {"rules": [
+    {"shortName": "No spamming, selling or promoting your product, service or community",
+     "description": "No spamming, selling products/services, or sharing affiliate/referral links."},
+    {"shortName": "No ChatGPT or AI-Generated Content",
+     "description": "Posts or comments created using AI tools like ChatGPT, Claude, or similar "
+                    "language models"}]}
+_PROPFIRM = {"rules": [], "siteRules": ["Spam"]}
+
+
+def test_explicit_self_promo_ban_is_detected():
+    promo, _ = surfaces.classify_rules(_FOREX)
+    assert promo is False
+
+
+def test_ai_content_ban_is_a_separate_dimension():
+    """r/Daytrading bans AI-generated posts outright — a prohibition on what this agent PRODUCES,
+    independent of self-promotion. A room can welcome brands and still ban AI text."""
+    promo, ai = surfaces.classify_rules(_DAYTRADING)
+    assert promo is False and ai is False
+
+
+def test_a_room_with_no_rules_is_unknown_not_permitted():
+    """Silence is not consent. r/propfirm publishes no rules of its own; that grants nothing."""
+    assert surfaces.classify_rules(_PROPFIRM) == (None, None)
+    assert surfaces.classify_rules({}) == (None, None)
+
+
+def test_classifier_can_never_grant_permission():
+    """The asymmetry that protects the account: a false NO costs one room, a false YES costs the
+    account. A keyword scan is nowhere near good enough to let a machine grant itself permission to
+    post publicly under the brand's name — `True` stays a deliberate human act."""
+    for payload in (_FOREX, _DAYTRADING, _PROPFIRM, {}, {"rules": [
+            {"shortName": "Self promotion welcome", "description": "Feel free to share your product"}]}):
+        promo, ai = surfaces.classify_rules(payload)
+        assert promo is not True and ai is not True
+
+
+async def test_either_ban_makes_the_room_read_only():
+    for promo, ai in ((False, None), (None, False), (False, False)):
+        eng = _Engine()
+        await surfaces.record_rules("b", "subreddit", "x", {}, self_promo_allowed=promo,
+                                    ai_content_allowed=ai, engine=eng)
+        assert eng.calls[0][1]["status"] == "read_only"
+
+
+async def test_postable_only_requires_both_permissions():
+    eng = _Engine([])
+    await surfaces.top("b", postable_only=True, engine=eng)
+    sql = eng.calls[0][0].lower()
+    assert "self_promo_allowed is true" in sql and "ai_content_allowed is true" in sql
+
+
+async def test_sync_rules_survives_one_unreachable_room():
+    """One room failing must not abort the sweep — the rest still get their gate set."""
+    eng = _Engine([("roomA",), ("roomB",)])
+
+    async def _fetch(brand_id, handle):
+        if handle == "roomA":
+            raise RuntimeError("vendor 500")
+        return _DAYTRADING
+
+    out = await surfaces.sync_rules("b", fetch=_fetch, engine=eng)
+    assert out["checked"] == 2 and out["failed"] == 1 and out["read_only"] == 1
+
+
+async def test_sync_rules_only_fetches_rooms_without_rules():
+    eng = _Engine([])
+    await surfaces.sync_rules("b", fetch=None, engine=eng)
+    assert "rules_fetched_at is null" in eng.calls[0][0].lower()
