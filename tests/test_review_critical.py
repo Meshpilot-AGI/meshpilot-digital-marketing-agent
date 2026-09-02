@@ -94,9 +94,24 @@ def test_campaign_enforces_the_assigned_cell():
 
 
 # ── backdrops must read as TRADING, or they build no identity ───────────────────────────────────
-def test_every_backdrop_subject_is_a_trading_desk():
-    """A generic workstation is interchangeable with any software brand — it builds no identity."""
-    assert all("trading" in s for s in technique.BACKDROP_SUBJECTS)
+def test_backdrop_fallback_is_industry_neutral():
+    """The module-level fallback must not carry ANY brand's industry.
+
+    It used to be five trading-desk strings, which silently made every brand a trading brand. A
+    brand's own imagery vocabulary now lives in its positioning row (`visual.subjects`); this
+    constant is only what an unconfigured brand falls back to.
+    """
+    joined = " ".join(technique.BACKDROP_SUBJECTS).lower()
+    for industry_word in ("trading", "trader", "price ladder", "charting", "prop firm"):
+        assert industry_word not in joined, f"neutral fallback leaks industry: {industry_word!r}"
+
+
+def test_brand_subjects_override_the_neutral_fallback():
+    """A brand that declares `subjects` gets ITS vocabulary, not the generic desk."""
+    mine = ("a hand-thrown ceramic bowl on a linen cloth, side-lit",)
+    p = technique.backdrop_prompt(0, style="editorial", palette="warm", subjects=mine)
+    assert "ceramic bowl" in p
+    assert technique.BACKDROP_SUBJECTS[0] not in p
 
 
 def test_backdrop_subjects_keep_the_interface_unreadable():

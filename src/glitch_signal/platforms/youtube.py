@@ -13,8 +13,6 @@ import pathlib
 import structlog
 
 from glitch_signal.config import brand_config, settings
-from glitch_signal.db.models import ContentScript
-from glitch_signal.db.session import _session_factory
 
 log = structlog.get_logger(__name__)
 
@@ -25,7 +23,7 @@ YOUTUBE_API_VERSION = "v3"
 
 async def upload_short(
     file_path: str,
-    script_id: str,
+    caption: str | None = None,
     brand_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Upload a video as a YouTube Short. Returns (video_id, video_url)."""
@@ -46,7 +44,7 @@ async def upload_short(
 
     youtube = build(YOUTUBE_API_SERVICE, YOUTUBE_API_VERSION, credentials=creds)
 
-    title, description, tags = await _build_metadata(script_id, brand_id=brand_id)
+    title, description, tags = await _build_metadata(caption=caption, brand_id=brand_id)
     yt_cfg = brand_config(brand_id).get("platforms", {}).get("youtube", {})
     privacy = yt_cfg.get("privacy_status", "public")
     category_id = yt_cfg.get("category_id", "28")
@@ -78,25 +76,31 @@ async def upload_short(
 
 
 async def _build_metadata(
-    script_id: str,
+    caption: str | None = None,
     brand_id: str | None = None,
 ) -> tuple[str, str, list[str]]:
-    factory = _session_factory()
-    async with factory() as session:
-        cs = await session.get(ContentScript, script_id) if script_id else None
+    """Title / description / tags for an upload, sourced from the BRAND, not from literals.
 
+    Previously read the copy from a `ContentScript` row (that model went with the legacy pipeline)
+    and fell back to hardcoded "Glitch Executor" / "#AlgoTrading" / "glitchexecutor.com" text, so
+    every brand's uploads carried GE's identity. Now the fallbacks come from the brand's own
+    `platforms.youtube` config block.
+    """
     yt_cfg = brand_config(brand_id).get("platforms", {}).get("youtube", {})
-    default_tags: list[str] = yt_cfg.get("default_tags", ["shorts", "glitchexecutor"])
+    default_tags: list[str] = yt_cfg.get("default_tags", ["shorts"])
+    suffix = str(yt_cfg.get("description_suffix") or "").strip()
+    name = str(brand_config(brand_id).get("display_name") or "").strip()
 
-    if cs:
-        # Derive title from script (first sentence, truncated, + #shorts)
-        first_sentence = cs.script_body.split(".")[0][:80].strip()
+    if caption and caption.strip():
+        first_sentence = caption.split(".")[0][:80].strip()
         title = f"{first_sentence} #shorts"
-        description = cs.script_body[:300] + "\n\n#GlitchExecutor #AlgoTrading"
+        description = caption[:300]
     else:
-        title = "Glitch Executor #shorts"
-        description = "Algorithmic trading AI — glitchexecutor.com\n\n#GlitchExecutor #AlgoTrading"
+        title = f"{name} #shorts".strip() if name else "#shorts"
+        description = str(yt_cfg.get("default_description") or name or "")
 
+    if suffix:
+        description = f"{description}\n\n{suffix}".strip()
     return title, description, default_tags
 
 

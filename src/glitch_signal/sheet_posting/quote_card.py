@@ -138,7 +138,15 @@ def _brand_colors(brand_id: str) -> tuple[str, str, str]:
 
 
 def _wordmark(brand_id: str) -> str:
-    return "GLITCH · EXECUTOR" if brand_id == "glitch_executor" else "TEJAS · GLITCH"
+    """The brand's own wordmark, from its config.
+
+    Was `"GLITCH · EXECUTOR" if brand_id == "glitch_executor" else "TEJAS · GLITCH"` — so a second
+    brand got a hardcoded personal name. Falls back to the brand's display name, then to nothing.
+    """
+    from glitch_signal.config import brand_config
+
+    cfg = brand_config(brand_id)
+    return str(cfg.get("wordmark") or cfg.get("display_name") or "").strip()
 
 
 # ── Background prompt (Leonardo) ────────────────────────────────────────────
@@ -202,8 +210,8 @@ def _render_card(
         font=_font(_FONT_MONO, 20),
         fill=(255, 255, 255, 235),
     )
-    # Top-right: brand-name marker in secondary
-    right_text = "GLITCH EXECUTOR"
+    # Top-right: brand-name marker in secondary — from config, not a literal
+    right_text = _wordmark(brand_id).replace(" · ", " ").upper()
     rf = _font(_FONT_MONO, 18)
     rw = draw.textlength(right_text, font=rf)
     draw.text(

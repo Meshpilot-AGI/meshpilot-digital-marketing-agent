@@ -1278,3 +1278,40 @@ nowhere and whose last other consumer the DEAD-HUB-SHIM lane just removed.
 Recorded because the previous entry flagged the module as unable to run, and an unqualified note
 like that reads as an invitation to delete — especially right after a session that removed ~7,000
 lines on exactly that reasoning. A keep-marker now sits in the module docstring.
+
+
+## DEBRAND-CONTENT — 2026-09-02
+
+**Trigger:** operator — "try not to hardcode GE things", the agent must work multi-brand. Audited
+`src/` for GE-specific literals. The architecture is sound (positioning, firm rules, palettes, env
+prefixes, publisher routing are all correctly brand-keyed); the leakage was concentrated in
+content-generation literals — **including three I wrote earlier today**.
+
+**Fixed (live paths):**
+- `agent/social/video.py::build_video_prompt` — "for a trading-tools brand", "a working trader
+  talking straight to camera", "one male presenter in his early thirties" now come from
+  `voice.audience` / `voice.presenter`. The function already ACCEPTED `voice` and ignored it.
+- `agent/social/technique.py::BACKDROP_SUBJECTS` — was five fixed trading-monitor strings with no
+  brand hook. `backdrop_prompt` now takes `subjects`; the module constant is a genuinely
+  industry-neutral desk vocabulary used only as a fallback, guarded by a test.
+- `agent/social/plan.py::BrandVoice` — gains `audience`, `presenter`, `subjects` from the
+  positioning row's `visual` block.
+- `platforms/youtube.py::_build_metadata` — GE title/description/hashtags now from the brand's
+  `platforms.youtube` config. ⚠️ This module was ALSO BROKEN: it imported `ContentScript`, which the
+  legacy-retirement lane removed, so it raised ImportError. No test imports it, so the suite stayed
+  green — a real regression I shipped in #233, fixed here. Its dead `script_id` param (a
+  `ContentScript` FK) became `caption`.
+- `sheet_posting/quote_card.py::_wordmark` — was
+  `"GLITCH · EXECUTOR" if brand_id == "glitch_executor" else "TEJAS · GLITCH"`, i.e. a second brand
+  got a hardcoded personal name. Now reads brand config.
+
+**Data, not code:** GE's own vocabulary was seeded into `brand_positioning.visual` for
+`glitch_executor` (`subjects` x5 trading-desk, `audience`, `presenter`, `style_name`), so GE's output
+quality is preserved while the code carries no industry.
+
+**Found dead, NOT refactored:** `media/carousel_gen.py`, `media/content_router.py` and the whole
+`sheet_posting/` package have **no external importers**. They carry GE literals but nothing runs
+them. Flagged rather than de-branded — refactoring dead code is waste, and after breaking
+`youtube.py` by deleting eagerly today, removal deserves its own lane.
+
+**Verified:** 794 pass / 1 skip; no GE literal remains on any live path.

@@ -68,11 +68,22 @@ def test_build_video_prompt_carries_the_style_paragraph():
     assert "STYLE" in p and "#93FF00" in p
 
 
-def test_build_video_prompt_pins_the_presenter():
-    # Left open, the agent picks a narrator gender at random and the brand's presenter changes
-    # between posts. Stated affirmatively so it doesn't trip the no-negations rule.
-    assert "male presenter" in video.build_video_prompt(IDEA).lower()
+def test_build_video_prompt_takes_presenter_and_audience_from_the_brand():
+    """Both were hardcoded ("a working trader", "one male presenter in his early thirties"), which
+    made every brand a prop-firm brand. They now come from the brand's positioning row."""
+    from glitch_signal.agent.social.plan import BrandVoice
 
+    voice = BrandVoice.from_brand(
+        {"audience": "new parents choosing a pram", "presenter": "one woman in her forties"}, {})
+    p = video.build_video_prompt(IDEA, voice=voice)
+    assert "new parents choosing a pram" in p
+    assert "one woman in her forties" in p
+    assert "trader" not in p.lower() and "trading" not in p.lower()
+
+
+def test_build_video_prompt_has_a_neutral_presenter_default():
+    p = video.build_video_prompt(IDEA)
+    assert "trading" not in p.lower() and "male presenter" not in p.lower()
 
 def test_build_video_prompt_respects_the_10k_cap():
     long_idea = Idea("risk", "Hook", ["point " * 400] * 20, "k")

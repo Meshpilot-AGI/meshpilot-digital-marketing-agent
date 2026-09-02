@@ -78,6 +78,12 @@ class BrandVoice:
     banned_imagery: str = ""
     prohibited: tuple[str, ...] = ()
     wordmark: str = ""
+    # Who the brand talks to, who fronts the video, and what its imagery is OF. Declared per brand
+    # in the positioning row's `visual` block — these used to be trading/GE literals in the prompt
+    # builders, which silently made every brand a prop-firm brand.
+    audience: str = "the people this brand serves"
+    presenter: str = "one presenter, visible and speaking to camera throughout"
+    subjects: tuple[str, ...] = ()
 
     @classmethod
     def from_brand(cls, visual: dict | None, guardrails: dict | None) -> "BrandVoice":
@@ -88,6 +94,9 @@ class BrandVoice:
             banned_imagery=str(g.get("banned_imagery") or ""),
             prohibited=tuple(str(x).lower() for x in (g.get("prohibited") or ())),
             wordmark=str(v.get("wordmark") or ""),
+            audience=str(v.get("audience") or cls.audience),
+            presenter=str(v.get("presenter") or cls.presenter),
+            subjects=tuple(str(x) for x in (v.get("subjects") or ()) if str(x).strip()),
         )
 
 

@@ -838,11 +838,18 @@ def _layout_halo(
 # ── Shared helpers ──────────────────────────────────────────────────────────
 
 def _draw_footer_wordmark(
-    draw: ImageDraw.ImageDraw, accent: str, secondary: str,
+    draw: ImageDraw.ImageDraw, accent: str, secondary: str, wordmark: str = "",
 ) -> None:
-    """glitchexecutor.com + secondary pip near bottom — used on hook/cta only."""
+    """Brand wordmark + secondary pip near bottom — used on hook/cta only.
+
+    `wordmark` was the literal "glitchexecutor.com", so every brand's carousel footer carried GE's
+    domain. It now comes from the caller (brand config / positioning `visual.wordmark`); an empty
+    wordmark simply draws no footer rather than inventing one.
+    """
+    if not (wordmark or "").strip():
+        return
     footer_font = _font(_FONT_MONO, 20)
-    text = "glitchexecutor.com"
+    text = wordmark.strip()
     fy = SLIDE_H - 90
     draw.text((CONTENT_X, fy), text, font=footer_font, fill=(200, 200, 200, 220))
     fw = draw.textlength(text, font=footer_font)

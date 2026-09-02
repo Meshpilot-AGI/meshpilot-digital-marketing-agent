@@ -209,6 +209,7 @@ async def _backdrop_for(brand_id: str, plan, voice, tokens):
         key = (plan.fields.get("headline") or plan.fields.get("kicker") or "").encode()
         seed = int(hashlib.sha256(key).hexdigest()[:8], 16)
         prompt = technique.backdrop_prompt(seed, style=voice.style, palette=voice.palette,
+                                          subjects=voice.subjects,
                                            banned=voice.banned_imagery)
         fmt = str(tokens.get("format") or DEFAULT_FORMAT)
         url = await MuapiEngine().generate(IMAGE_MODEL, prompt, params={"aspect_ratio": fmt})
