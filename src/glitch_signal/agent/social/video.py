@@ -78,22 +78,66 @@ def _fmt_points(points: list[str]) -> str:
     return " ".join(p.strip().rstrip(".") + "." for p in points if p and p.strip())
 
 
-def build_video_prompt(idea: Idea, *, seconds: int = 30) -> str:
+def style_paragraph(voice: Any = None, tokens: dict | None = None) -> str:
+    """The style paragraph — the single highest-leverage part of a Video Agent prompt.
+
+    Video Agent composes scenes with **Hyperframes**, HeyGen's HTML-to-video engine: every stat,
+    caption treatment and transition is authored in code rather than picked from a template set. So
+    the agent can render any look you can *describe* — which is why HeyGen's own guide says to spend
+    the prompt here. Their prescribed anatomy, all six parts of which this builds:
+
+        a NAME for the style · the exact PALETTE · ART DIRECTION · how things MOVE ·
+        what the TRANSITIONS are · one closing line for the VIBE
+
+    Everything is phrased affirmatively. HeyGen's experiments found restrictive instructions ("no
+    stock footage", "do NOT…") make the agent play safe and produced visually flat results, so a
+    look is pinned by describing what IS there, never by listing what isn't.
+
+    Colours come from the brand's own visual tokens — the same `bg`/`fg`/`accent` the image cards
+    render with, so a post and a video from the same campaign agree. Nothing here is brand-specific:
+    an unconfigured brand gets the neutral defaults.
+    """
+    t = tokens or {}
+    bg = str(t.get("bg") or "#0B0E14")
+    fg = str(t.get("fg") or "#F2F4F8")
+    accent = str(t.get("accent") or "#4ADE80")
+    name = str(t.get("style_name") or "Night Desk — Terminal Minimal")
+    direction = str(getattr(voice, "style", "") or
+                    "a real working desk after hours, screen-lit and high contrast")
+    return (
+        f'STYLE — "{name}":\n'
+        f"Palette: {bg} ground, {fg} type, and {accent} as the one accent — reserved for the single "
+        "number or word that carries the point, so it lands the way a highlight does.\n"
+        f"Art direction: {direction}. Matte surfaces, shallow depth of field, screen light as the "
+        "dominant source, generous negative space around the type.\n"
+        "Motion: restrained and physical — slow push-ins, real weight behind anything that moves, "
+        "type that settles into place and stays still while it is read.\n"
+        "Transitions: hard cuts on the beat, with an occasional slow dissolve where the argument "
+        "turns.\n"
+        "Vibe: composed and expensive — it should read as a professional instrument someone "
+        "actually works with."
+    )
+
+
+def build_video_prompt(idea: Idea, *, seconds: int = 30, voice: Any = None,
+                       tokens: dict | None = None) -> str:
     """A directorial brief in the shape HeyGen's own testing says works.
 
     HeyGen published the results of 14 controlled experiments on this exact endpoint. The rules that
     survived them, all of which this brief obeys:
 
     - **Script first.** The narration words matter more than any production instruction.
+    - **Lead with duration**, and set the orientation explicitly.
+    - **A style paragraph, not scene blocking.** See `style_paragraph` — with Hyperframes authoring
+      every scene in code, describing the look is what actually moves the output.
     - **Tone, not timestamps.** Per-scene `(0-5s)` blocking "make the delivery sound robotic".
-    - **Positive framing only.** Restrictive instructions ("no stock footage", "do NOT…") make the
-      agent play safe and produced visually flat results in their tests.
+    - **Positive framing only.** Restrictive instructions make the agent play safe and produced
+      visually flat results in their tests.
     - **No questions.** Question-driven scripts feel unnatural from a single presenter to camera.
-    - **Don't over-prescribe visuals.** The agent composes well when left the room to.
 
     The presenter is described affirmatively rather than by exclusion, which both satisfies the
-    positive-framing rule and pins the narrator's gender — left open, the agent picks one at random
-    and the brand's presenter changes between posts.
+    positive-framing rule and pins the narrator — left open, the agent picks one at random and the
+    brand's presenter changes between posts.
     """
     script = f"{idea.hook.strip().rstrip('.')}. {_fmt_points(list(idea.key_points))}".strip()
     return (
@@ -104,10 +148,8 @@ def build_video_prompt(idea: Idea, *, seconds: int = 30) -> str:
         "hype. Grounded and specific, the way someone explains something they have actually lived "
         "through. Energetic on the setup, slower and heavier on the point that matters.\n"
         "Presenter: one male presenter in his early thirties, visible and speaking to camera "
-        "throughout, like a single-take message to a friend who trades.\n"
-        "Look: dark, high-contrast, screen-lit — a real trading desk at night, deep charcoal and "
-        "near-black with a single cool accent light. Restrained camera movement, real weight to "
-        "everything that moves.\n"
+        "throughout, like a single-take message to a friend who trades.\n\n"
+        f"{style_paragraph(voice, tokens)}\n\n"
         "Captions: one clean caption track following the spoken words, positioned clear of the "
         "bottom edge.\n"
         f"Duration: {seconds} seconds.\n"

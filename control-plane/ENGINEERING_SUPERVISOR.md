@@ -1068,3 +1068,22 @@ reference). The removal shipped in #224; this stops it creeping back.
 
 **Verified:** `timeout_for('social_campaign')` 1800 / `timeout_for('curate')` 600;
 `_video_deadline_s()` 1500. Suite 857 pass / 1 skip.
+
+
+## HEYGEN-STYLE — 2026-09-02
+
+**Changed:** `video.style_paragraph(voice, tokens)` builds HeyGen's prescribed six-part style
+anatomy (name · palette · art direction · motion · transitions · vibe) and `build_video_prompt`
+carries it. This is the highest-leverage part of a Video Agent prompt: Hyperframes authors every
+scene in CODE rather than picking a template, so the agent renders whatever look you can describe.
+Colours come from the brand's own `bg`/`fg`/`accent` visual tokens — the SAME ones the image cards
+render with, so a campaign's post and video agree; an unconfigured brand gets neutral defaults, so
+nothing brand-specific is baked into this open-core repo. `campaign` now loads voice + tokens for
+the video path.
+
+Everything is phrased affirmatively — HeyGen's experiments found restrictive instructions make the
+agent play safe and produce visually flat results — and a test asserts no restrictive phrasing
+creeps in.
+
+**Verified:** 862 pass / 1 skip, incl. tests for all six anatomy parts, brand-token usage, neutral
+fallback, and positive framing.
