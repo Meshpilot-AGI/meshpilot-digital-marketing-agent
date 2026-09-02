@@ -166,15 +166,17 @@ def build_video_prompt(idea: Idea, *, seconds: int = 30, voice: Any = None,
     brand's presenter changes between posts.
     """
     script = f"{idea.hook.strip().rstrip('.')}. {_fmt_points(list(idea.key_points))}".strip()
+    audience = str(getattr(voice, "audience", "") or "the people this brand serves")
+    presenter = str(getattr(voice, "presenter", "")
+                    or "one presenter, visible and speaking to camera throughout")
     return (
-        f"Make a {seconds}-second portrait video for a trading-tools brand.\n\n"
+        f"Make a {seconds}-second portrait video.\n\n"
         "SCRIPT — narrate this closely, in this order:\n"
         f"{script}\n\n"
-        "Tone: a working trader talking straight to camera — confident, sharp, honest, done with "
+        f"Tone: speaking straight to camera to {audience} — confident, sharp, honest, done with "
         "hype. Grounded and specific, the way someone explains something they have actually lived "
         "through. Energetic on the setup, slower and heavier on the point that matters.\n"
-        "Presenter: one male presenter in his early thirties, visible and speaking to camera "
-        "throughout, like a single-take message to a friend who trades.\n\n"
+        f"Presenter: {presenter}.\n\n"
         f"{style_paragraph(voice, tokens)}\n\n"
         f"{caption_line(tokens)}\n"
         f"Duration: {seconds} seconds.\n"
