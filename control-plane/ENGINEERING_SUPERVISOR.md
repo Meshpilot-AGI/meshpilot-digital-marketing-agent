@@ -892,3 +892,34 @@ If it still fails at progress 0 when funded, it is vendor-side → support ticke
 session ids (`a5c50c16`, `b8374692`, `a718fa61`, `abbb6ec9`, `f6777656`, `a2f56d52`, `2dc60d2f`),
 not more code. Also open: the brand kit reproducibly settles at `status: error` with no roles
 assigned (PATCH 409s while `error`), so role assignment awaits a kit that reaches `completed`.
+
+
+## MCP-OAUTH-REFRESH — 2026-09-02
+
+**Read:** `agent/mcp/oauth.py`, `tests/test_mcp_oauth.py`, `oauth_tokens` schema (live
+information_schema), the agent-MCP memory note.
+
+**Found:** BOTH configured MCP servers were dead, and the cause was ours, not the vendors'.
+`_UPDATE` migrates a row off the legacy plaintext columns by writing ciphertext to `*_enc` and
+setting `access_token=NULL` — but `oauth_tokens.access_token` was still **NOT NULL**, so every
+refresh raised `NotNullViolationError` and rolled back, leaving the EXPIRED access token in place.
+A lapsed token could therefore never recover. heygen expired 2026-08-29, higgsfield 2026-08-31;
+both showed 0 tools. The existing unit tests assert `store["access_token"] is None` after a
+refresh and passed throughout — the fake engine is a dict and accepts a NULL that Postgres
+rejects. Same class as the asyncpg CAST regression: **the mock hid a constraint the real
+dependency enforces.**
+
+**Changed:** migration `20260902060000_oauth_tokens_plaintext_nullable.sql` drops the NOT NULL and
+adds `oauth_tokens_access_token_present` (`access_token is not null or access_token_enc is not
+null`) to preserve the original intent. New guard
+`test_columns_the_refresh_nulls_are_nullable_in_the_migrations` asserts every column `_UPDATE`
+NULLs is nullable in the migrations — verified to FAIL with the migration removed.
+
+**Verified:** full suite pass. Live token state read before/after (no secrets printed).
+
+**Remains:** heygen's refresh token is itself dead (`400 invalid_grant`), so the schema fix alone
+will not restore it — it needs the operator browser re-auth (steps 1-5 of the add-an-OAuth-MCP
+procedure). higgsfield should recover on the next refresh once the migration applies, unless its
+rotated refresh token was consumed by the failed write, in which case it needs the same re-auth.
+NOTE: MCP is a separate surface from the social video path, which uses the REST API key — this
+does NOT explain the failing renders.
