@@ -105,3 +105,48 @@ def test_wordmark_lockup_uses_the_real_mark_when_supplied():
     with_mark = render("statement", _spec(wordmark_logo=mark))
     without = render("statement", _spec())
     assert with_mark != without
+
+
+# ── backdrop direction ──────────────────────────────────────────────────────────────────────────
+from glitch_signal.agent.social import technique  # noqa: E402
+
+
+def test_backdrop_never_illustrates_the_headline():
+    """The first version passed the HEADLINE in as the subject, so the model illustrated the words —
+    'trailing and static drawdown' came back as a pulley on a plinth. Generic object photography,
+    unrelated to trading. The subject must come from the fixed vocabulary, never from the copy."""
+    p = technique.backdrop_prompt(0, style="s", palette="p")
+    assert any(sub in p for sub in technique.BACKDROP_SUBJECTS)
+    assert "drawdown" not in p.lower()          # copy cannot leak into the subject
+
+
+def test_backdrop_subjects_are_all_trading_workspace():
+    """The reader is a trader; the frame should look like the room they work in."""
+    joined = " ".join(technique.BACKDROP_SUBJECTS).lower()
+    assert all(w in joined for w in ("monitor", "keyboard", "desk"))
+
+
+def test_backdrop_states_composition_as_a_proportion():
+    """'sits low and small' was one soft clause and the model ignored it, putting the subject
+    through the middle of the type. A stated proportion is obeyed."""
+    p = technique.backdrop_prompt(0, style="s", palette="p")
+    assert "70 percent" in p and "BOTTOM EDGE" in p
+    assert "middle of the frame stays empty" in p
+
+
+def test_backdrop_is_text_free_and_figure_free():
+    """Type is composited afterwards — anything the model wrote would collide with it."""
+    p = technique.backdrop_prompt(0, style="s", palette="p")
+    assert "Render NO text" in p and "no numbers" not in p.lower() or "figure" in p.lower()
+
+
+def test_backdrop_rotates_subjects_but_is_deterministic():
+    a = technique.backdrop_prompt(0, style="s", palette="p")
+    b = technique.backdrop_prompt(1, style="s", palette="p")
+    assert a != b                                # consecutive posts do not share a frame
+    assert a == technique.backdrop_prompt(0, style="s", palette="p")   # same seed, same frame
+
+
+def test_backdrop_carries_the_brands_banned_imagery():
+    p = technique.backdrop_prompt(0, style="s", palette="p", banned="stock traders, candlesticks")
+    assert "stock traders" in p

@@ -100,3 +100,52 @@ def video_prompt(subject: str, *, style: str, palette: str, banned: str = "",
         _NO_INVENTED_FIGURES,
     ]
     return " ".join(p for p in parts if p)
+
+
+# The subject vocabulary a backdrop may draw from. Explicit rather than left to the model, because
+# handing it the HEADLINE as the subject is what produced literal metaphor objects — a post about
+# trailing drawdown came back as a pulley and cable, which says nothing about trading. The reader is
+# a trader; the frame should look like the room they work in.
+BACKDROP_SUBJECTS = (
+    "the bottom bezel of a widescreen monitor and the top row of a dark mechanical keyboard",
+    "a dark trading desk surface with a monitor edge and a small desk clock",
+    "the edge of a laptop and a mechanical keyboard on a dark desk, screen glow spilling across",
+    "a monitor stand and cable run behind a dark desk, lit only by screen glow",
+    "a dark desk with a mouse, keyboard edge and the base of a monitor arm",
+)
+
+
+def backdrop_prompt(seed: int, *, style: str, palette: str, banned: str = "") -> str:
+    """A text-free backdrop built to CARRY TYPE, not to illustrate the headline.
+
+    Two failures this exists to prevent, both observed live:
+
+    1. Subject drift. The first version passed the headline text in as the subject, so the model
+       illustrated the words — "trailing and static drawdown" became a pulley on a concrete plinth.
+       Generic object photography, unrelated to trading, and exactly the stock-metaphor look the
+       brand's visual direction rules out. The subject is now drawn from a fixed workstation
+       vocabulary and never from the copy.
+
+    2. Composition drift. The first version said the subject "sits low and small" — one soft clause,
+       which the model ignored, putting the subject through the middle of the type. The constraint
+       is now stated as a PROPORTION and repeated, which it obeys.
+
+    `seed` rotates the subject so consecutive posts do not share a frame; it is the caller's, so
+    rendering is reproducible.
+    """
+    subject = BACKDROP_SUBJECTS[seed % len(BACKDROP_SUBJECTS)]
+    parts = [
+        "Vertical frame for a text overlay.",
+        "COMPOSITION IS THE PRIORITY: the top 70 percent of the frame is pure empty unlit near-black "
+        "void, completely bare, with no objects in it at all.",
+        f"Only along the very BOTTOM EDGE, cropped off by the frame border, is {subject}, "
+        "shot from a low angle and heavily out of focus with shallow depth of field.",
+        "The middle of the frame stays empty darkness.",
+        f"Style: {style}.",
+        f"Palette: {palette}.",
+        "Lighting: a single faint accent glow spilling from the screen; everything else in shadow.",
+        f"Avoid entirely: {banned}." if banned else "",
+        _NO_INVENTED_FIGURES,
+        _NO_TEXT,
+    ]
+    return " ".join(x for x in parts if x)
