@@ -135,9 +135,15 @@ Two things it confirms: the **brand kit is doing real work** (this is the first 
 one brand rather than a stock explainer), and **pinning the avatar matters** — the same brief without
 it produced a different presenter each time.
 
-⚠️ **No burned-in captions.** `captioned_video_url` and `subtitle_url` are both `null` on this
-render. For TikTok/Reels, where most viewing is sound-off, that is a real gap — captions drive
-completion rate. Unresolved: what makes HeyGen populate those fields.
+⚠️ **No word-synced captions on this render** — and the reason is instructive: the prompt that
+produced it (a manual test) carried **no caption line at all**. Inspected frame-by-frame, it has a
+persistent headline card ("STOP BLOWING ACCOUNTS") plus stat cards ("PAYOUT ✓ / FAILED ✗") — real
+Hyperframes design elements, but not a track following the narration. With the sound off, which is
+how most of the feed watches, the spoken argument is lost.
+
+`captioned_video_url` and `subtitle_url` are `null` here, and there is no documented request field
+for either, so the lever we have is the prompt. `video.caption_line()` now asks for one word-by-word
+track explicitly. **Unverified** — every attempt since died in the credit-starved window.
 
 ## 1. Video Agent — the contract
 
