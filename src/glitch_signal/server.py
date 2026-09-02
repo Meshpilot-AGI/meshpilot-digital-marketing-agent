@@ -15,15 +15,12 @@ import html as _html_escape
 import pathlib
 
 import structlog
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from sqlmodel import select
 
 from glitch_signal import __version__
 from glitch_signal.config import brand_env, brand_ids, settings
 from glitch_signal.crypto import verify_state_token
-from glitch_signal.db.models import ScheduledPost, VideoJob
-from glitch_signal.db.session import _session_factory
 
 log = structlog.get_logger(__name__)
 
@@ -126,14 +123,6 @@ async def _on_startup() -> None:
     if not _settings().origin_shared_secret:
         log.warning("origin.gate.disabled — ORIGIN_SHARED_SECRET unset; origin-auth + IP trust fail open")
 
-    # Build LangGraph
-    from glitch_signal.agent.graph import get_graph
-    _graph = get_graph()
-
-    # Start scheduler
-    from glitch_signal.scheduler.queue import start as start_scheduler
-    start_scheduler()
-
     # Keep OAuth-backed MCP tokens (e.g. HeyGen: ~1h access + rotating refresh) alive 24/7,
     # so the agent's MCP client always resolves a fresh Bearer even when idle.
     asyncio.create_task(_oauth_keepalive())
@@ -151,8 +140,7 @@ async def _on_startup() -> None:
 
 
 async def _on_shutdown() -> None:
-    from glitch_signal.scheduler.queue import stop as stop_scheduler
-    stop_scheduler()
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -161,28 +149,11 @@ async def _on_shutdown() -> None:
 
 @app.get("/healthz")
 async def healthz() -> dict:
-    factory = _session_factory()
-    async with factory() as session:
-        pending_veto_r = await session.exec(
-            select(ScheduledPost).where(ScheduledPost.status == "pending_veto")
-        )
-        queued_r = await session.exec(
-            select(ScheduledPost).where(ScheduledPost.status == "queued")
-        )
-        dispatching_r = await session.exec(
-            select(VideoJob).where(VideoJob.status == "dispatched")
-        )
-
     return {
         "status": "ok",
         "service": "glitch-signal",
         "version": __version__,
         "dispatch_mode": settings().dispatch_mode,
-        "queue": {
-            "pending_veto": len(pending_veto_r.all()),
-            "queued_to_publish": len(queued_r.all()),
-            "shots_in_flight": len(dispatching_r.all()),
-        },
     }
 
 
@@ -978,77 +949,6 @@ async def resend_webhook(request: Request):
     return Response(status_code=200)
 
 
-@app.post("/jobs/scout", dependencies=[Depends(_require_jobs_auth)])
-async def job_scout(request: Request) -> dict:
-    """Trigger a Scout run manually. Optionally pass {signal_id, platform} to run full pipeline."""
-    body: dict = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-
-    state = {
-        "signal_id": body.get("signal_id", ""),
-        "platform": body.get("platform", "youtube_shorts"),
-        "retry_count": 0,
-    }
-    asyncio.create_task(_graph.ainvoke(state))
-    return {"ok": True, "message": "Scout triggered in background"}
-
-
-@app.post("/jobs/assemble/{script_id}", dependencies=[Depends(_require_jobs_auth)])
-async def job_assemble(script_id: str) -> dict:
-    """Manually trigger VideoAssembler for a script where all shots are done."""
-    from glitch_signal.scheduler.queue import _trigger_assembler
-    asyncio.create_task(_trigger_assembler(script_id))
-    return {"ok": True, "script_id": script_id}
-
-
-@app.post("/jobs/drive_scout", dependencies=[Depends(_require_jobs_auth)])
-async def job_drive_scout(request: Request, brand: str) -> dict:
-    """Trigger the drive_footage pipeline for a brand.
-
-    Reads the brand's drive_folder_id from config, discovers new video files,
-    downloads them, and runs drive_scout → caption_writer → publisher
-    for the first new signal. Returns immediately after dispatching.
-    """
-    from glitch_signal.config import brand_config, brand_ids
-
-    if brand not in brand_ids():
-        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
-
-    cfg = brand_config(brand)
-    if cfg.get("content_source") != "drive_footage":
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Brand {brand!r} content_source is {cfg.get('content_source')!r}; "
-                "drive_scout only runs for brands with content_source=drive_footage"
-            ),
-        )
-
-    body: dict = {}
-    try:
-        body = await request.json()
-    except Exception:
-        pass
-
-    state = {
-        "brand_id": brand,
-        "content_source": "drive_footage",
-        "signal_id": body.get("signal_id", ""),
-        "platform": body.get("platform", "tiktok"),
-        "retry_count": 0,
-    }
-    asyncio.create_task(_graph.ainvoke(state))
-    return {
-        "ok": True,
-        "brand": brand,
-        "message": "drive_scout dispatched in background",
-    }
-
-
-# --- YouTube OAuth (per-brand; a service account can't act on a channel) ---
 @app.get("/oauth/youtube/start")
 async def oauth_youtube_start(brand: str) -> RedirectResponse:
     if brand not in brand_ids():

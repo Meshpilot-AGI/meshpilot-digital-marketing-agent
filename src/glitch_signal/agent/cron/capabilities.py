@@ -6,7 +6,7 @@ summary dict recorded on the `scheduled_runs` row.
 """
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable
 
 CapFn = Callable[[str, dict], Awaitable[dict]]  # (brand_id, args) -> summary
 
@@ -17,23 +17,6 @@ async def _cap_curate(brand_id: str, args: dict) -> dict:
 
     return await curate(brand_id, limit=int(args.get("limit", 20)))
 
-
-async def _cap_drive_scout(brand_id: str, args: dict) -> dict:
-    """Run the drive_footage pipeline for one signal (awaited, so the run captures completion)."""
-    from glitch_signal.agent.graph import get_graph
-    from glitch_signal.config import brand_config
-
-    if brand_config(brand_id).get("content_source") != "drive_footage":
-        return {"skipped": "brand content_source is not drive_footage"}
-    state = {
-        "brand_id": brand_id,
-        "content_source": "drive_footage",
-        "signal_id": args.get("signal_id", ""),
-        "platform": args.get("platform", "tiktok"),
-        "retry_count": 0,
-    }
-    await get_graph().ainvoke(state)
-    return {"ran": "drive_scout", "platform": state["platform"]}
 
 
 async def _cap_reconcile(brand_id: str, args: dict) -> dict:
@@ -102,7 +85,6 @@ async def _cap_learn_performance(brand_id: str, args: dict) -> dict:
 
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
-    "drive_scout": _cap_drive_scout,
     "reconcile": _cap_reconcile,
     "routing_audit": _cap_routing_audit,
     "social_campaign": _cap_social_campaign,
@@ -119,7 +101,6 @@ _REGISTRY: dict[str, CapFn] = {
 # set means read-only/account-level bookkeeping that grants nothing new.
 REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "curate": frozenset({"memory"}),
-    "drive_scout": frozenset({"media"}),
     "reconcile": frozenset(),
     "routing_audit": frozenset(),
     "social_campaign": frozenset({"media", "publish"}),

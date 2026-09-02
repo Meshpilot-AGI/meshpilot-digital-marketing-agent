@@ -56,15 +56,12 @@ DISPATCH_MODE=dry_run short-circuits without calling the API.
 from __future__ import annotations
 
 import pathlib
-import uuid
 
 import httpx
 import structlog
 
-from glitch_signal.config import brand_config, brand_env, settings
+from glitch_signal.config import brand_env, settings
 from glitch_signal.crypto import make_state_token
-from glitch_signal.db.models import ContentScript
-from glitch_signal.db.session import _session_factory
 
 log = structlog.get_logger(__name__)
 
@@ -255,143 +252,6 @@ async def create_post(
 # Publish entry point
 # ---------------------------------------------------------------------------
 
-async def publish(
-    platform: str,
-    file_path: str,
-    script_id: str,
-    brand_id: str | None = None,
-    attempts: int = 1,
-) -> tuple[str, str | None]:
-    """Publish a video via Buffer. Returns (sentinel, None).
-
-    The first return is a `webhook_pending:<buffer_post_id>` token; the
-    reconcile sweep pulls the real per-platform post URL later via
-    `poll_status_for_post`. `attempts` is currently unused — Buffer
-    dedupes server-side on its own post ids, so our scheduler's retry
-    with the same ScheduledPost never produces a duplicate createPost
-    on Buffer's side provided we cache the post id we got back.
-    """
-    s = settings()
-
-    if s.is_dry_run:
-        fake_id = f"buffer-dry-{uuid.uuid4().hex[:10]}"
-        log.info(
-            "buffer.publish.dry_run",
-            publish_id=fake_id,
-            file_path=file_path,
-            brand_id=brand_id,
-            platform=platform,
-        )
-        return fake_id, None
-
-    if not brand_id:
-        raise ValueError("buffer.publish: brand_id is required for live publish")
-
-    target = _PLATFORM_MAP.get(platform)
-    if not target:
-        raise ValueError(f"buffer.publish: unknown platform key {platform!r}")
-
-    token = _buffer_token(brand_id)
-
-    cfg_block = (brand_config(brand_id).get("platforms", {}).get(platform, {}) or {})
-    channel_id = cfg_block.get("channel_id")
-    organization_id = cfg_block.get("organization_id")
-    if not channel_id:
-        raise RuntimeError(
-            f"buffer.publish: brand={brand_id!r} is missing "
-            f"platforms.{platform}.channel_id — get it via Buffer's "
-            f"channels(input:{{organizationId}}) query and add to the brand config"
-        )
-    if not organization_id:
-        raise RuntimeError(
-            f"buffer.publish: brand={brand_id!r} is missing "
-            f"platforms.{platform}.organization_id"
-        )
-
-    path = pathlib.Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(f"buffer.publish: file missing: {file_path}")
-
-    caption = await _read_caption(script_id)
-    video_url = _build_signed_media_url(path)
-
-    log.info(
-        "buffer.publish.media_url_issued",
-        brand_id=brand_id,
-        file_path=str(path),
-        media_url_host=video_url.split("/")[2] if "://" in video_url else video_url,
-        target=target,
-        channel_id=channel_id,
-    )
-
-    variables = {
-        "input": {
-            "channelId": channel_id,
-            "schedulingType": "automatic",
-            "mode": "shareNow",
-            "text": caption or "",
-            # Same `[AssetInput!]!` shape as create_post — this path carried an identical dict and
-            # would have failed the moment a video was published through it.
-            "assets": [{"video": {"url": video_url}}],
-            "source": "glitch-social-media-agent",
-        }
-    }
-    query = (
-        "mutation($input: CreatePostInput!) {"
-        "  createPost(input: $input) {"
-        "    __typename"
-        "    ... on PostActionSuccess { post { id status } }"
-        "    ... on InvalidInputError { message }"
-        "    ... on UnauthorizedError { message }"
-        "    ... on LimitReachedError { message }"
-        "    ... on NotFoundError { message }"
-        "    ... on UnexpectedError { message }"
-        "    ... on RestProxyError { message }"
-        "  }"
-        "}"
-    )
-
-    async with httpx.AsyncClient(timeout=_SUBMIT_TIMEOUT_S) as client:
-        resp = await client.post(
-            _GRAPHQL_URL,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json={"query": query, "variables": variables},
-        )
-    resp.raise_for_status()
-    body = resp.json()
-
-    if body.get("errors"):
-        raise RuntimeError(f"Buffer createPost failed: {body['errors']}")
-
-    payload = (body.get("data") or {}).get("createPost") or {}
-    typename = payload.get("__typename")
-    if typename != "PostActionSuccess":
-        msg = payload.get("message") or "no detail"
-        raise RuntimeError(f"Buffer createPost returned {typename}: {msg}")
-
-    post = payload.get("post") or {}
-    post_id = post.get("id")
-    status = post.get("status")
-    if not post_id:
-        raise RuntimeError(f"Buffer createPost succeeded but no post.id in response: {payload}")
-
-    log.info(
-        "buffer.publish.submitted",
-        brand_id=brand_id,
-        target=target,
-        channel_id=channel_id,
-        buffer_post_id=post_id,
-        buffer_status=status,
-    )
-    return f"{_WEBHOOK_PENDING_PREFIX}{post_id}", None
-
-
-# ---------------------------------------------------------------------------
-# Reconciliation — polled by scheduler/queue.py for awaiting_webhook rows
-# ---------------------------------------------------------------------------
 
 async def poll_status_for_post(
     buffer_post_id: str, organization_id: str | None = None, brand_id: str | None = None
@@ -458,28 +318,7 @@ async def poll_status_for_post(
     return None, None
 
 
-# ---------------------------------------------------------------------------
-# Caption extraction — reads ContentScript.script_body by script_id
-# ---------------------------------------------------------------------------
 
-async def _read_caption(script_id: str | None) -> str:
-    """Return the caption body for the post, or empty string if not found.
-
-    Returns just the caption — Buffer only has one text field on createPost
-    (no title/description split), so hashtag extraction + title derivation
-    aren't needed here.
-    """
-    if not script_id:
-        return ""
-    factory = _session_factory()
-    async with factory() as session:
-        cs = await session.get(ContentScript, script_id)
-    return (cs.script_body if cs else "").strip()
-
-
-# ---------------------------------------------------------------------------
-# Signed media URL
-# ---------------------------------------------------------------------------
 
 def _build_signed_media_url(local_path: pathlib.Path) -> str:
     """Return an HMAC-signed public URL served by /media/fetch.
