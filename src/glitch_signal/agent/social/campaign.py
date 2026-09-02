@@ -137,7 +137,8 @@ def _default_deps() -> RunDeps:
 
     async def generate_video(brand_id: str, idea) -> str:
         return await video.generate_video(brand_id, video.build_video_prompt(idea),
-                                          video.reference_urls(brand_id))
+                                          video.reference_urls(brand_id),
+                                          options=video.session_options(brand_id))
 
     async def _remember(brand_id, content):
         await remember(brand_id, "episode", content, source="social_campaign")

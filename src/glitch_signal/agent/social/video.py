@@ -1,16 +1,29 @@
 """HeyGen Video Agent client (no avatar) — SOCIAL-4.
 
-Self-contained: this is NOT a media-factory engine/recipe. It talks to HeyGen's
-Video Agent API directly (prompt + reference files -> generated clip), persists
-the result to the brand's own Supabase Storage bucket via
-`glitch_signal.media.generation.storage.upload_bytes`, and meters the spend
-through the same `usage_events` choke point as the avatar engine
-(`glitch_signal.media.generation.engines.heygen`).
+Self-contained: this is NOT a media-factory engine/recipe. It talks to HeyGen's Video Agent API
+directly (prompt + reference files -> generated clip), persists the result to the brand's own
+Supabase Storage bucket via `glitch_signal.media.generation.storage.upload_bytes`, and meters the
+spend through the same `usage_events` choke point as the avatar engine.
 
-API (verified from developers.heygen.com):
-    POST {base}/v3/video-agents   X-Api-Key -> {data: {session_id, video_id: null, ...}}
-    GET  {base}/v3/video-agents/{session_id}  -> {data: {video_id, ...}}   (poll until set)
-    GET  {base}/v3/videos/{video_id}          -> {data: {status, video_url}}  (poll until completed)
+Contract verified against developers.heygen.com AND probed live — see `docs/vendors/heygen.md`,
+which is the knowledge base this module implements:
+
+    POST {base}/v3/video-agents            -> {data: {session_id, status, video_id|null, created_at}}
+    GET  {base}/v3/video-agents/{sid}      -> {data: {status, progress, video_id, messages[]}}
+    GET  {base}/v3/videos/{video_id}       -> {data: {status, video_url, failure_code, failure_message}}
+    GET  {base}/v3/users/me                -> {data: {wallet: {remaining_balance, currency}}}
+
+Three production lessons are encoded here, each of which cost us real renders:
+
+1. **Credit is checked BEFORE submitting.** A wallet below one render's price makes every session
+   fail instantly at `progress: 0`, and HeyGen surfaces no reason for it. Five consecutive nightly
+   campaigns burned that way (2026-09-01/02) while the wallet sat at $1.05.
+2. **The SESSION is the authority, not the video.** A session can fail before it is ever assigned a
+   `video_id`; polling only the video means waiting out the whole timeout on a run that is already
+   dead.
+3. **Failure detail lives in `failure_code`/`failure_message`, and often nowhere at all.** We used to
+   read `error`/`message`, which HeyGen does not define — every failure logged an empty reason.
+   When the documented fields are absent too, the session's `messages` are the only diagnostic.
 """
 from __future__ import annotations
 
@@ -26,19 +39,77 @@ log = structlog.get_logger(__name__)
 
 _API_BASE = os.environ.get("HEYGEN_API_BASE") or "https://api.heygen.com"
 _API = f"{_API_BASE.rstrip('/')}/v3"
-_MAX_FILES = 20
+_MAX_FILES = 20          # HeyGen caps `files` at 20 attachments
+_MAX_PROMPT = 10_000     # documented `prompt` maxLength
+
+# A Video Agent render bills the wallet at roughly $1–2 (monorepo UGC lane, 22 iterations). Below
+# this we refuse to submit: HeyGen accepts the session, fails it at progress 0, and tells us nothing.
+_MIN_WALLET_USD = 2.0
+
+# Session statuses (GET session enum is a SUPERSET of the create enum — `waiting_for_input` and
+# `reviewing` only ever appear on the read side).
+_SESSION_DONE = "completed"
+_SESSION_FAILED = "failed"
+_SESSION_STUCK = "waiting_for_input"   # `chat`-mode pause; nobody is listening on a cron run
+_VIDEO_TERMINAL_FAIL = ("failed", "error", "cancelled", "canceled")
 
 
-def build_video_prompt(idea: Idea) -> str:
-    """Natural story + tone + orientation, positive framing only (no timestamps/questions/negations)."""
-    body = f"{idea.hook}. " + " ".join(idea.key_points)
+class HeyGenError(RuntimeError):
+    """A HeyGen render did not produce a video."""
+
+
+class HeyGenCreditError(HeyGenError):
+    """Refused before submit: the wallet cannot fund a render.
+
+    Distinct from a generation failure — nothing was spent, and the fix is to top the wallet up
+    rather than to retry.
+    """
+
+
+def _fmt_points(points: list[str]) -> str:
+    """Key points as flowing narration, not a list.
+
+    HeyGen's own prompt experiments found "stories beat lists" and that rigid segmentation makes
+    delivery sound robotic, so these are joined into prose rather than bulleted.
+    """
+    return " ".join(p.strip().rstrip(".") + "." for p in points if p and p.strip())
+
+
+def build_video_prompt(idea: Idea, *, seconds: int = 30) -> str:
+    """A directorial brief in the shape HeyGen's own testing says works.
+
+    HeyGen published the results of 14 controlled experiments on this exact endpoint. The rules that
+    survived them, all of which this brief obeys:
+
+    - **Script first.** The narration words matter more than any production instruction.
+    - **Tone, not timestamps.** Per-scene `(0-5s)` blocking "make the delivery sound robotic".
+    - **Positive framing only.** Restrictive instructions ("no stock footage", "do NOT…") make the
+      agent play safe and produced visually flat results in their tests.
+    - **No questions.** Question-driven scripts feel unnatural from a single presenter to camera.
+    - **Don't over-prescribe visuals.** The agent composes well when left the room to.
+
+    The presenter is described affirmatively rather than by exclusion, which both satisfies the
+    positive-framing rule and pins the narrator's gender — left open, the agent picks one at random
+    and the brand's presenter changes between posts.
+    """
+    script = f"{idea.hook.strip().rstrip('.')}. {_fmt_points(list(idea.key_points))}".strip()
     return (
-        f"{body}\n\n"
-        "Tone: confident, sharp, honest — a trader done with hype, talking straight to camera's "
-        "audience. Energetic but grounded.\n"
-        "Use the attached brand assets and product screenshots for on-brand B-roll and overlays.\n"
+        f"Make a {seconds}-second portrait video for a trading-tools brand.\n\n"
+        "SCRIPT — narrate this closely, in this order:\n"
+        f"{script}\n\n"
+        "Tone: a working trader talking straight to camera — confident, sharp, honest, done with "
+        "hype. Grounded and specific, the way someone explains something they have actually lived "
+        "through. Energetic on the setup, slower and heavier on the point that matters.\n"
+        "Presenter: one male presenter in his early thirties, visible and speaking to camera "
+        "throughout, like a single-take message to a friend who trades.\n"
+        "Look: dark, high-contrast, screen-lit — a real trading desk at night, deep charcoal and "
+        "near-black with a single cool accent light. Restrained camera movement, real weight to "
+        "everything that moves.\n"
+        "Captions: one clean caption track following the spoken words, positioned clear of the "
+        "bottom edge.\n"
+        f"Duration: {seconds} seconds.\n"
         "Orientation: portrait."
-    )[:10000]
+    )[:_MAX_PROMPT]
 
 
 def reference_urls(brand_id: str) -> list[str]:
@@ -49,8 +120,26 @@ def reference_urls(brand_id: str) -> list[str]:
     return [u.strip() for u in raw.split(",") if u.strip()][:_MAX_FILES]
 
 
+def session_options(brand_id: str) -> dict[str, str]:
+    """Optional per-brand pins for the session, each omitted when unset.
+
+    `brand_kit_id` (colors/fonts/logo) and `brand_glossary_id` (how "Glitch Executor" is
+    pronounced) are what make successive renders look and sound like ONE brand rather than 30
+    unrelated clips; `avatar_id`/`voice_id` pin the presenter; `style_id` picks a curated template.
+    """
+    from glitch_signal.config import brand_env
+
+    keys = ("avatar_id", "voice_id", "style_id", "brand_kit_id", "brand_glossary_id")
+    out = {}
+    for k in keys:
+        v = (brand_env(f"HEYGEN_{k.upper()}", brand_id) or "").strip()
+        if v:
+            out[k] = v
+    return out
+
+
 def _heygen_key() -> str:
-    """Mirror `HeyGenEngine._key()` exactly: env var, not `settings()` (media/generation/engines/heygen.py)."""
+    """Mirror `HeyGenEngine._key()` exactly: env var, not `settings()`."""
     return (os.environ.get("HEYGEN_API_KEY") or "").strip()
 
 
@@ -58,42 +147,129 @@ def _heygen_headers() -> dict[str, str]:
     return {"X-Api-Key": _heygen_key(), "Content-Type": "application/json"}
 
 
-async def _default_submit(prompt: str, file_urls: list[str]) -> str:
+def _min_wallet_usd() -> float:
+    try:
+        return float(os.environ.get("HEYGEN_MIN_WALLET_USD") or _MIN_WALLET_USD)
+    except ValueError:
+        return _MIN_WALLET_USD
+
+
+async def wallet_balance() -> float | None:
+    """Remaining wallet balance in USD, or None if it cannot be read.
+
+    `GET /v3/users/me` — the v3 replacement for the legacy `/v2/user/remaining_quota`, which HeyGen
+    removes on 2026-10-31 and whose response now carries a warning telling agents not to use it.
+    Video Agent bills the WALLET, so `wallet.remaining_balance` is the number that decides whether a
+    render can run; the v2 endpoint's `plan_credit` does not.
+    """
     import httpx
 
-    body = {
-        "prompt": prompt[:10000],
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.get(f"{_API}/users/me", headers=_heygen_headers())
+            r.raise_for_status()
+            w = ((r.json() or {}).get("data") or {}).get("wallet") or {}
+        if str(w.get("currency", "usd")).lower() != "usd":
+            return None
+        return float(w["remaining_balance"])
+    except Exception:  # noqa: BLE001 — an unreadable balance must not block a render
+        return None
+
+
+async def preflight() -> None:
+    """Raise `HeyGenCreditError` when the wallet cannot fund a render.
+
+    Fails CLOSED only on a balance we actually read: an unreadable balance (None) proceeds, because
+    refusing every render on a transient profile-endpoint blip would be worse than the thing this
+    guards against.
+    """
+    bal = await wallet_balance()
+    if bal is None:
+        return
+    floor = _min_wallet_usd()
+    if bal < floor:
+        raise HeyGenCreditError(
+            f"heygen wallet ${bal:.2f} is below the ${floor:.2f} needed for one render — "
+            "top up the wallet (auto-reload is off) or renders will keep failing at progress 0"
+        )
+
+
+async def _default_submit(prompt: str, file_urls: list[str], *, options: dict | None = None) -> str:
+    import httpx
+
+    body: dict[str, Any] = {
+        "prompt": prompt[:_MAX_PROMPT],
         "orientation": "portrait",
         "mode": "generate",
         "files": [{"type": "url", "url": u} for u in file_urls[:_MAX_FILES]],
     }
+    body.update(options or {})
     async with httpx.AsyncClient(timeout=60) as c:
         r = await c.post(f"{_API}/video-agents", headers=_heygen_headers(), json=body)
         r.raise_for_status()
         return (r.json() or {}).get("data", {})["session_id"]
 
 
-async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 600) -> str:
+def _reason(session: dict, video: dict | None = None) -> str:
+    """Best available failure reason, in descending order of authority.
+
+    HeyGen documents `failure_code`/`failure_message` on a failed video, but live probing showed
+    both absent on a genuinely failed session AND its video — so the session's own messages (newest
+    first, `type: "error"` preferred) are the fallback, and an explicit marker is the last resort.
+    Anything is better than the empty string this used to log.
+    """
+    for src in (video or {}, session):
+        code, msg = src.get("failure_code"), src.get("failure_message")
+        if code or msg:
+            return " ".join(str(p) for p in (code, msg) if p)
+    msgs = session.get("messages") or []
+    for m in msgs:
+        if m.get("type") == "error" and m.get("content"):
+            return str(m["content"])[:300]
+    for m in msgs:
+        if m.get("role") == "model" and m.get("content"):
+            return f"no failure detail from heygen; last agent message: {str(m['content'])[:200]}"
+    return "no failure detail from heygen (no failure_code, failure_message, or session messages)"
+
+
+async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 900) -> str:
+    """Poll session -> video until a URL, a failure, or the deadline.
+
+    The SESSION is checked every cycle, not just until a `video_id` appears: a session that fails
+    before it is assigned a video is otherwise invisible, and the whole timeout gets spent waiting
+    for a video that will never exist. HeyGen advises a 10–30s interval and says generation runs
+    5–10x the finished clip's length, so a 30s render is ~3–5 minutes.
+    """
     import httpx
 
     headers = _heygen_headers()
     waited = 0
     async with httpx.AsyncClient(timeout=60) as c:
-        video_id = None
         while waited < timeout_s:
-            if video_id is None:
-                r = await c.get(f"{_API}/video-agents/{session_id}", headers=headers)
-                r.raise_for_status()
-                video_id = (r.json() or {}).get("data", {}).get("video_id")
+            r = await c.get(f"{_API}/video-agents/{session_id}", headers=headers)
+            r.raise_for_status()
+            s = (r.json() or {}).get("data", {})
+            status = str(s.get("status", "")).lower()
+            video_id = s.get("video_id")
+
+            if status == _SESSION_FAILED:
+                raise HeyGenError(f"heygen session {session_id} failed: {_reason(s)}")
+            if status == _SESSION_STUCK:
+                raise HeyGenError(
+                    f"heygen session {session_id} is waiting for input, but this run is "
+                    f"unattended (mode=generate): {_reason(s)}"
+                )
+
             if video_id:
                 r = await c.get(f"{_API}/videos/{video_id}", headers=headers)
                 r.raise_for_status()
                 v = (r.json() or {}).get("data", {})
-                status = str(v.get("status", "")).lower()
-                if status == "completed":
+                vstatus = str(v.get("status", "")).lower()
+                if vstatus == "completed" and v.get("video_url"):
                     return v["video_url"]
-                if status in ("failed", "error", "cancelled", "canceled"):
-                    raise RuntimeError(f"heygen video {video_id} {status}: {v.get('error') or v.get('message') or ''}")
+                if vstatus in _VIDEO_TERMINAL_FAIL:
+                    raise HeyGenError(f"heygen video {video_id} {vstatus}: {_reason(s, v)}")
+
             await sleep(10)
             waited += 10
     raise TimeoutError(f"heygen session {session_id} timed out after {timeout_s}s")
@@ -102,10 +278,8 @@ async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_
 async def _default_persist(brand_id: str, url: str) -> str:
     """Download the HeyGen mp4 and re-host it via the real storage helper (STORAGE-1).
 
-    `glitch_signal.media.generation.storage.upload_bytes(data, brand_id, *, ext=, content_type=,
-    prefix=, client=) -> str` is the real public signature (data first, brand_id second, `ext`
-    not `suffix`, no leading dot) — confirmed by reading storage.py; the brief's
-    `upload_bytes(brand_id, data, content_type=, suffix=)` guess does not match.
+    `upload_bytes(data, brand_id, *, ext=, content_type=, prefix=, client=) -> str` is the real
+    signature (data first, `ext` not `suffix`, no leading dot) — confirmed by reading storage.py.
     """
     import httpx
 
@@ -119,12 +293,7 @@ async def _default_persist(brand_id: str, url: str) -> str:
 
 
 async def _meter(brand_id: str, session_id: str) -> None:
-    """Attribute this HeyGen Video Agent call to the brand (COST-METER). Never raises.
-
-    Mirrors `media/generation/engines/heygen.py::_meter` — same `usage_events` choke point via
-    `record_usage`, priced with the same `heygen_cost` book (no `model`/`avatar_id` concept for
-    the Video Agent, so the vendor model tag is a static "video-agent").
-    """
+    """Attribute this HeyGen Video Agent call to the brand (COST-METER). Never raises."""
     try:
         from glitch_signal.analytics.cost.meter import record_usage
         from glitch_signal.analytics.cost.pricing import heygen_cost
@@ -152,8 +321,10 @@ async def generate_video(
     poll: Any = None,
     persist_url: Any = None,
     on_session: Any = None,
+    check_credit: Any = None,
+    options: dict | None = None,
 ) -> str:
-    """POST the Video Agent, poll to completion, persist to the brand bucket, return the durable URL.
+    """Preflight credit, POST the Video Agent, poll, persist to the brand bucket, return the URL.
 
     `on_session(session_id)` (optional, sync) is invoked as soon as HeyGen ACCEPTS the render, so a
     caller that later abandons the poll still knows which session it left running.
@@ -161,8 +332,13 @@ async def generate_video(
     submit = submit or _default_submit
     poll = poll or _default_poll
     persist_url = persist_url or _default_persist
+    check_credit = check_credit or preflight
 
-    session_id = await submit(prompt, file_urls)
+    # Before anything is spent or scheduled: an underfunded wallet fails every render at progress 0
+    # with no reason attached, so this turns an opaque nightly failure into a nameable one.
+    await check_credit()
+
+    session_id = await submit(prompt, file_urls, options=options or {})
     # Meter at ACCEPT, not at completed-poll. HeyGen starts (and charges for) the render the moment
     # it accepts the session, and the caller bounds this coroutine with `asyncio.wait_for` — so
     # metering after the poll silently LOSES the spend of every render we time out on. record_usage
@@ -177,5 +353,4 @@ async def generate_video(
     except (asyncio.CancelledError, TimeoutError):
         log.warning("social.video_abandoned", session_id=session_id, brand_id=brand_id)
         raise
-    out = await persist_url(brand_id, heygen_url)
-    return out
+    return await persist_url(brand_id, heygen_url)

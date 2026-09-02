@@ -6,6 +6,11 @@ import pytest
 from glitch_signal.agent.social import campaign, video
 
 
+async def _funded():
+    """Skip the wallet preflight — these tests are about metering, not funding."""
+    return None
+
+
 async def test_meters_at_accept_not_after_the_poll(monkeypatch):
     """The caller bounds generate_video with asyncio.wait_for. Metering after the poll therefore
     LOSES the spend of every render we time out on — HeyGen bills from acceptance."""
@@ -16,7 +21,7 @@ async def test_meters_at_accept_not_after_the_poll(monkeypatch):
 
     monkeypatch.setattr(video, "_meter", _meter)
 
-    async def submit(prompt, urls):
+    async def submit(prompt, urls, *, options=None):
         return "sess-1"
 
     async def poll(session_id):
@@ -25,7 +30,7 @@ async def test_meters_at_accept_not_after_the_poll(monkeypatch):
 
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(
-            video.generate_video("ge", "p", [], submit=submit, poll=poll), timeout=0.05)
+            video.generate_video("ge", "p", [], submit=submit, poll=poll, check_credit=_funded), timeout=0.05)
 
     # The render was accepted and charged — the spend is attributed even though we abandoned it.
     assert metered == [("ge", "sess-1")]
@@ -37,7 +42,7 @@ async def test_on_session_hook_fires_at_accept(monkeypatch):
     monkeypatch.setattr(video, "_meter", lambda *a, **k: _noop())
     seen: list[str] = []
 
-    async def submit(prompt, urls):
+    async def submit(prompt, urls, *, options=None):
         return "sess-2"
 
     async def poll(session_id):
@@ -46,7 +51,7 @@ async def test_on_session_hook_fires_at_accept(monkeypatch):
     async def persist(brand_id, url):
         return "http://stored"
 
-    out = await video.generate_video("ge", "p", [], submit=submit, poll=poll,
+    out = await video.generate_video("ge", "p", [], submit=submit, poll=poll, check_credit=_funded,
                                      persist_url=persist, on_session=seen.append)
     assert seen == ["sess-2"] and out == "http://stored"
 

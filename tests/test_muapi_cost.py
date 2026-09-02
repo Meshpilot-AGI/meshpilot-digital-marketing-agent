@@ -36,7 +36,7 @@ def test_muapi_balance_is_treated_as_dollars_not_credits():
 def test_snapshot_records_the_real_unit_per_vendor():
     """Labelling every vendor's balance "credits" is what hid the error until real spend appeared."""
     assert reconcile.BALANCE_UNIT["muapi"] == "usd"
-    assert reconcile.BALANCE_UNIT["heygen"] == "credits"
+    assert reconcile.BALANCE_UNIT["heygen"] == "usd"   # wallet-billed, read from /v3/users/me
 
 
 def test_estimate_now_matches_the_measured_spend():
