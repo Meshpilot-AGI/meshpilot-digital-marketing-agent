@@ -285,6 +285,13 @@ Other migrations: `/v1|v2/video/generate`→`POST /v3/videos`, `/v1/video_status
 
 ## 5. Keys, engine, webhook
 
+**MCP** — `https://mcp.heygen.com/mcp` (`AGENT_MCP_SERVERS`, `oauth: heygen`), **112 tools**,
+re-authed 2026-09-02; access token ~10 days. The auth server is `https://api2.heygen.com`
+(`/v1/oauth/{authorize,token,register}`, PKCE S256). ⚠️ Cloudflare **error 1010 blocks
+`Python-urllib`** there — dynamic registration and the token exchange both 403 with it, while
+`curl`/`httpx` pass; reuse the existing public client id rather than re-registering. This is a
+SEPARATE surface from the Video Agent REST path above and shares only the account.
+
 **Keys** (global infra, FastAPI Cloud secrets):
 
 - `HEYGEN_API_KEY` — account key (`sk_V2_…`), sent as `X-Api-Key`.
