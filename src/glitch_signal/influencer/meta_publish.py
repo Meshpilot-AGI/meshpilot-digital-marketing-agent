@@ -37,7 +37,7 @@ from glitch_signal.config import settings
 log = structlog.get_logger(__name__)
 
 _GRAPH = "https://graph.facebook.com"
-_VER = os.environ.get("META_GRAPH_API_VERSION", "v21.0")
+_VER = os.environ.get("META_GRAPH_API_VERSION", "v26.0")
 _VIDEO_KINDS = {"video", "reel"}
 
 

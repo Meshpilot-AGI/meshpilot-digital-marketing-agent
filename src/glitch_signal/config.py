@@ -182,7 +182,11 @@ class Settings(BaseSettings):
     # --- Meta (Facebook / Instagram) Graph API ---
     # Version is a platform constant (not per-brand). Per-brand creds
     # (page id, IG user id, system-user token) resolve via brand_env().
-    meta_graph_api_version: str = "v21.0"
+    # Meta platform is on v26.0 (confirmed via the DevTools API). Verified before bumping: the page
+    # node, the IG user node and /{ig}/media all behave identically on v21 and v26, the app reports
+    # zero deprecations, and the insights-metric probe returns the same result on v21/v23/v26.
+    # Override with META_GRAPH_API_VERSION to roll back without a deploy.
+    meta_graph_api_version: str = "v26.0"
 
     # --- YouTube OAuth2 (per-brand: <PREFIX>_YOUTUBE_CLIENT_ID/SECRET via brand_env) ---
     # Redirect URI must exactly match the one registered on the OAuth client.

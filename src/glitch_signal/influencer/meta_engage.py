@@ -27,7 +27,7 @@ log = structlog.get_logger(__name__)
 
 _GRAPH = "https://graph.facebook.com"
 import os as _os
-_VER = _os.environ.get("META_GRAPH_API_VERSION", "v21.0")
+_VER = _os.environ.get("META_GRAPH_API_VERSION", "v26.0")
 
 
 async def fetch_recent_comments(
