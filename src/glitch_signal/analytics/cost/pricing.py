@@ -107,10 +107,20 @@ def higgsfield_cost(model: str, *, base_credits: float | None = None) -> tuple[f
 # A per-model price book for 655 slugs is infeasible; per-call cost here is a COARSE estimate and
 # the MUapi balance-delta reconciliation (INC-2) is the source of truth. Overridable per env.
 def _muapi_default_usd() -> float:
+    """Per-call estimate, calibrated against a real balance delta rather than guessed.
+
+    0.9699 USD of balance consumed over 24 generations = ~0.040 per call. The previous 0.02 was
+    HALF the true cost, so the daily cap was permitting roughly twice the spend it was configured
+    for — the dangerous direction of wrong, not the safe one.
+
+    Still a flat average across models: nano-banana-pro and gemini-flash almost certainly differ,
+    but one reconciliation window cannot separate them. Per-model figures belong in
+    COST_MUAPI_MODEL_USD once there is enough per-model history to attribute the delta.
+    """
     try:
-        return float(os.environ.get("COST_MUAPI_DEFAULT_USD", "0.02"))
+        return float(os.environ.get("COST_MUAPI_DEFAULT_USD", "0.04"))
     except ValueError:
-        return 0.02
+        return 0.04
 
 
 def unknown_model_cost_usd() -> float:
@@ -156,7 +166,15 @@ def heygen_cost(model: str, *, credits: float | None = None) -> tuple[float, flo
 
 
 def muapi_credit_usd() -> float:
+    """USD per unit of MUapi's reported balance — which is DENOMINATED IN DOLLARS, so 1.0.
+
+    This defaulted to 0.01 on the assumption that the balance was credits like HeyGen's. It is not,
+    and the error manufactured a 46x "drift" in reconciliation: 24 generations were reported as
+    $0.0097 of real spend, i.e. four hundredths of a cent per image, which is not a plausible price
+    for nano-banana or Gemini image generation. Measured against the real balance drop
+    (6.4324 -> 5.4625 across 24 calls) the true figure is ~$0.040 per call.
+    """
     try:
-        return float(os.environ.get("COST_MUAPI_CREDIT_USD", "0.01"))
+        return float(os.environ.get("COST_MUAPI_CREDIT_USD", "1.0"))
     except ValueError:
-        return 0.01
+        return 1.0

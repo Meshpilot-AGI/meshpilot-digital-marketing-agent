@@ -44,6 +44,11 @@ _SUM_EVENTS = text(
     "WHERE vendor=:vendor AND created_at >= :from_ts AND created_at < :to_ts"
 )
 
+# What a vendor's reported balance is actually denominated in. MUapi reports DOLLARS; the others
+# report credits. Recording this per vendor stops the snapshot table asserting "credits" for a
+# balance that is nothing of the sort — which is what hid the unit error until a real spend appeared.
+BALANCE_UNIT = {"muapi": "usd", "heygen": "credits", "higgsfield": "credits"}
+
 _CREDIT_USD = {
     "muapi": pricing.muapi_credit_usd,
     "heygen": pricing.heygen_credit_usd,
@@ -107,7 +112,8 @@ async def _reconcile_vendor(vendor: str, client: httpx.AsyncClient, now: datetim
     async with eng.begin() as conn:
         prev = (await conn.execute(_PREV_SNAPSHOT, {"vendor": vendor})).mappings().first()
         await conn.execute(_INSERT_SNAPSHOT, {
-            "vendor": vendor, "balance": balance, "unit": "credits", "raw": json.dumps(raw),
+            "vendor": vendor, "balance": balance,
+            "unit": BALANCE_UNIT.get(vendor, "credits"), "raw": json.dumps(raw),
         })
 
     result: dict[str, Any] = {"vendor": vendor, "balance": balance}
