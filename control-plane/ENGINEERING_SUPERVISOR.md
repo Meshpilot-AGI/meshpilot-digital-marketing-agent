@@ -1087,3 +1087,27 @@ creeps in.
 
 **Verified:** 862 pass / 1 skip, incl. tests for all six anatomy parts, brand-token usage, neutral
 fallback, and positive framing.
+
+
+## HEYGEN-STALL — 2026-09-02
+
+**Found:** a session can stall in a HEALTHY state — one sat in `thinking` at `progress: 0` for 25+
+minutes. The #224 nudge only fired on `failed`/`waiting_for_input`, so a stall like this was never
+touched and simply burned the deadline. Four sessions in account history (2026-05-10, 05-11, 07-04)
+are stuck the same way, so it is long-standing HeyGen behaviour, not a regression from our changes.
+
+**Changed:** `_default_poll` now watches MOTION rather than the status word — no change in
+`(status, progress, video_id)` for `_STALL_S` (420s) counts as a stall and nudges, sharing the
+`max_resumes` budget. 420s is sized above the longest legitimate quiet stretch measured (a real
+render sat in `thinking` 285s before moving), so a slow-but-healthy render is never interrupted.
+Added `_default_stop`: on give-up (exhausted resumes or deadline) the session is stopped, releasing
+one of the account's **10 concurrent job slots** that an abandoned session otherwise holds.
+
+**Verified honestly:** the nudge does NOT recover a `thinking` stall — the live stalled session was
+nudged and sat unmoved for 195s+. It reliably revives `failed` (three recovered live). The stall
+rule's value here is bounding the wait, naming the reason (`no progress for Ns`) instead of an
+anonymous timeout, and freeing the slot. 864 pass / 1 skip, incl. a test that a slow-but-MOVING
+render is never nudged.
+
+**Remains:** the styled-prompt render (`7f69bbcc`) never completed — hard-stuck in `thinking` — so
+the style paragraph has NOT yet been visually verified on a finished video.

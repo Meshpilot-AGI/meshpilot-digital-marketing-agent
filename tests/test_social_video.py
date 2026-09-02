@@ -279,3 +279,72 @@ def test_campaign_attaches_no_files_to_a_render():
     src = inspect.getsource(campaign._default_deps)
     assert "reference_urls" not in src, "the video path must not attach reference files"
     assert "video.generate_video(brand_id, prompt, []," in src, "file_urls must be an empty list"
+
+
+async def test_poll_nudges_a_session_stalled_in_a_healthy_looking_state(monkeypatch):
+    """A session sat in `thinking` at progress 0 for 25+ minutes — no `failed`, so nudging only on
+    `failed`/`waiting_for_input` never touched it and it just burned the deadline."""
+    import httpx
+
+    calls = {"n": 0}
+    resumed = []
+
+    async def _resume(sid):
+        resumed.append(sid)
+
+    def handler(request):
+        if "/video-agents/" in str(request.url):
+            calls["n"] += 1
+            # Never moves: same status, same progress, no video_id.
+            return httpx.Response(200, json={"data": {
+                "status": "thinking", "progress": 0, "video_id": None, "messages": []}})
+        return httpx.Response(200, json={"data": {"status": "processing"}})
+
+    real = httpx.AsyncClient
+
+    def factory(*a, **kw):
+        kw.pop("transport", None)
+        return real(*a, transport=httpx.MockTransport(handler), **kw)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    with pytest.raises(video.HeyGenError) as e:
+        await video._default_poll("s1", sleep=_no_sleep, timeout_s=3000, resume=_resume,
+                                  max_resumes=2, stall_s=100)
+    assert resumed == ["s1", "s1"]                  # nudged on the stall, not on a status word
+    assert "no progress for" in str(e.value)
+
+
+async def test_poll_does_not_nudge_a_slow_but_moving_render(monkeypatch):
+    """A real render sat in `thinking` for 285s before moving. Progress that CHANGES is healthy —
+    nudging it would interrupt a working render."""
+    import httpx
+
+    progress = {"p": 0}
+    resumed = []
+
+    async def _resume(sid):
+        resumed.append(sid)
+
+    def handler(request):
+        if "/video-agents/" in str(request.url):
+            progress["p"] += 1                       # moves every poll, slowly
+            done = progress["p"] > 12
+            return httpx.Response(200, json={"data": {
+                "status": "completed" if done else "generating",
+                "progress": progress["p"], "video_id": "v1", "messages": []}})
+        done = progress["p"] > 12
+        return httpx.Response(200, json={"data": {
+            "status": "completed" if done else "processing",
+            "video_url": "https://heygen/out.mp4" if done else None}})
+
+    real = httpx.AsyncClient
+
+    def factory(*a, **kw):
+        kw.pop("transport", None)
+        return real(*a, transport=httpx.MockTransport(handler), **kw)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    out = await video._default_poll("s1", sleep=_no_sleep, timeout_s=3000, resume=_resume,
+                                    stall_s=30)
+    assert out == "https://heygen/out.mp4"
+    assert resumed == []                             # never interrupted

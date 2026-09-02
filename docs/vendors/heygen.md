@@ -86,10 +86,26 @@ produced nothing while HeyGen was working. Every "eliminated hypothesis" in the 
 investigation was eliminated correctly; the one thing never questioned was our own terminal-state
 assumption.
 
+**A session can also stall in a HEALTHY-looking state.** One sat in `thinking` at `progress: 0` for
+25+ minutes. Nudging only on `failed`/`waiting_for_input` never touches that, so it silently burns
+the whole deadline. Four sessions in the account's history (2026-05-10, 05-11, 07-04) are stuck the
+same way, so this is a long-standing HeyGen behaviour, not a regression.
+
+⚠️ **A nudge does NOT recover a `thinking` stall.** It reliably revives a `failed` session (three
+recovered live), but a hard-stalled one was nudged and sat unmoved for 195s+. The stall rule still
+earns its place: it bounds the wait, reports `no progress for Ns` instead of an anonymous timeout,
+and **stops the session on the way out** so it stops holding one of the account's **10 concurrent
+job slots**. Recovery for a `thinking` stall is to abandon and let the next run start fresh.
+
 **Rules now encoded in `_default_poll`:**
 
 - `failed` and `waiting_for_input` are **recoverable**, not terminal → nudge and keep polling, up to
   `_MAX_RESUMES` (3). Only an exhausted budget is a real failure.
+- Watch **motion**, not the status word: no change in `(status, progress, video_id)` for `_STALL_S`
+  (420s) is a stall and nudges too. Sized above the longest legitimate quiet stretch measured — a
+  real render sat in `thinking` for 285s before moving — so a slow-but-healthy render is left alone.
+- On give-up (exhausted resumes or deadline), `POST /v3/video-agents/{id}/stop` releases the
+  concurrency slot.
 - The **video's** status is not terminal either — it mirrors the session's flapping — so it is read
   only to collect the finished `video_url`.
 - Budget the deadline for recovery: a resumed render can take well over the nominal 5–10x.
