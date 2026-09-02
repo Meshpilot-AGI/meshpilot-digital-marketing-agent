@@ -28,7 +28,13 @@ class _FakeClient:
     def __init__(self, by_suffix: dict[str, dict]):
         self.by_suffix = by_suffix
 
-    async def get(self, url, params=None):
+    headers_seen: list = []
+
+    async def get(self, url, params=None, headers=None):
+        # `headers` is required: the token moved out of the query string into an Authorization
+        # header, because httpx echoes the request URL in its exception text and these calls log
+        # on failure by design (PR #205 token-leak finding).
+        self.headers_seen.append(headers or {})
         for suffix, payload in self.by_suffix.items():
             if url.endswith(suffix):
                 return _Resp(payload)
@@ -80,3 +86,23 @@ async def test_instagram_media_with_a_real_metric_is_recorded(monkeypatch):
     result = await insights.instagram_media("media1", client=client)
     assert result is not None
     assert result["likes"] == 12
+
+
+def test_no_call_puts_the_token_in_a_query_string():
+    """Regression for the #205 leak: the fake now records headers, so this asserts the credential
+    travels in the Authorization header and never in params (httpx echoes the URL in its exception
+    text, and these calls log on failure by design)."""
+    import asyncio
+
+    from glitch_signal.platforms import insights
+
+    seen_params: list = []
+
+    class _Spy:
+        async def get(self, url, params=None, headers=None):
+            seen_params.append(params or {})
+            assert headers and headers.get("Authorization", "").startswith("Bearer ")
+            return _Resp({"data": [], "access_token": "page-tok"})
+
+    asyncio.run(insights.facebook_post("p1", brand_id="glitch_executor", client=_Spy()))
+    assert all("access_token" not in p for p in seen_params)
