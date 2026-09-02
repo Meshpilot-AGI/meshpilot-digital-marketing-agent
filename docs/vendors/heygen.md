@@ -34,39 +34,39 @@ Three separate defects stacked up, none of which was the prompt:
 The cron then retried "Drawdown Explained" **four times in one day**. Defects 2 and 3 are closed and
 the rules below are the generalisation.
 
-### ⚠️ Defect 1 is a SUSPECT, not a diagnosis (corrected 2026-09-02)
+### ⚠️ Defect 1 was WRONG — renders bill CREDITS, not the wallet (corrected twice, 2026-09-02)
 
-The wallet was first reported here as *the* root cause. Direct testing does not support that, and
-the correction matters more than the original claim. **Eliminated by experiment**, each with a real
-submitted session:
+The wallet was first reported as *the* root cause, then downgraded to a suspect. It is now
+**eliminated**: the account's own usage screen shows Video Agent renders billing **plan credits** —
+"Glitch Executor: The Payout Truth" (~38s, the last successful render) cost **26 credits** — against
+**1,091 credits remaining**. The USD wallet is not the render budget, so a $1.05 wallet never
+blocked anything.
+
+Everything tested, each with a real submitted session:
 
 | Hypothesis | Test | Result |
 |---|---|---|
-| Bad prompt | old prompt vs. new experiment-backed prompt | both fail identically |
+| Bad prompt | old vs. new experiment-backed prompt | both fail identically |
 | Reference files unreachable | `GE_SOCIAL_REFERENCE_URLS` is **empty** | not a factor |
-| Broken brand kit | failures predate the kit; ran with and without | no difference |
+| Broken brand kit | failures predate it; ran with and without | no difference |
 | Agent minting a *bespoke* avatar | pinned an existing **trained** look | fails identically |
-| Avatar training failure | `GET /v3/avatars/looks?ownership=private` | all 50 `completed`, `error: null` |
-| Credits exhausted | balances before/after a failed render | **unchanged** — nothing is charged |
+| Avatar training failure | all 50 private looks | `completed`, `error: null` |
+| Credits/wallet exhausted | balances before/after a failed render | **unchanged — nothing billed**; 1,091 credits free |
+| Stale MCP token | separate surface (REST key, not MCP) | unrelated |
 
-Every failure looks the same: `status: failed`, `progress: 0`, within 50–70s, `failure_code` and
-`failure_message` **null on both session and video**, the session-videos list empty, and the video
-record a bare stub. HeyGen surfaces no diagnosable reason at all.
+Every failure is identical: `status: failed`, `progress: 0`, within 50–70s, `failure_code` and
+`failure_message` **null on both session and video**, session-videos list empty, video record a bare
+stub. HeyGen surfaces no diagnosable reason at all, and a failed render is **never billed**.
 
-What remains is either (a) the wallet genuinely gating the render — consistent with "nothing was
-charged", since an insufficient-funds abort would never bill — or (b) a HeyGen-side regression that
-began 2026-09-01 (last success 2026-08-31). **These are distinguished by one action: fund the wallet
-and retry.** If renders still fail at `progress: 0` when funded, it is vendor-side and the next step
-is a support ticket quoting the failed `session_id`s — not more code.
+With funding eliminated, what remains is a **HeyGen-side failure** — last success 2026-08-30/31,
+100% failure from 2026-09-01. The next step is a **support ticket** quoting the failed `session_id`s
+(`a5c50c16`, `b8374692`, `a718fa61`, `abbb6ec9`, `f6777656`, `a2f56d52`, `2dc60d2f`), **not more
+code**. Note for the ticket: every failed session still *creates* its avatar successfully before
+dying, and pinning a pre-trained avatar does not help.
 
-`preflight()` is kept because it is cheap and names a real risk, but it asserts a *cost floor*, not
-a cause. Set `HEYGEN_MIN_WALLET_USD=0` to disable it.
-
-> **Check the wallet first,** but do not stop there — `GET /v3/users/me` reports the wallet while
-> `/v2/user/remaining_quota` reports plan pools the Video Agent may not draw from. This account has
-> **both**: wallet $1.05 *and* `plan_credit: 1091` / `api: 63` on a Creator plan.
-
----
+`preflight()` now gates on **plan credits** (`HEYGEN_MIN_CREDITS`, default 26 = one render), fails
+open on an unreadable balance, and passes on the live account. An earlier version gated on the USD
+wallet and would have refused every render this plan can comfortably fund.
 
 ## 1. Video Agent — the contract
 
@@ -254,21 +254,34 @@ attaches to a Video Agent render is **not documented**.
   `request_in_progress`. **Not retryable:** `insufficient_credit`, `subscription_required`,
   `content_policy_violation`, `invalid_parameter`, and every `*_not_found`.
 
-### Cost and the wallet
+### Cost — credits, and the rate we cannot yet price
 
-This account is `billing_type: wallet`, currency USD. **Video Agent bills the wallet.** A render
-costs roughly **$1–2** (22 iterations of the monorepo UGC lane).
+Video Agent renders bill **plan credits**. Measured from the account's usage history: **26 credits**
+for a ~38s clip. The plan grants **600 credits/month** (resets on the 30th) plus **rollover** (491),
+so 1,091 available ≈ 40 more renders. **A failed render costs nothing** — verified by reading the
+balances either side of one.
 
-`video.py::preflight()` refuses to submit below `HEYGEN_MIN_WALLET_USD` (default **$2.00**) and
-raises `HeyGenCreditError` naming the balance. It fails **open** on an unreadable balance — a flaky
-profile endpoint must not block every render.
+Read the balance from **`GET /v2/user/remaining_quota` → `details.plan_credit`**. Two traps:
 
-> ⚠️ **`auto_reload` is disabled.** Nothing tops this wallet up on its own. Turning it on is the
-> single highest-value operational fix for video reliability.
+- The top-level **`remaining_quota` (63) is a different, much smaller API pool** — not the render
+  budget. `reconcile.py` reconciled against it for months.
+- ⚠️ **`GET /v3/users/me` does NOT expose credits for this account** — only the USD `wallet`. No v3
+  endpoint does (`/v3/users/me/credits`, `/v3/credits`, `/v3/users/me/usage` all 404). So the
+  endpoint HeyGen **removes on 2026-10-31** is currently the only source of the number that decides
+  whether a render can run. **Re-check for a v3 equivalent before that date.**
 
-⚠️ Do **not** judge funding by `GET /v2/user/remaining_quota`: during the outage it reported a
-comfortable `remaining_quota: 63` / `plan_credit: 1091` while the wallet held $1.05 and every render
-was failing. That pool is not what the Video Agent draws from.
+The USD `wallet` (billing_type `wallet`, $1.05, auto-reload off) exists but is **not** what renders
+draw on. Do not gate video on it.
+
+> ⚠️ **`COST_HEYGEN_CREDIT_USD` (default 0.30) is almost certainly wrong and needs the real plan
+> price.** At $0.30 the 600-credit monthly grant would imply ~$180/month, and 26 credits/render
+> prices a 30s video at **$7.80** — implausible. The right figure is (monthly plan price) / (monthly
+> credit grant), roughly $0.05 for a ~$30 plan. Until it is set from the actual invoice, every
+> HeyGen cost in `usage_events` is inflated and the balance-delta reconcile will read it as drift.
+
+`heygen_cost()` now defaults to the measured **26 credits/render** (it defaulted to 1, understating
+every render 26x — same class of error as the MUapi unit mistake, found the same way: by reading the
+vendor's own billing screen instead of trusting the constant).
 
 ### Deprecation — acts before 2026-11-01
 

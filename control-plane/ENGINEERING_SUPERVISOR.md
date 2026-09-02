@@ -950,3 +950,35 @@ discovers **112 heygen tools** (`video_agent.generate`, avatar, translate, voice
 **Remains:** **higgsfield is still down** — its refresh token is also `invalid_grant`, so the schema
 fix alone cannot recover it; it needs the same operator re-auth (84 tools). Also unchanged: this is
 a separate surface from the failing HeyGen *renders*, which use the REST API key.
+
+
+## HEYGEN-CREDITS — 2026-09-02 (correction, twice over)
+
+**Trigger:** operator shared the HeyGen Usage & History screen. It shows Video Agent renders billing
+**plan credits** — "Glitch Executor: The Payout Truth" (~38s) = **26 credits** — with **1,091
+remaining** (600/mo + 491 rollover). The operator said this from the start ("I have their creator
+plan, credits work the same"); I twice reported the $1.05 USD wallet as the cause instead.
+
+**Consequence of being wrong:** the `preflight()` shipped in #217 gated on the wallet, so once the
+underlying failure cleared it would have **refused every render** on an account with 1,091 credits.
+The #217 reconcile change (`BALANCE_UNIT["heygen"]` credits->usd, read `/v3/users/me` wallet) was
+likewise the wrong number.
+
+**Changed:** `preflight()`/`credit_balance()` now read `GET /v2/user/remaining_quota` ->
+`details.plan_credit`; floor `HEYGEN_MIN_CREDITS` default 26 (one render), fails open.
+`reconcile._fetch_heygen` reverted to credits and now reads `details.plan_credit` -- note the ORIGINAL
+code read top-level `remaining_quota` (63), a different, much smaller API pool, so it had been
+reconciling against the wrong number long before this lane. `heygen_cost()` default 1 -> **26
+credits** (every render was metered 26x low). `COST_HEYGEN_CREDIT_USD` flagged loudly: at 0.30 a 30s
+video prices at $7.80 and the 600-credit grant implies ~$180/mo -- needs the real invoice figure.
+
+**Verified live:** `credit_balance() -> 1091.0`; `preflight()` PASSES (previously would have refused).
+Full suite 856 pass / 1 skip.
+
+**Root cause of the dead renders is now VENDOR-SIDE.** Funding is eliminated: 1,091 credits free, and
+a failed render is never billed (balances unchanged either side of one). Everything else was
+eliminated by direct experiment. Next step is a support ticket with the failed session ids, not code.
+
+**Remains:** ⚠️ `GET /v3/users/me` does NOT expose credits for this account (only the wallet), and no
+v3 endpoint does -- so the credit read depends on an endpoint HeyGen **removes 2026-10-31**. Re-check
+for a v3 equivalent before then or the preflight and reconcile both go blind.
