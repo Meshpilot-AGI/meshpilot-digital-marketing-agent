@@ -155,15 +155,33 @@ X, LinkedIn and TikTok. No credential sharing, activity attributable to an autho
 fetched and stored on the `surface` row before we ever post there." That is now one API call
 returning machine-readable rules with `violationReason` — a real gate, not a manual audit.
 
-⚠️ **Unverified: commenting on arbitrary threads.** Zernio's comment endpoints sit under
-`/v1/inbox/comments/*`, which in these platforms usually manages engagement on *your own* posts, not
-replying into someone else's thread in `r/propfirm`. Since participation-by-comment is the whole
-Reddit thesis, **this must be verified before TARGET-4 is scoped.** If it is post-only, commenting
-still needs Reddit's own OAuth API.
+✅ **RESOLVED — Zernio comments on arbitrary threads.** The Inbox add-on was enabled by the operator
+and re-tested 2026-09-02:
 
-**Revised split:** discovery via redditapis.com (proven, ~$12/mo) · rules + flairs + posting +
-voting via Zernio (OAuth, no credential sharing) · commenting via Zernio if it supports arbitrary
-threads, otherwise Reddit's own API.
+| Call | Result |
+|---|---|
+| `GET /v1/inbox/comments/1w55cwq?subreddit=Propfirmstory` | **200** — resolved a post by `Fine-Lengthiness1332`, `numComments: 0` (so the empty list was correct, not a failure) |
+| `GET /v1/inbox/comments/1w4a28b?subreddit=StockMarket` | **200** — **4 real comments** read off `Smart_Money_HQ`'s thread |
+
+Both threads are strangers'. `POST /v1/inbox/comments/{postId}` uses the same `postId` resolution and
+takes `{accountId, message, commentId, parentCid}`, so **replying into an arbitrary thread is
+supported**, threaded, with an `Idempotency-Key` header for safe retries.
+
+No test comment was posted. A throwaway reply from a zero-karma brand account onto a live discussion
+is exactly the damage the standing gate exists to prevent; capability was proved by reads instead.
+
+**Consequence: TARGET-4 does not need a separate Reddit OAuth app.** Zernio covers the whole write
+surface — subreddit rules, flairs, submitting posts, voting, and threaded replies — over OAuth, with
+no credential sharing. That removes the "register a Data API client and wait for manual approval"
+dependency from the plan entirely.
+
+**Final split:** discovery via redditapis.com (proven, ~$12/mo) · rules, flairs, posting, voting and
+**threaded replies** via Zernio (OAuth, no credential sharing, no Data API client needed).
+
+Also observed on `/v1/accounts/health`: **4 connected accounts, 3 needing reconnect** —
+`reddit/glitchExecutor` (healthy), `instagram/glitch_executor`, `tiktok/glitchexec`, and
+`tiktok/namhya.ayurveda` — a **different brand**, so this Zernio tenant is already multi-brand,
+which fits the direction in §5.
 
 ### ⚠️ The real blocker is ACCOUNT STANDING, not API access (measured 2026-09-02)
 

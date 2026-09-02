@@ -39,9 +39,13 @@ structured subreddit rules (`kind`, `shortName`, `violationReason`, `priority`) 
 per-subreddit guardrail the design specified, as one API call. Also exposes flairs (many subs require
 one), voting, feeds and `POST /v1/posts`. **This resolves the credential objection**: the complaint
 was about handing over a Reddit username/password; Zernio is OAuth, same model as our existing Buffer
-publisher. ⚠️ Unverified whether it can comment on ARBITRARY threads (its comment endpoints sit under
-`/v1/inbox/*`, which usually means engagement on your own posts) — must be settled before TARGET-4,
-since participation-by-comment is the whole thesis.
+publisher. ✅ **RESOLVED 2026-09-02** — with the Inbox add-on enabled, Zernio reads comments on strangers'
+threads (`r/StockMarket` → 4 real comments; `r/Propfirmstory` → post resolved, `numComments: 0` so
+the empty list was correct). `POST /v1/inbox/comments/{postId}` uses the same resolution and takes
+`{accountId, message, commentId, parentCid}`, so threaded replies into arbitrary threads work.
+**TARGET-4 therefore needs no separate Reddit OAuth app** — Zernio covers rules, flairs, posting,
+voting and replies over OAuth. No test comment was posted: a throwaway reply from a zero-karma brand
+account is the exact damage the standing gate prevents.
 ⚠️ **The real blocker is ACCOUNT STANDING, not API access.** Measured 2026-09-02:
 `u/glitchExecutor` (the account the Mac's Devvit CLI is logged in as) was created 2026-05-02 with
 **total karma 1, comment karma 0**. Target subs enforce karma/age minimums via AutoModerator, so
