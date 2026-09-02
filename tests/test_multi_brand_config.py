@@ -153,30 +153,13 @@ class TestMultiBrandLoader:
 
 
 class TestModelsCarryBrandId:
-    """SQLModel fields must include brand_id on every brand-scoped table."""
+    """Every remaining brand-scoped SQLModel table must carry brand_id.
+
+    The legacy pipeline's models (Signal -> ContentScript -> VideoJob -> ... -> MetricsSnapshot,
+    plus ScoutCheckpoint) were removed with that pipeline; PlatformAuth is what remains.
+    """
 
     def test_models_have_brand_id_field(self):
-        from glitch_signal.db.models import (
-            ContentScript,
-            MetricsSnapshot,
-            PublishedPost,
-            ScheduledPost,
-            ScoutCheckpoint,
-            Signal,
-            VideoAsset,
-            VideoJob,
-        )
+        from glitch_signal.db.models import PlatformAuth
 
-        for model in (
-            Signal,
-            ContentScript,
-            VideoJob,
-            VideoAsset,
-            ScheduledPost,
-            PublishedPost,
-            MetricsSnapshot,
-            ScoutCheckpoint,
-        ):
-            assert "brand_id" in model.model_fields, (
-                f"{model.__name__} missing brand_id field"
-            )
+        assert "brand_id" in PlatformAuth.model_fields

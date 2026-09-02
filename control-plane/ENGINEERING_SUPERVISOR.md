@@ -1208,3 +1208,35 @@ integration on merge, independent of CI — NOT hand-applied, to avoid file/prod
 
 **Remains:** Tier 2 (9 legacy LangGraph tables) still gated on the operator's call about retiring
 that pipeline. Noted in passing: `create_all_tables()` is itself dead code.
+
+
+## DB-OPT-TIER2 / RETIRE-LEGACY — 2026-09-02
+
+**Removed:** `agent/graph.py` (165), `agent/nodes/` (12 files, 2707), `scheduler/` (2 files, 936),
+the `drive_scout` cron capability, `/jobs/scout`, `/jobs/assemble/{script_id}`, `/jobs/drive_scout`,
+the file-based `buffer.publish()` + `_read_caption()` path (buffer.py 497 -> 338), 8 SQLModel classes
+(models.py 202 -> 39), and 6 legacy-only test files. Migration
+`20260902080000_drop_legacy_pipeline_tables.sql` drops the 8 tables leaf-first along the FK chain.
+
+**Guarded the blast radius:** counted `@app` routes before and after (42 -> 39, exactly the three
+intended); confirmed the app still imports and mounts 40 routes; ruff F401 went DOWN 13 -> 9.
+
+**Verified before dropping:** no FK from a surviving table points at any dropped table; no views in
+`public`; all 8 held 0 rows; and **`create_all_tables()` is never called** — it runs
+`SQLModel.metadata.create_all` and would have recreated every dropped table at boot.
+
+⚠️ **CORRECTION to the DB-OPT-SURVEY entry:** it stated Tier 2 was "all 0 rows". That was wrong —
+`platform_auth` holds **1 live row**, an ACTIVE YouTube OAuth credential for glitch_executor created
+2026-08-29, and `/oauth/youtube/{start,callback}` are still mounted. It was deliberately kept; the
+operator approved retiring the pipeline on the premise that Tier 2 was empty, which did not hold for
+that table. Retiring YouTube is a product decision, not a cleanup.
+
+**`/healthz` changed shape** — the `queue` block counted `scheduled_post` / `video_job`, both gone.
+Anything monitoring that field needs to know.
+
+**Left deliberately:** `shared_context.py` (2 live functions: `canonical_brand_id` used by
+`config.py:555`, `audit_brand_registry_against_hub` used at startup — the rest was legacy-only),
+`brain.py`, `influencer/`, `platforms/youtube.py`, `oauth/youtube.py`.
+
+**Remains:** `create_all_tables()` in `db/session.py` is now dead code. `shared_context.py` is mostly
+dead but load-bearing in two places — worth extracting those two helpers and deleting the rest.

@@ -3,51 +3,34 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### DB-OPT — drop the tables the code no longer uses                              [OPEN — surveyed]
-Owner: unassigned        Opened: 2026-08-28        Unparked + surveyed: 2026-09-02
-Reading: docs/plans/2026-08-28-phase1-source-to-publish.md, src/glitch_signal/db/models.py, supabase/migrations/
-Acceptance: the tiers below actioned per the operator's call on Tier 2; app boots; /healthz 200; suite green.
-Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.md
-
-**SURVEY (2026-09-02, live DB + code cross-reference).** 32 tables. Each was checked three ways:
-raw-SQL reference, ORM `__tablename__`, and whether the ORM class is used anywhere outside
-`db/models.py` — a model that is only *declared* is dead.
-
-**Tier 1 — DONE (2026-09-02, PR #232).** Dropped via `20260902070000_drop_dead_tables.sql`; the
-four dead ORM models removed from `db/models.py` too, so the schema cannot drift back.
-
-**Tier 1 — dead by every measure. 0 rows, never queried (6):**
-`comment_reply`, `mention_event`, `orm_response`, `strategic_reply` (the four the original lane
-named — confirmed declared-only), plus two the lane did NOT know about:
-- `brand_document` — **newly orphaned by PR #216**, which removed `read_brand_doc` and the three
-  brand-document endpoints. No reference of any kind remains.
-- `alembic_version` — Alembic is fully gone (**0 files** under `alembic/versions/`, CI never
-  references it; the repo moved to Supabase-native migrations). Pure vestige.
-
-**Tier 2 — the legacy LangGraph pipeline. All 0 rows, but the code still imports them (9):**
-`signal`, `scout_checkpoint`, `video_asset`, `video_job`, `content_script`, `published_post`,
-`scheduled_post`, `metrics_snapshot`, `platform_auth` — referenced from `agent/nodes/scout.py`,
-`scheduler/queue.py`, `platforms/youtube.py`, `brain.py`, `shared_context.py`, `oauth/youtube.py`.
-Reachable only via the `drive_scout` cron capability, which **no-ops for GE** (`content_source` is
-`ai_generated`, not `drive_footage`); the graph is otherwise just constructed at startup
-(`server.py:131`). Schema follows code, so these come out only when that pipeline does.
-
-**Tier 3 — actively used, keep (17):** `agent_memory`, `agent_runs`, `balance_snapshots`,
-`brand_asset`, `brand_positioning`, `firm_rule`, `oauth_tokens`, `platform_profile`, `rate_counters`,
-`scheduled_jobs`, `scheduled_runs`, `social_campaign`, `social_post`, `social_post_metric`,
-`usage_events`, `waitlist`, `webhook_dedup`.
-
-⚠️ **The original blocking question is answered, and it was the wrong question.** The lane was parked
-on "does the workflow include AI GENERATION or only source→publish?". It includes generation — but
-through the **new `agent/social/` path** (`social_campaign` / `social_post` / `social_post_metric`,
-all carrying live rows), not the legacy `signal → scout → video_job` chain, every table of which is
-empty. The real decision is therefore: **do we retire the legacy LangGraph pipeline?** That is an
-operator call, and it gates Tier 2 only — Tier 1 needs no decision.
-
-Also stale in the original lane text: it specified "migration app-driven" and Alembic. Migrations are
-now Supabase-native SQL applied by the GitHub integration, independent of CI.
-
 ## Recently closed
+
+- **DB-OPT — retire the legacy LangGraph pipeline + drop 14 dead tables** (2026-09-02, PRs #231/#232/#233) —
+surveyed all 32 public tables three ways (raw SQL · ORM `__tablename__` · ORM-class use outside
+`db/models.py`, since a model that is only *declared* is dead), then executed both tiers.
+**Tier 1 (6):** `comment_reply`, `mention_event`, `orm_response`, `strategic_reply`, plus two the
+original lane never knew about — `brand_document` (orphaned by #216 when `read_brand_doc` and the
+brand-document endpoints went) and `alembic_version` (Alembic is entirely gone: 0 files under
+`alembic/versions/`, CI never references it). **Tier 2 (8):** the legacy pipeline itself —
+`agent/graph.py`, `agent/nodes/` (12 files), `scheduler/` (2 files), the `drive_scout` capability,
+the `/jobs/{scout,assemble,drive_scout}` endpoints, the file-based `buffer.publish()` path (no
+production caller — the social path uses `create_post`), 8 SQLModel classes and their tables
+(`signal`, `content_script`, `video_job`, `video_asset`, `scheduled_post`, `published_post`,
+`metrics_snapshot`, `scout_checkpoint`), dropped leaf-first along the FK chain.
+**~4,000 lines removed.** Endpoints 42 → 39, verified by count before and after; `/healthz` lost its
+`queue` block, which counted two of the dropped tables. Suite **792 pass / 1 skip**; ruff F401 went
+DOWN (13 → 9), so some pre-existing debt went with it.
+⚠️ **`platform_auth` was deliberately KEPT** — the survey said Tier 2 was "all 0 rows" and that was
+wrong: it holds a **live active YouTube OAuth credential** for glitch_executor (2026-08-29), and the
+`/oauth/youtube/{start,callback}` endpoints that issue it are still mounted. Retiring YouTube is a
+separate product decision, not a schema cleanup.
+Also verified before dropping anything: no FK from a surviving table pointed at any dropped table,
+no views exist in `public`, and **`create_all_tables()` is never called** — it runs
+`SQLModel.metadata.create_all` and would have silently recreated every dropped table at boot.
+Left behind on purpose: `shared_context.py` (only 2 of its functions are live — `canonical_brand_id`
+for `config.py`, `audit_brand_registry_against_hub` for startup), `brain.py`, `influencer/`, and the
+YouTube modules. → supervisor
+
 
 - **HEYGEN — production-grade video, end to end** (2026-09-02, PRs #217–#228) — video had produced nothing since 2026-08-31: five consecutive nightly campaigns, each logging `heygen video <id> failed: ` with an **empty reason**. Studied the v1 monorepo's archived UGC lane (22 iterations) then crawled the HeyGen dev docs systematically off their `llms.txt` index (4 parallel read-only agents) and probed the live account. **THE ROOT CAUSE WAS TWO THINGS, and this lane got it wrong twice before landing on them.** **(a) `failed` is TRANSIENT, not terminal** — observed live: `failed → thinking → generating (2→31→97) → completed`, flapping back through `failed` mid-run. Our poll raised on the first `failed` and abandoned renders that then completed vendor-side with nobody listening; five sessions later turned out `completed`, and one already-billed video from 08-31 was never collected. HeyGen's OWN docs sample has the same bug (`if status in ("completed","failed"): break`). **(b) insufficient CREDIT** — surfaced only once the `_reason` ladder read `session.messages`: *"your account still has insufficient credits to proceed"*. `failure_code`/`failure_message` are `null` throughout, so this was invisible before. ⚠️ Two wrong conclusions were shipped and then corrected in-lane: the **USD wallet** as cause (renders bill **plan credits**; that gate would have refused every render on an account holding 1,091) and **"vendor-side, credits eliminated"** (backwards — an insufficient-funds abort bills nothing by definition, so an unchanged balance is what this failure LOOKS like). **Shipped:** resume-on-`failed` + stall nudge on no motion for 420s (`_MAX_RESUMES` 3) + `stop` on give-up to free one of the 10 concurrent slots; `_reason` failure ladder (never empty); session-as-authority polling; credit preflight on `details.plan_credit`; per-capability timeout (`social_campaign` 1800s — a real recovered render took 555s); brand kit + glossary + pinned avatar **look** id provisioned and env-pinned; **no `files`** (HeyGen pastes attachments into the B-roll as literal screenshots — operator); HeyGen's six-part **style paragraph** driven by the brand's own colour tokens; cost fixed on BOTH axes (26 credits/render, not 1; $0.065/credit from the real $39÷600 plan → **$1.69/render**, was 26× low and 4.6× high, the errors partly cancelling); `reconcile` off the v2 endpoint HeyGen removes **2026-10-31**. Also fixed a separate shipped defect: **`oauth_tokens.access_token` was NOT NULL** while the refresh writes NULL, so EVERY MCP token refresh rolled back and left the expired token — both MCP servers had silently died; heygen re-authed to **112 tools**. Knowledge base: `docs/vendors/heygen.md` (DOC vs LIVE kept distinct where they disagree) + a **known-good reference render** operator-approved as production quality (`1b9dea64…`, 28.4s). Suite **864 pass / 1 skip**. **Remains:** billing with HeyGen support (which balance Video Agent bills is unanswered — `plan_credit` 1015 yet "insufficient"); the style paragraph is **visually unverified** (both attempts died in the credit-starved window); no burned-in captions on any render (`captioned_video_url`/`subtitle_url` null) which matters for sound-off TikTok/Reels; webhook push-completion (`callback_url`) still unused though the receiver exists. → supervisor
 
