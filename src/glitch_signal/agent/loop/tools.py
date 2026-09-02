@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from glitch_signal.agent.memory import recall as mem_recall
 from glitch_signal.agent.memory import remember as mem_remember
@@ -259,7 +260,40 @@ async def _t_discover_communities(args: dict, brand_id: str) -> str:
 
     rows = res.get("communities") or []
     await _store.record(brand_id, "reddit", "community", rows, query=query)
-    return json.dumps({"query": query, "count": len(rows), "communities": rows})
+    # Feed the length lesson back to the model rather than letting it silently accept dead rooms:
+    # a sentence-length query returns near-empty subreddits (measured ~1,900x less reach than a
+    # two-word one), and the result LOOKS fine without this hint.
+    hint = ("query looks long — community search degrades sharply with length; try 2-3 keywords "
+            "instead of a sentence") if len(query.split()) > 3 else ""
+    return json.dumps({"query": query, "count": len(rows),
+                       "hint": hint, "communities": rows})
+
+
+async def _t_rank_surfaces(args: dict, brand_id: str) -> str:
+    """Rank the ROOMS this brand should speak in, from evidence already gathered.
+
+    Reads stored surfaces and re-scores them — no external call, so this is NOT policy-gated the way
+    the discovery pulls are. Scores marked `provisional` are priors, not findings: no measured
+    engagement exists there yet, and the model is told so explicitly rather than left to over-read a
+    ranking.
+    """
+    from glitch_signal.agent.social import surfaces as _surfaces
+
+    kind = (args.get("kind") or None)
+    limit = int(args.get("limit") or 10)
+    postable_only = bool(args.get("postable_only") or False)
+    if args.get("rescore", True):
+        await _surfaces.rescore(brand_id)
+    rows = await _surfaces.top(brand_id, kind=kind, limit=limit, postable_only=postable_only)
+    for r in rows:
+        r["fit_score"] = float(r["fit_score"]) if r.get("fit_score") is not None else None
+    n_prov = sum(1 for r in rows if r.get("provisional"))
+    return json.dumps({
+        "count": len(rows), "provisional": n_prov,
+        "note": ("scores are PROVISIONAL priors from reach and relevance density — no measured "
+                 "engagement yet; treat as candidates, not evidence") if n_prov else "",
+        "surfaces": rows,
+    }, default=str)
 
 
 async def _t_web_search(args: dict, brand_id: str) -> str:
@@ -536,10 +570,24 @@ TOOLS: dict[str, dict[str, Any]] = {
     "discover_communities": {"fn": _t_discover_communities,
                              "description": "Find the ROOMS an audience gathers in — subreddits matching "
                                             "a query, with subscriber counts. Use to decide WHERE to "
-                                            "participate before deciding what to say. NOTE: gated — "
-                                            "denied unless discovery is enabled.",
+                                            "participate before deciding what to say. IMPORTANT: use "
+                                            "2-3 KEYWORDS, not a sentence — a sentence-length query "
+                                            "returns near-empty rooms (measured ~1,900x less reach). "
+                                            "Reduce the audience description to its key terms first. "
+                                            "NOTE: gated — denied unless discovery is enabled.",
                              "input_schema": _obj({"query": {"type": "string"},
                                                    "limit": {"type": "integer"}}, ["query"], closed=False)},
+    "rank_surfaces": {"fn": _t_rank_surfaces,
+                      "description": "Rank the ROOMS this brand should participate in (subreddits "
+                                     "etc), scored on relevance density and reach from what "
+                                     "discovery has already observed. Use to decide WHERE before "
+                                     "deciding what to say. `postable_only` restricts to rooms whose "
+                                     "rules permit self-promotion. Scores flagged `provisional` are "
+                                     "priors, not measured evidence.",
+                      "input_schema": _obj({"kind": {"type": "string"},
+                                            "limit": {"type": "integer"},
+                                            "postable_only": {"type": "boolean"},
+                                            "rescore": {"type": "boolean"}}, [], closed=False)},
     "web_search": {"fn": _t_web_search, "strict": True,
                    "description": "Search the LIVE web for current information (trends, examples, facts). "
                                   "Returns {answer, sources}.",

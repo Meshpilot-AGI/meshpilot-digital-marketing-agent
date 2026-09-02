@@ -201,3 +201,19 @@ async def test_seen_ids_short_circuits_on_empty():
     eng = _Engine()
     assert await store.seen_ids("b", "reddit", [], engine=eng) == set()
     assert eng.calls == []               # no pointless round-trip
+
+
+async def test_community_search_hints_when_the_query_is_a_sentence(monkeypatch):
+    """Measured 2026-09-02: 'prop firm' (2 words) found 5.8M combined subscribers; the same intent as
+    a 5-word sentence found 3,053 — near-empty rooms. The result LOOKS fine either way, so the tool
+    tells the model rather than letting it accept dead rooms silently."""
+    import json as _json
+
+    _mock(monkeypatch, {"communities": [{"name": "x", "subscribers": 10}]})
+    from glitch_signal.agent.loop.tools import TOOLS
+
+    long_q = await TOOLS["discover_communities"]["fn"](
+        {"query": "traders running funded prop-firm challenges"}, "b")
+    short_q = await TOOLS["discover_communities"]["fn"]({"query": "prop firm"}, "b")
+    assert "keywords" in _json.loads(long_q)["hint"]
+    assert _json.loads(short_q)["hint"] == ""
