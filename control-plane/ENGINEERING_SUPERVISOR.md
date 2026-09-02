@@ -1138,3 +1138,24 @@ Successful renders DO decrement (`plan_credit` 1091 -> 1015 across three).
 **Remains:** the style paragraph (#226) is still visually unverified — both attempts died in the
 credit-starved window. No burned-in captions on any render (`captioned_video_url`/`subtitle_url`
 null), which matters for sound-off TikTok/Reels viewing.
+
+
+## HEYGEN-CAPTIONS — 2026-09-02
+
+**Verified the gap is real before fixing it.** Pulled the reference render's composition
+(`GET /v3/videos/{id}/scenes`) and its frames (thumbnail + gif contact sheet via Pillow — no ffmpeg
+on this box). Each scene is `avatar` (engine `avatar_iv`, our pinned look) + `motion_graphics`
+Hyperframes elements. On screen: a persistent headline card ("STOP BLOWING ACCOUNTS") and stat cards
+("PAYOUT / FAILED"), both on-brand with the #93FF00 accent — but **no word-synced caption track**.
+
+Key nuance: the approved reference render came from a MANUAL test prompt that contained **no caption
+line at all**, so the production prompt's caption instruction had never actually been exercised.
+
+**Changed:** `video.caption_line(tokens)` — one word-by-word track, accent colour on the key term,
+lower third inside the safe area. The v1 UGC lane found (22 iterations) that asking for a word track
+AND beat overlays renders both and they collide; rather than dropping either, this separates them by
+POSITION (captions lower third, headline/stat cards upper two-thirds), which also keeps to the
+positive-framing rule a bare prohibition would break.
+
+**Verified:** 867 pass / 1 skip. ⚠️ **NOT verified on a real render** — every attempt since died in
+the credit-starved window. The prompt change is a hypothesis until a render lands.

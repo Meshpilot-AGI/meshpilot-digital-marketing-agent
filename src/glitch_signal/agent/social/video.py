@@ -123,6 +123,28 @@ def style_paragraph(voice: Any = None, tokens: dict | None = None) -> str:
     )
 
 
+def caption_line(tokens: dict | None = None) -> str:
+    """The caption spec — what makes a post readable with the sound off.
+
+    Most social video is watched muted, so a viewer who cannot follow the narration scrolls. The
+    renders we have seen carry a persistent headline card ("STOP BLOWING ACCOUNTS") but no
+    word-synced track, so the spoken argument is lost without audio.
+
+    The v1 monorepo's UGC lane learned across 22 iterations that asking for a word-by-word track AND
+    beat-styled overlays makes the agent render both at once and they collide. Rather than dropping
+    either — the headline cards are a real part of the look — this separates them by POSITION, which
+    also keeps to the positive-framing rule that a bare prohibition would break.
+    """
+    accent = str((tokens or {}).get("accent") or "#4ADE80")
+    return (
+        "Captions: a single word-by-word caption track that reveals each word as it is spoken — "
+        f"white type with {accent} on the one number or term that carries the point, held in the "
+        "lower third inside the safe area so the platform's own UI stays clear of it. Any headline "
+        "or stat card sits in the upper two-thirds, well above the caption band, so the two read as "
+        "separate layers."
+    )
+
+
 def build_video_prompt(idea: Idea, *, seconds: int = 30, voice: Any = None,
                        tokens: dict | None = None) -> str:
     """A directorial brief in the shape HeyGen's own testing says works.
@@ -154,8 +176,7 @@ def build_video_prompt(idea: Idea, *, seconds: int = 30, voice: Any = None,
         "Presenter: one male presenter in his early thirties, visible and speaking to camera "
         "throughout, like a single-take message to a friend who trades.\n\n"
         f"{style_paragraph(voice, tokens)}\n\n"
-        "Captions: one clean caption track following the spoken words, positioned clear of the "
-        "bottom edge.\n"
+        f"{caption_line(tokens)}\n"
         f"Duration: {seconds} seconds.\n"
         "Orientation: portrait."
     )[:_MAX_PROMPT]

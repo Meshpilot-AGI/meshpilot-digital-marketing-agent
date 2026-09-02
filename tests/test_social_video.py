@@ -348,3 +348,28 @@ async def test_poll_does_not_nudge_a_slow_but_moving_render(monkeypatch):
                                     stall_s=30)
     assert out == "https://heygen/out.mp4"
     assert resumed == []                             # never interrupted
+
+
+# ── captions: most social video is watched muted ──
+def test_caption_line_asks_for_one_word_synced_track():
+    """Renders carried a persistent headline card but no word-synced track, so the spoken argument
+    was lost with the sound off — which is how most of the feed watches."""
+    line = video.caption_line({"accent": "#93FF00"})
+    assert "single word-by-word" in line
+    assert "#93FF00" in line                      # accent from the brand's own tokens
+    assert "safe area" in line                    # platform UI must not cover it
+
+
+def test_caption_line_separates_captions_from_headline_cards_by_position():
+    """The v1 UGC lane found that asking for a word-by-word track AND beat overlays renders both at
+    once and they collide. Separating them by POSITION keeps both — the headline cards are part of
+    the look — without a prohibition, which would break the positive-framing rule."""
+    line = video.caption_line(None).lower()
+    assert "lower third" in line and "upper two-thirds" in line
+    for banned in ("do not", "don't", "avoid", "never", " no "):
+        assert banned not in line, f"caption spec uses restrictive framing: {banned!r}"
+
+
+def test_build_video_prompt_carries_the_caption_spec():
+    p = video.build_video_prompt(IDEA, tokens={"accent": "#93FF00"})
+    assert "word-by-word" in p and "safe area" in p
