@@ -139,3 +139,69 @@ async def _empty():
 
 async def _blank():
     return ""
+
+
+# ── handle storage + lookup (real data, real footguns) ──────────────────────────────────────────
+async def test_find_selects_the_handles_column():
+    """Guards the bug this shipped with: the column was added and populated, but `assets.find`'s
+    explicit SELECT list was never updated, so every lookup silently returned no handles."""
+    from glitch_signal.agent import assets
+    eng = FakeEngine()
+    eng.queue(_Result(rows=[]))
+    await assets.find("ge", kind="logo", engine=eng)
+    sql, _ = eng.calls[0]
+    assert "handles" in sql.lower()
+
+
+async def test_reserved_provenance_key_is_never_returned_as_a_handle(monkeypatch):
+    """`_source` records where a handle came from and lives in the same JSON. It must never be
+    mistaken for a platform and emitted as something to tag."""
+    async def _resolve(brand, names, *, kind="logo", engine=None):
+        return [{"slug": "ftmo", "name": "FTMO",
+                 "handles": {"x": "@FTMO_com", "_source": "ftmo.com footer"}}]
+    monkeypatch.setattr("glitch_signal.agent.assets.resolve_named", _resolve)
+    assert await kb.handles_for("ge", ["FTMO"], "_source") == []
+    assert await kb.handles_for("ge", ["FTMO"], "x") == ["@FTMO_com"]
+
+
+async def test_handles_survive_jsonb_returned_as_text():
+    """asyncpg sometimes hands jsonb back as a string; a raw str would make `.get` fail silently and
+    the post would simply never tag anyone. A local fake is used because the shared FakeEngine has
+    no `.mappings()`, which `assets.find` relies on."""
+    from glitch_signal.agent import assets
+
+    row = {"slug": "ftmo", "name": "FTMO", "kind": "logo", "url": "u", "width": 1, "height": 1,
+           "accent": None, "usage_note": None, "handles": '{"x": "@FTMO_com"}'}
+
+    class _R:
+        def mappings(self):
+            return self
+
+        def all(self):
+            return [row]
+
+    class _Conn:
+        async def execute(self, *a, **k):
+            return _R()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Eng:
+        def connect(self):
+            return _Conn()
+
+    got = await assets.find("ge", kind="logo", engine=_Eng())
+    assert got[0]["handles"] == {"x": "@FTMO_com"}
+
+
+async def test_a_company_with_no_verified_handle_is_never_tagged(monkeypatch):
+    """Apex publishes no social links on its own site, so we hold none. It must be named in plain
+    text rather than tagged at a guessed account — this category has lookalikes."""
+    async def _resolve(brand, names, *, kind="logo", engine=None):
+        return [{"slug": "apex", "name": "Apex Trader Funding", "handles": {}}]
+    monkeypatch.setattr("glitch_signal.agent.assets.resolve_named", _resolve)
+    assert await kb.handles_for("ge", ["Apex"], "x") == []

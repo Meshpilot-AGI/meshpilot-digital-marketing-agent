@@ -83,8 +83,11 @@ async def handles_for(brand_id: str, firm_names: list[str], platform: str,
 
         found = await assets.resolve_named(brand_id, firm_names, kind="logo", engine=engine)
         out: list[str] = []
+        key = (platform or "").lower()
+        if key.startswith("_"):
+            return []                       # reserved provenance keys are not platforms
         for a in found:
-            h = (a.get("handles") or {}).get((platform or "").lower())
+            h = (a.get("handles") or {}).get(key)
             if h:
                 out.append(str(h))
         return out
