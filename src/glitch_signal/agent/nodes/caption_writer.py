@@ -307,14 +307,9 @@ async def _caption_llm(system_prompt: str, user_text: str, brand_id: str) -> str
     real brand voice, on top of the `voice_prompt_path` {voice} rules already in the system prompt.
     Doc grounding is best-effort — a doc-store hiccup or no docs still yields a caption.
     """
-    from glitch_signal.agent import documents
-    try:
-        docs = await documents.list_for_brand(brand_id)
-    except Exception:  # noqa: BLE001 — grounding must never block captioning
-        docs = []
-    user_content: list[dict] = [
-        {"type": "document", "source": {"type": "file", "file_id": d["file_id"]}} for d in docs
-    ]
+    # Document grounding removed with the Anthropic Files API: OpenRouter has no equivalent, and
+    # `brand_positioning` now carries the brand context this was reaching for.
+    user_content: list[dict] = []
     user_content.append({"type": "text", "text": user_text})
     return await agent_llm.chat(
         [{"role": "system", "content": system_prompt},

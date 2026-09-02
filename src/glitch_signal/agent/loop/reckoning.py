@@ -28,6 +28,11 @@ log = structlog.get_logger(__name__)
 CompleteFn = Callable[..., Awaitable[str]]
 
 
+# Deliberation is judgement, so it routes rather than pinning a model — a pinned `model=` overrides
+# the tier entirely and forfeits the router's cross-provider failover.
+DELIBERATION_TIER = "complex"
+
+
 def _model() -> str:
     """Model for the deliberation passes. `AGENT_DELIBERATION_MODEL` overrides; otherwise the SAME
     model the main loop uses. Reflection is cheap legwork so a Haiku is ideal — but not every key/org
@@ -64,7 +69,8 @@ async def expectation(goal: str, seed: str, *, complete: CompleteFn | None = Non
     complete = complete or agent_llm.complete
     prompt = f"Goal: {goal}\n\nWhat you recall:\n{(seed or '')[:1500]}\n\nYour expectation:"
     try:
-        txt = await complete(prompt, system=_EXPECT_SYS, model=model or _model(), timeout_s=40)
+        txt = await complete(prompt, system=_EXPECT_SYS, model=model or _model(),
+                             tier=DELIBERATION_TIER, timeout_s=40)
         return (txt or "").strip()[:400]
     except Exception as exc:  # noqa: BLE001 — deliberation must never fail the run
         log.warning("agent.reckoning.expectation_failed", error=str(exc)[:200])
@@ -91,7 +97,8 @@ async def reckon(goal: str, expectation_text: str, transcript: list[dict[str, An
     prompt = (f"Goal: {goal}\nExpected: {expectation_text or '(none recorded)'}\n"
               f"Actions: {actions or 'none'}\nFinal result: {(final or '')[:600]}\n\nYour reckoning JSON:")
     try:
-        raw = await complete(prompt, system=_RECKON_SYS, model=model or _model(), timeout_s=40)
+        raw = await complete(prompt, system=_RECKON_SYS, model=model or _model(),
+                             tier=DELIBERATION_TIER, timeout_s=40)
     except Exception as exc:  # noqa: BLE001
         log.warning("agent.reckoning.reckon_failed", error=str(exc)[:200])
         return {}

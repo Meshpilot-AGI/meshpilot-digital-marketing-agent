@@ -490,49 +490,6 @@ async def internal_agent_memory_unverify(request: Request) -> dict:
     return {"ok": True, "unverified": revoked_ids, "not_found": sorted(set(ids) - set(revoked_ids))}
 
 
-@app.post("/internal/brand/{brand_id}/documents", dependencies=[Depends(_require_jobs_auth)])
-async def internal_brand_document_upload(request: Request, brand_id: str,
-                                         file: UploadFile = File(...),
-                                         kind: str = Form("doc")) -> dict:
-    """Upload a brand document (PDF/text) to the Anthropic Files API and record it (auth: x-jobs-token).
-
-    Multipart: file=<the document>, kind?=doc|style_guide|brief|deck. The file_id is stored per-brand
-    so `read_brand_doc` can ground the agent in it. Only PDF or text/* accepted, ≤25MB.
-    """
-    brand_id = _authorized_path_brand(request, brand_id)
-    data = await file.read()
-    if len(data) > 25 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="file too large (max 25MB)")
-    mime = file.content_type or "application/octet-stream"
-    if not (mime == "application/pdf" or mime.startswith("text/")):
-        raise HTTPException(status_code=415, detail="only PDF or text/* documents are supported")
-    from glitch_signal.agent import documents, files
-    rec = await files.upload_file(data, file.filename or "document", mime)
-    row = await documents.add(brand_id, rec["id"], rec.get("filename") or (file.filename or "document"),
-                              mime_type=rec.get("mime_type"), size_bytes=rec.get("size_bytes"), kind=kind)
-    return {"ok": True, "doc_id": row["id"], "file_id": rec["id"], "filename": row["filename"]}
-
-
-@app.get("/internal/brand/{brand_id}/documents", dependencies=[Depends(_require_jobs_auth)])
-async def internal_brand_document_list(request: Request, brand_id: str) -> dict:
-    """List a brand's uploaded documents (auth: x-jobs-token, brand-scoped)."""
-    brand_id = _authorized_path_brand(request, brand_id)
-    from glitch_signal.agent import documents
-    return {"ok": True, "documents": await documents.list_for_brand(brand_id)}
-
-
-@app.delete("/internal/brand/{brand_id}/documents/{doc_id}", dependencies=[Depends(_require_jobs_auth)])
-async def internal_brand_document_delete(request: Request, brand_id: str, doc_id: str) -> dict:
-    """Delete a brand document (row + the Anthropic file). Brand-scoped (auth: x-jobs-token)."""
-    brand_id = _authorized_path_brand(request, brand_id)
-    from glitch_signal.agent import documents, files
-    file_id = await documents.delete(brand_id, doc_id)
-    if file_id is None:
-        raise HTTPException(status_code=404, detail="document not found for this brand")
-    await files.delete_file(file_id)
-    return {"ok": True, "deleted": doc_id, "file_id": file_id}
-
-
 async def _run_agent_bg(run_id: str, brand: str, goal: str, max_steps: int, scope: str) -> None:
     from glitch_signal.agent.loop import run as agent_run
     from glitch_signal.agent.loop import runs as run_store

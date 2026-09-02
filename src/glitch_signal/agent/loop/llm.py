@@ -38,6 +38,9 @@ _APP_HEADERS = {"HTTP-Referer": "https://meshpilot.app", "X-Title": "MeshPilot A
 # treated as an OpenRouter slug and passed through; unknown bare names get an "anthropic/" prefix.
 _MODEL_MAP = {
     "claude-sonnet-5": "anthropic/claude-sonnet-5",
+    "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
+    # Legacy internal name still returned by `agent_llm.model_for("cheap")`. Kept as an alias so
+    # existing callers normalise correctly; new code should use the unsuffixed id.
     "claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
     "claude-opus-4-8": "anthropic/claude-opus-4.8",
     "claude-opus-5": "anthropic/claude-opus-5",

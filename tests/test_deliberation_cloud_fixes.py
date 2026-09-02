@@ -17,7 +17,7 @@ def test_deliberation_model_falls_back_to_loop_model(monkeypatch):
     monkeypatch.delenv("AGENT_DELIBERATION_MODEL", raising=False)
     expected = agent_llm._model(None)             # what the main loop uses
     assert reckoning._model() == expected
-    assert conscience._model() == expected
+    assert conscience._model() is None  # unset -> router picks the CRITICAL tier
 
 
 # ── Fix 2: reckoning + conscience persist to the run record ──
