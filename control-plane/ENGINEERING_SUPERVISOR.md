@@ -1019,3 +1019,32 @@ A ready-to-send support ticket (with all nine failed session ids) is in `docs/ve
 pauses and resumes on any follow-up message; no `auto_proceed` parameter exists. We deliberately do
 NOT use `chat` on the cron path — nothing would approve it, and `waiting_for_input` unattended is
 treated as failure. Blueprint review is a future quality lever, not a fix.
+
+
+## HEYGEN-TRANSIENT-FAILED — 2026-09-02 (the actual root cause)
+
+**Correction:** the "vendor-side render failure" conclusion was WRONG, as were the wallet theories
+before it. HeyGen works. **`failed` is a TRANSIENT session state** and our poll treated it as
+terminal, abandoning renders that then completed vendor-side with nobody listening.
+
+**Evidence (live, real sessions):** `f677765644974d2f84473c0603cc0fdd` — a Sept 1 cron session long
+written off — was resumed with one follow-up message and ran
+`failed -> thinking -> generating (2->31->97) -> completed`, producing a **32.5s** video; it flapped
+back through `failed` a second time mid-run. `78ff3c6b...` likewise completed (23.1s) after the
+operator accepted it in the UI. This also explains the 2026-08-31 video our log called `failed` that
+the API later reported `completed` — we had already been billed for it and never collected it.
+
+**Changed:** `_default_poll` now nudges `failed`/`waiting_for_input` via
+`POST /v3/video-agents/{id}` `{"message": "Please continue and generate the video."}` and keeps
+polling, up to `_MAX_RESUMES` (3); only an exhausted budget raises. The video's status is no longer
+treated as terminal either (it mirrors the flapping) and is read only for the finished URL.
+Also: the video path now sends **no `files`** — HeyGen pastes attachments into the B-roll instead of
+using them as style reference, so posts showed raw screenshots and third-party logos (operator).
+Brand identity comes from `brand_kit_id`. `reference_urls()` removed.
+
+**Verified:** suite 854 pass / 1 skip, incl. a MockTransport test reproducing the exact
+failed->thinking->generating->completed flap. Two real videos recovered and delivered to the operator.
+
+**Remains:** the campaign's video deadline is clamped under the cron capability cap; a resumed render
+took ~9 minutes end to end, so confirm `agent_social_video_timeout_s` leaves room for a nudge cycle
+before relying on it unattended.

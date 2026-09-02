@@ -58,74 +58,44 @@ Every failure is identical: `status: failed`, `progress: 0`, within 50–70s, `f
 `failure_message` **null on both session and video**, session-videos list empty, video record a bare
 stub. HeyGen surfaces no diagnosable reason at all, and a failed render is **never billed**.
 
-### The render step is broken account-side — proven (2026-09-02)
+### ✅ RESOLVED — `failed` is TRANSIENT, and the bug was ours (2026-09-02)
 
-Two experiments close this out:
+The "vendor-side" conclusion above was **wrong**, and so were the wallet theories before it. The
+render pipeline works. What broke was our poll giving up.
 
-**1. The plan succeeds; the RENDER fails.** Run in `mode: "chat"`, the agent reached
-`waiting_for_input` at 70s having produced a real blueprint (a `model`/`resource` message: *"I've
-put together a plan for your trading-tools video…"*). The approval
-(`POST /v3/video-agents/{id}` `{"message": "Looks good — go ahead and generate the video."}`)
-returned **200** with a `run_id`. Ten seconds later: `failed`, `progress: 0`. So scripting, scene
-planning and the approval handshake all work — only rendering dies.
+A session that reports `failed` **can and does recover**. Observed live on a real session, with the
+progress trace to prove it:
 
-**2. A bare-minimum request fails identically.** `{"prompt": "Create a 15-second video about morning
-coffee."}` — no avatar, no brand kit, no glossary, no files, no orientation, unrelated subject —
-also `failed` at `progress: 0`. **Nothing about our payload, prompt, brand or configuration is
-involved.**
+```
+failed -> thinking -> generating (2 -> 31 -> 97) -> completed   (32.5s video)
+```
 
-**3. Memory injection is not the cause.** That coffee video came back "tailored to your confident
-operator style" — HeyGen injects workspace memory by default. Re-run with `incognito_mode: true`
-(memory injection and extraction disabled): **fails identically**.
+It flapped back through `failed` a *second* time mid-run before finishing. A follow-up message —
+any message, there is no `auto_proceed` — nudges a stalled or failed session back into motion:
 
-**4. The session never reaches `generating`.** It goes `thinking` → `failed` (or
-`waiting_for_input` → `failed`), skipping the `generating` state entirely — the render is never
-entered, let alone attempted. Following HeyGen's own troubleshooting advice ("check messages for
-error details") yields nothing: no message of `type: "error"` is ever produced. The blueprint
-resource IS retrievable (`resource_type: "blueprint"`, `source_type: "generated"`), confirming the
-planning half completed cleanly.
+```
+POST /v3/video-agents/{session_id}   {"message": "Please continue and generate the video."}
+```
 
-Combined with 1,091 credits free and failed renders never being billed, this is an **account/vendor
--side failure of the Video Agent render step**, not something fixable in this repo.
+Two sessions the nightly cron had written off were recovered this way and produced finished videos.
 
-#### Support ticket — ready to send
+**What this explains.** Our poll raised on the first `failed` and abandoned the render — which then
+carried on vendor-side and completed with nobody listening. That is why a completed video sat unused
+on 2026-08-31 (our log said `failed`, the API later said `completed`), and why five nightly runs
+produced nothing while HeyGen was working. Every "eliminated hypothesis" in the earlier
+investigation was eliminated correctly; the one thing never questioned was our own terminal-state
+assumption.
 
-> Video Agent renders have failed 100% since 2026-09-01 (last success 2026-08-30, "Glitch Executor:
-> The Payout Truth", 26 credits). Every session fails at `progress: 0` within 50–120s.
-> `failure_code` and `failure_message` are **null on both the session and the video**, the video
-> record is a bare stub, and `GET /v3/video-agents/{id}/videos` returns `[]`, so there is no
-> diagnosable reason on our side.
->
-> The agent plans successfully — in `chat` mode it produces a full storyboard/blueprint and reaches
-> `waiting_for_input`; approving it returns 200 with a `run_id`, and the session fails ~10s later.
-> Only the render step fails.
->
-> Ruled out here: the prompt (a bare `{"prompt": "Create a 15-second video about morning coffee."}`
-> fails identically), attachments (none), brand kit/glossary (failures predate them; identical with
-> and without), avatar (a pinned pre-trained look fails the same, and all private looks report
-> `status: completed`, `error: null`), and credits (1,091 remaining; balances unchanged either side
-> of a failed render).
->
-> Failed session ids: `a5c50c16f3214a2a9a4caf4e0eeeb298`, `b8374692…`, `a718fa61…`, `abbb6ec9…`,
-> `f6777656…`, `a2f56d5274284937ad4407f35e6ca8ca`, `2dc60d2f738e4c0ab74e361dd62b2121`,
-> `78ff3c6b6ce14a1782877396d6c15e76` (chat mode), `c265837720d14ecf9e212634aa55032e` (minimal),
-> `643062d5e99e49069a16e0e30be90019` (minimal + `incognito_mode: true`).
->
-> The session never enters `generating` — it goes straight from `thinking` (or `waiting_for_input`)
-> to `failed`, so the render is never entered. No message of `type: "error"` is produced.
+**Rules now encoded in `_default_poll`:**
 
-#### On the accept step
+- `failed` and `waiting_for_input` are **recoverable**, not terminal → nudge and keep polling, up to
+  `_MAX_RESUMES` (3). Only an exhausted budget is a real failure.
+- The **video's** status is not terminal either — it mirrors the session's flapping — so it is read
+  only to collect the finished `video_url`.
+- Budget the deadline for recovery: a resumed render can take well over the nominal 5–10x.
 
-`mode: "generate"` (what the pipeline uses) auto-proceeds past the blueprint — confirmed in the docs
-and consistent with what we observe, since generate-mode sessions die at the same point without ever
-pausing. `mode: "chat"` pauses at `reviewing`/`waiting_for_input` and resumes on **any** follow-up
-message (there is no `auto_proceed` parameter). We deliberately do **not** use `chat` in the cron
-path: nothing would be there to approve it, and `waiting_for_input` on an unattended run is treated
-as a failure. Adding a blueprint-review step is a possible future quality lever, not a fix for this.
-
-`preflight()` now gates on **plan credits** (`HEYGEN_MIN_CREDITS`, default 26 = one render), fails
-open on an unreadable balance, and passes on the live account. An earlier version gated on the USD
-wallet and would have refused every render this plan can comfortably fund.
+> **Never treat a HeyGen status as terminal on first read.** It is the single most expensive
+> assumption made in this integration.
 
 ## 1. Video Agent — the contract
 
@@ -163,6 +133,11 @@ speculatively and never send `null` for a pin you don't have.
 | `files` | array | **max 20**; png, jpeg, mp4, webm, mp3, wav, pdf |
 | `callback_url` / `callback_id` | string | webhook instead of polling |
 | `incognito_mode` | bool | default `false`; disables memory injection/extraction |
+
+⚠️ **Do not attach product screenshots or third-party logos to a social render.** HeyGen does not
+treat `files` as *style* reference — it drops the literal images into the B-roll, so posts came back
+showing raw screenshots and other companies' marks. Brand identity belongs in `brand_kit_id`, which
+the agent composes with rather than pastes. The video path sends **no `files`** (operator, 2026-09-02).
 
 `files` entries are a discriminated union — **32 MB per file, including URL inputs**:
 

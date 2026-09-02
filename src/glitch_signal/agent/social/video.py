@@ -53,7 +53,8 @@ _MIN_CREDITS = 26.0
 _SESSION_DONE = "completed"
 _SESSION_FAILED = "failed"
 _SESSION_STUCK = "waiting_for_input"   # `chat`-mode pause; nobody is listening on a cron run
-_VIDEO_TERMINAL_FAIL = ("failed", "error", "cancelled", "canceled")
+# How many times a flapping session is nudged before we call it dead.
+_MAX_RESUMES = 3
 
 
 class HeyGenError(RuntimeError):
@@ -114,12 +115,12 @@ def build_video_prompt(idea: Idea, *, seconds: int = 30) -> str:
     )[:_MAX_PROMPT]
 
 
-def reference_urls(brand_id: str) -> list[str]:
-    """Comma-separated `<PREFIX>_SOCIAL_REFERENCE_URLS`, capped at `_MAX_FILES`."""
-    from glitch_signal.config import brand_env
-
-    raw = brand_env("SOCIAL_REFERENCE_URLS", brand_id)
-    return [u.strip() for u in raw.split(",") if u.strip()][:_MAX_FILES]
+# `files` (product screenshots, platform logos) is deliberately NOT used on the video path.
+# HeyGen does not treat attachments as *style* reference — it drops the literal images into the
+# B-roll, so posts came out showing raw screenshots and other companies' logos. Brand identity now
+# comes from `brand_kit_id` (palette, fonts, logo), which the agent composes with instead of
+# pasting. Operator call, 2026-09-02: "stop attaching the platform photos and logos, just use the
+# brand thing."
 
 
 def session_options(brand_id: str) -> dict[str, str]:
@@ -238,18 +239,44 @@ def _reason(session: dict, video: dict | None = None) -> str:
     return "no failure detail from heygen (no failure_code, failure_message, or session messages)"
 
 
-async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 900) -> str:
-    """Poll session -> video until a URL, a failure, or the deadline.
+async def _default_resume(session_id: str) -> None:
+    """Nudge a stalled/failed session back into motion.
 
-    The SESSION is checked every cycle, not just until a `video_id` appears: a session that fails
-    before it is assigned a video is otherwise invisible, and the whole timeout gets spent waiting
-    for a video that will never exist. HeyGen advises a 10–30s interval and says generation runs
-    5–10x the finished clip's length, so a 30s render is ~3–5 minutes.
+    Any follow-up message resumes the agent — there is no `auto_proceed` flag — so a plain
+    "continue" both answers a `waiting_for_input` clarification and restarts a `failed` run.
     """
     import httpx
 
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(f"{_API}/video-agents/{session_id}", headers=_heygen_headers(),
+                         json={"message": "Please continue and generate the video."})
+        r.raise_for_status()
+
+
+async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_s: int = 900,
+                        resume: Any = None, max_resumes: int = _MAX_RESUMES) -> str:
+    """Poll session -> video until a URL, exhausted resumes, or the deadline.
+
+    ⚠️ **`failed` is TRANSIENT, not terminal.** This is the defect that produced a month of empty
+    nightly campaigns. Observed live on a real session:
+
+        failed -> thinking -> generating (2 -> 31 -> 97) -> completed
+
+    — it even flapped back through `failed` a second time mid-run before finishing. The old code
+    raised on the first `failed` and abandoned the render, which then completed vendor-side with
+    nobody listening; that is why a video we had already been billed for sat unused (2026-08-31),
+    and why five nightly runs produced nothing while HeyGen was working fine.
+
+    So a `failed` (or `waiting_for_input`) session is nudged with a follow-up message and polling
+    continues, up to `max_resumes` times. Only an exhausted budget is a real failure. The VIDEO's
+    status is never terminal on its own either — it mirrors the session's flapping — so it is read
+    for the finished URL only.
+    """
+    import httpx
+
+    resume = resume or _default_resume
     headers = _heygen_headers()
-    waited = 0
+    waited = resumes = 0
     async with httpx.AsyncClient(timeout=60) as c:
         while waited < timeout_s:
             r = await c.get(f"{_API}/video-agents/{session_id}", headers=headers)
@@ -258,23 +285,22 @@ async def _default_poll(session_id: str, *, sleep: Any = asyncio.sleep, timeout_
             status = str(s.get("status", "")).lower()
             video_id = s.get("video_id")
 
-            if status == _SESSION_FAILED:
-                raise HeyGenError(f"heygen session {session_id} failed: {_reason(s)}")
-            if status == _SESSION_STUCK:
-                raise HeyGenError(
-                    f"heygen session {session_id} is waiting for input, but this run is "
-                    f"unattended (mode=generate): {_reason(s)}"
-                )
-
             if video_id:
                 r = await c.get(f"{_API}/videos/{video_id}", headers=headers)
                 r.raise_for_status()
                 v = (r.json() or {}).get("data", {})
-                vstatus = str(v.get("status", "")).lower()
-                if vstatus == "completed" and v.get("video_url"):
+                if str(v.get("status", "")).lower() == "completed" and v.get("video_url"):
                     return v["video_url"]
-                if vstatus in _VIDEO_TERMINAL_FAIL:
-                    raise HeyGenError(f"heygen video {video_id} {vstatus}: {_reason(s, v)}")
+
+            if status in (_SESSION_FAILED, _SESSION_STUCK):
+                if resumes >= max_resumes:
+                    raise HeyGenError(
+                        f"heygen session {session_id} still {status} after {resumes} resume "
+                        f"attempts: {_reason(s)}")
+                resumes += 1
+                log.info("social.video_resumed", session_id=session_id, status=status,
+                         attempt=resumes, progress=s.get("progress"))
+                await resume(session_id)
 
             await sleep(10)
             waited += 10

@@ -43,12 +43,6 @@ def test_build_video_prompt_respects_the_10k_cap():
     assert len(video.build_video_prompt(long_idea)) <= 10_000
 
 
-def test_reference_urls_splits_env(monkeypatch):
-    monkeypatch.setenv("GE_SOCIAL_REFERENCE_URLS", "https://a/1.png, https://a/2.png")
-    urls = video.reference_urls("glitch_executor")   # ENV_PREFIX for glitch_executor is GE
-    assert urls == ["https://a/1.png", "https://a/2.png"]
-
-
 def test_session_options_omits_unset_keys(monkeypatch):
     # HeyGen rejects unrecognised/None fields with a 422, so an unset pin must be ABSENT.
     monkeypatch.setenv("GE_HEYGEN_BRAND_KIT_ID", "bk_1")
@@ -168,30 +162,6 @@ async def _no_sleep(_s):
     return None
 
 
-async def test_poll_fails_fast_when_session_dies_before_a_video_id(monkeypatch):
-    """The 2026-09-01/02 shape: status `failed`, `progress` 0, `video_id` never assigned.
-
-    Polling only the video meant spinning out the entire timeout on an already-dead run.
-    """
-    _mock_heygen(monkeypatch, {"/video-agents/": {
-        "status": "failed", "progress": 0, "video_id": None,
-        "messages": [{"role": "model", "type": "text", "content": "I'm on it! Finding an avatar"}],
-    }})
-    with pytest.raises(video.HeyGenError) as e:
-        await video._default_poll("sess_1", sleep=_no_sleep, timeout_s=600)
-    assert "failed" in str(e.value) and "Finding an avatar" in str(e.value)
-
-
-async def test_poll_raises_on_unattended_waiting_for_input(monkeypatch):
-    # `waiting_for_input` only resolves if somebody answers; a cron run never will.
-    _mock_heygen(monkeypatch, {"/video-agents/": {
-        "status": "waiting_for_input", "progress": 50, "video_id": None, "messages": [],
-    }})
-    with pytest.raises(video.HeyGenError) as e:
-        await video._default_poll("sess_1", sleep=_no_sleep, timeout_s=600)
-    assert "waiting for input" in str(e.value)
-
-
 async def test_poll_returns_url_on_completion(monkeypatch):
     _mock_heygen(monkeypatch, {
         "/video-agents/": {"status": "completed", "progress": 100, "video_id": "v1", "messages": []},
@@ -200,12 +170,59 @@ async def test_poll_returns_url_on_completion(monkeypatch):
     assert await video._default_poll("s", sleep=_no_sleep) == "https://heygen/out.mp4"
 
 
-async def test_poll_surfaces_video_failure_code(monkeypatch):
-    _mock_heygen(monkeypatch, {
-        "/video-agents/": {"status": "generating", "video_id": "v1", "messages": []},
-        "/videos/": {"status": "failed", "failure_code": "content_policy_violation",
-                     "failure_message": "blocked"},
-    })
+async def test_poll_resumes_a_failed_session_instead_of_abandoning_it(monkeypatch):
+    """`failed` is TRANSIENT. Observed live: failed -> thinking -> generating -> completed.
+
+    Raising on the first `failed` is what produced a month of empty campaigns — the render carried
+    on vendor-side and completed with nobody listening.
+    """
+    import httpx
+
+    states = [
+        {"status": "failed", "progress": 0, "video_id": None, "messages": []},
+        {"status": "thinking", "progress": 0, "video_id": "v1", "messages": []},
+        {"status": "generating", "progress": 31, "video_id": "v1", "messages": []},
+        {"status": "completed", "progress": 100, "video_id": "v1", "messages": []},
+    ]
+    pos = {"i": 0}
+    resumed = []
+
+    async def _resume(sid):
+        resumed.append(sid)
+
+    def handler(request):
+        if "/video-agents/" in str(request.url):
+            cur = states[min(pos["i"], len(states) - 1)]
+            pos["i"] += 1                      # advance on every poll, like the real session
+            return httpx.Response(200, json={"data": cur})
+        done = pos["i"] >= len(states)
+        return httpx.Response(200, json={"data": {
+            "status": "completed" if done else "processing",
+            "video_url": "https://heygen/out.mp4" if done else None}})
+
+    real = httpx.AsyncClient
+
+    def factory(*a, **kw):
+        kw.pop("transport", None)
+        return real(*a, transport=httpx.MockTransport(handler), **kw)
+
+    monkeypatch.setattr(httpx, "AsyncClient", factory)
+    out = await video._default_poll("s1", sleep=_no_sleep, timeout_s=300, resume=_resume)
+    assert out == "https://heygen/out.mp4"
+    assert resumed == ["s1"]          # nudged once out of `failed`, then it recovered on its own
+
+
+async def test_poll_gives_up_after_the_resume_budget(monkeypatch):
+    _mock_heygen(monkeypatch, {"/video-agents/": {
+        "status": "failed", "progress": 0, "video_id": None,
+        "messages": [{"role": "model", "type": "error", "content": "hard stop"}]}})
+    tries = []
+
+    async def _resume(sid):
+        tries.append(sid)
+
     with pytest.raises(video.HeyGenError) as e:
-        await video._default_poll("s", sleep=_no_sleep, timeout_s=60)
-    assert "content_policy_violation" in str(e.value)
+        await video._default_poll("s1", sleep=_no_sleep, timeout_s=600, resume=_resume,
+                                  max_resumes=2)
+    assert len(tries) == 2 and "2 resume attempts" in str(e.value)
+    assert "hard stop" in str(e.value)
