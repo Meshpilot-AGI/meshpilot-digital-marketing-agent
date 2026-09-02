@@ -923,3 +923,30 @@ procedure). higgsfield should recover on the next refresh once the migration app
 rotated refresh token was consumed by the failed write, in which case it needs the same re-auth.
 NOTE: MCP is a separate surface from the social video path, which uses the REST API key — this
 does NOT explain the failing renders.
+
+
+## MCP-REAUTH — 2026-09-02
+
+**Changed:** re-authed the heygen MCP OAuth token (authorization_code + PKCE against
+`https://api2.heygen.com`, code captured by a local listener on `localhost:8765/callback`,
+tokens upserted **encrypted** via `oauth.upsert`). Access token valid ~10 days
+(`expires_in: 864000`, expires 2026-09-12).
+
+**Verified:** `oauth_tokens.access_token` is now `nullable=YES` with
+`oauth_tokens_access_token_present` present in PROD (the #219 migration applied via the
+Supabase<->GitHub integration), so this token can actually renew — without that, a fresh token
+would have died again in 10 days exactly as before. `manager_for_brand` + `async with` now
+discovers **112 heygen tools** (`video_agent.generate`, avatar, translate, voices...), live.
+
+**Corrections made during this lane (both were my own wrong theories, tested and discarded):**
+- "The stale token is why heygen showed 0 tools" — a *fresh* token still read 0 until the manager
+  was entered. `manager_for_brand()` returns an UNENTERED manager; `tool_descriptions()` is empty
+  until `async with`. The 0-tools reading was a test artifact.
+- "`mcp.heygen.com/mcp` 307s to `/mcp/`, so the missing trailing slash breaks it" — real redirect,
+  but both URL forms resolve 112 tools; the client follows it fine.
+- Cloudflare **1010 does** block `Python-urllib` on `api2.heygen.com` (registration + token
+  exchange 403); `curl`/`httpx` pass, so `oauth.py` itself is unaffected.
+
+**Remains:** **higgsfield is still down** — its refresh token is also `invalid_grant`, so the schema
+fix alone cannot recover it; it needs the same operator re-auth (84 tools). Also unchanged: this is
+a separate surface from the failing HeyGen *renders*, which use the REST API key.
