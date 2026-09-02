@@ -186,7 +186,12 @@ async def _backdrop_for(brand_id: str, plan, voice, tokens):
 
         # Seeded by the idea, not random: the same idea always renders the same frame, so a
         # re-run is reproducible and consecutive posts still differ.
-        seed = abs(hash(plan.fields.get("headline") or plan.fields.get("kicker") or ""))
+        # A STABLE hash: Python randomises str.__hash__ per process, so the previous `hash()` gave
+        # a different backdrop on every restart while the docstring claimed reproducibility.
+        import hashlib
+
+        key = (plan.fields.get("headline") or plan.fields.get("kicker") or "").encode()
+        seed = int(hashlib.sha256(key).hexdigest()[:8], 16)
         prompt = technique.backdrop_prompt(seed, style=voice.style, palette=voice.palette,
                                            banned=voice.banned_imagery)
         fmt = str(tokens.get("format") or DEFAULT_FORMAT)
@@ -211,8 +216,15 @@ async def _marks_for(brand_id: str, idea):
     logos: dict = {}
     mark = None
     try:
+        # Resolve marks from the CURATED firm aliases, never from raw copy tokens. Splitting the
+        # blob on whitespace fed every ordinary word to a substring matcher — "next" matches
+        # "FundedNext" — so an unrelated firm's logo could land on a post that never mentioned it.
+        # Publishing a competitor's mark on the wrong post is a brand and partner problem, not a
+        # cosmetic one.
+        from glitch_signal.agent import firms as _firms
+
         blob = f"{idea.angle} {idea.hook} {' '.join(idea.key_points or [])}"
-        named = await _assets.resolve_named(brand_id, blob.split(), kind="logo")
+        named = await _assets.resolve_named(brand_id, _firms.mentioned(blob), kind="logo")
         for a in named:
             if a["slug"] == "glitch-executor":
                 mark = await _fetch_image(a["url"])
@@ -285,9 +297,19 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: b
     # RESERVE the campaign BEFORE any paid work — the DB unique(brand_id,dedup_key) is the dedup
     # authority, so two concurrent runs of the same idea can never both do paid work. A conflict
     # (no row returned) is a clean duplicate skip.
-    # Record what was DECIDED alongside the campaign: without it the outcome data has nothing to
-    # group by and no lesson drawn from it can be falsified.
+    # ENFORCE the assignment. The directive says "binding", but an LLM will still return a
+    # different asset_kind when its instincts disagree — and a suggestion the model can decline is
+    # not an experiment. Overriding here is what makes the matrix's coverage claim true rather than
+    # aspirational; recording the model's preference separately keeps the override visible.
+    requested = idea.asset_kind
+    if cell and requested != cell.asset_kind:
+        import dataclasses
+
+        log.info("social.matrix_override", assigned=cell.asset_kind, model_chose=requested)
+        idea = dataclasses.replace(idea, asset_kind=cell.asset_kind)   # Idea is frozen
     choices = {**(cell.as_choices() if cell else {}), "asset_kind": idea.asset_kind}
+    if cell and requested != cell.asset_kind:
+        choices["model_preferred"] = requested
     cid = None if dry_run else await d.store_mod.reserve_campaign(brand_id, idea, choices=choices,
                                                                   engine=engine)
     if cid is None and not dry_run:

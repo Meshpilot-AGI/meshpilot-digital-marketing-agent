@@ -47,6 +47,25 @@ def _base() -> str:
     return f"{_GRAPH}/{settings().meta_graph_api_version}"
 
 
+def _auth(token: str) -> dict[str, str]:
+    """Carry the token in a HEADER, never a query parameter.
+
+    httpx puts the full request URL into `HTTPStatusError.__str__`, so a token in the query string
+    lands in every logged error — and these calls log on failure by design. Graph accepts bearer
+    auth, so the fix is to stop putting the secret somewhere that gets printed.
+    """
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _safe(exc: Exception) -> str:
+    """Error text with any surviving credential redacted. Defence in depth: a library we do not
+    control may still echo a URL we did not construct."""
+    import re
+
+    return re.sub(r"(access_token|Bearer)=?[=\s]*[A-Za-z0-9._\-]+", r"\1=<redacted>",
+                  str(exc))[:200]
+
+
 def _insight_map(payload: dict) -> dict[str, Any]:
     """Flatten Graph's [{name, values:[{value}]}] shape into {name: value}."""
     out: dict[str, Any] = {}
@@ -66,12 +85,12 @@ async def _page_token(page_id: str, system_token: str, c: httpx.AsyncClient) -> 
     the write path never had to make.
     """
     try:
-        r = await c.get(f"{_base()}/{page_id}",
-                        params={"fields": "access_token", "access_token": system_token})
+        r = await c.get(f"{_base()}/{page_id}", params={"fields": "access_token"},
+                        headers=_auth(system_token))
         r.raise_for_status()
         return (r.json() or {}).get("access_token")
     except Exception as exc:  # noqa: BLE001
-        log.warning("insights.page_token_failed", error=str(exc)[:200])
+        log.warning("insights.page_token_failed", error=_safe(exc))
         return None
 
 
@@ -90,15 +109,15 @@ async def facebook_post(post_id: str, *, brand_id: str | None = None,
         if not token:
             return None
         ins = await c.get(f"{_base()}/{post_id}/insights",
-                          params={"metric": ",".join(_FB_METRICS), "access_token": token})
+                          params={"metric": ",".join(_FB_METRICS)}, headers=_auth(token))
         ins.raise_for_status()
         m = _insight_map(ins.json())
         # Reactions come back as a per-type dict; the loop wants one comparable number.
         reactions = m.get("post_reactions_by_type_total") or {}
         likes = sum(v for v in reactions.values() if isinstance(v, (int, float))) if isinstance(reactions, dict) else None
         eng = await c.get(f"{_base()}/{post_id}",
-                          params={"fields": "comments.summary(true),shares,reactions.summary(true)",
-                                  "access_token": token})
+                          params={"fields": "comments.summary(true),shares,reactions.summary(true)"},
+                          headers=_auth(token))
         eng.raise_for_status()
         e = eng.json()
         # Reactions via the summary are more reliable than the insights breakdown, which comes back
@@ -115,7 +134,7 @@ async def facebook_post(post_id: str, *, brand_id: str | None = None,
             "raw": {"insights": m, "engagement": e},
         }
     except Exception as exc:  # noqa: BLE001 — a metrics read must never disturb anything else
-        log.warning("insights.fb_failed", post_id=post_id, error=str(exc)[:200])
+        log.warning("insights.fb_failed", post_id=post_id, error=_safe(exc))
         return None
     finally:
         if own:
@@ -134,7 +153,7 @@ async def instagram_media(media_id: str, *, brand_id: str | None = None,
     c = client or httpx.AsyncClient(timeout=_TIMEOUT_S)
     try:
         r = await c.get(f"{_base()}/{media_id}/insights",
-                        params={"metric": ",".join(_IG_METRICS), "access_token": token})
+                        params={"metric": ",".join(_IG_METRICS)}, headers=_auth(token))
         r.raise_for_status()
         m = _insight_map(r.json())
         return {
@@ -148,7 +167,7 @@ async def instagram_media(media_id: str, *, brand_id: str | None = None,
             "raw": {"insights": m},
         }
     except Exception as exc:  # noqa: BLE001
-        log.warning("insights.ig_failed", media_id=media_id, error=str(exc)[:200])
+        log.warning("insights.ig_failed", media_id=media_id, error=_safe(exc))
         return None
     finally:
         if own:
