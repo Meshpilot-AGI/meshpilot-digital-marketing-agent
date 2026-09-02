@@ -1,6 +1,7 @@
 """COST-METER INC-2 — MUapi/HeyGen capture pricing + balance-delta reconciliation."""
 from __future__ import annotations
 
+import pathlib
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -8,6 +9,20 @@ import pytest
 from glitch_signal.analytics.cost import pricing, reconcile
 
 NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+
+_MIGRATIONS = pathlib.Path(__file__).resolve().parents[1] / "supabase" / "migrations"
+
+
+# ── historical MUapi rows must be relabelled, not just future ones (finding: "Historical units
+#    remain incorrect") ─────────────────────────────────────────────────────────────────────────
+def test_a_migration_relabels_historical_muapi_snapshots_as_usd():
+    """MUapi's balance was always dollar-denominated, but rows written before the fix are stuck
+    with balance_unit='credits'. A runtime-only fix leaves the audit trail permanently mixed."""
+    candidates = [p for p in _MIGRATIONS.glob("*.sql") if "balance_snapshot" in p.name]
+    hit = [p for p in candidates
+          if "muapi" in p.read_text().lower() and "usd" in p.read_text().lower()
+          and "update" in p.read_text().lower()]
+    assert hit, "no migration found that relabels historical muapi balance_snapshots to usd"
 
 
 # ── pricing (credit vendors) ──
@@ -129,6 +144,38 @@ async def test_reconcile_computes_drift(monkeypatch):
     assert v["vendor_actual_usd"] == pytest.approx(3.0)
     assert v["our_estimate_usd"] == pytest.approx(2.40)
     assert v["drift"] == pytest.approx((2.40 - 3.0) / 3.0, abs=1e-3)  # -0.20 → alerts
+
+
+async def test_reconcile_muapi_reports_a_usd_delta_not_credits(monkeypatch):
+    """MUapi's balance is dollar-denominated: labelling its delta `delta_credits` exposes a false
+    unit to every consumer of this result. It must be reported as `delta_usd` with `balance_unit`
+    stated explicitly, while credit vendors keep `delta_credits` for compatibility."""
+    monkeypatch.setitem(reconcile._FETCHERS, "muapi", _fake_fetcher(5.4625))
+    monkeypatch.setenv("COST_MUAPI_CREDIT_USD", "1.0")
+    prev = {"balance": 6.4324, "created_at": NOW - timedelta(hours=1)}
+    summ = {"usd": 1.0, "n": 24}
+    eng = _Engine(prev=prev, summ=summ)
+    out = await reconcile.run(["muapi"], now=NOW, engine=eng)
+    v = out["vendors"][0]
+    assert v["status"] == "reconciled"
+    assert v["balance_unit"] == "usd"
+    assert "delta_usd" in v
+    assert "delta_credits" not in v
+    assert v["delta_usd"] == pytest.approx(0.9699, abs=1e-4)
+
+
+async def test_reconcile_heygen_still_reports_delta_credits(monkeypatch):
+    """Credit vendors are unaffected — compatibility for existing consumers of this field."""
+    monkeypatch.setitem(reconcile._FETCHERS, "heygen", _fake_fetcher(90.0))
+    monkeypatch.setenv("COST_HEYGEN_CREDIT_USD", "0.30")
+    prev = {"balance": 100.0, "created_at": NOW - timedelta(hours=1)}
+    summ = {"usd": 2.40, "n": 4}
+    eng = _Engine(prev=prev, summ=summ)
+    out = await reconcile.run(["heygen"], now=NOW, engine=eng)
+    v = out["vendors"][0]
+    assert v["balance_unit"] == "credits"
+    assert v["delta_credits"] == 10.0
+    assert "delta_usd" not in v
 
 
 async def test_reconcile_unavailable_is_graceful(monkeypatch):

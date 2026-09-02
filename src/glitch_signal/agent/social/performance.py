@@ -94,16 +94,37 @@ def summarise(cells: list[dict]) -> dict[str, Any]:
 
     `rankable` is the whole point. Below `MIN_SAMPLES_TO_RANK` a cell's mean is one or two posts and
     ordering those is superstition — so cells under the threshold are reported but explicitly not
-    ranked, and `can_conclude` stays False until at least two cells clear it (one ranked cell has
-    nothing to be better THAN).
+    ranked.
+
+    RANKING NEVER CROSSES PLATFORMS. Facebook and Instagram absolute engagement counts are not
+    comparable (see module docstring) — the matrix controls `asset_kind` and `pillar`, not platform,
+    so a Facebook cell and an Instagram cell for the same choice are not "the same experiment run
+    twice", they are two different, incomparable measurements. `ranked` is therefore built by
+    grouping same-threshold cells by platform and ordering only within each platform's group;
+    `can_conclude` requires at least two such rankable choices on the SAME platform (one rankable
+    cell, even alongside a rankable cell on a different platform, has nothing valid to be better
+    THAN).
     """
-    ranked = [c for c in cells if (c.get("n") or 0) >= MIN_SAMPLES_TO_RANK]
-    ranked.sort(key=lambda c: (c.get("mean_engagement") or 0.0), reverse=True)
+    rankable = [c for c in cells if (c.get("n") or 0) >= MIN_SAMPLES_TO_RANK]
+
+    by_platform: dict[Any, list[dict]] = {}
+    for c in rankable:
+        by_platform.setdefault(c.get("platform"), []).append(c)
+
+    ranked: list[dict] = []
+    can_conclude = False
+    for platform in sorted(by_platform, key=lambda p: (p is None, str(p))):
+        group = by_platform[platform]
+        group.sort(key=lambda c: (c.get("mean_engagement") or 0.0), reverse=True)
+        if len(group) >= 2:
+            can_conclude = True
+        ranked.extend(group)                    # still surfaced, just never compared cross-platform
+
     return {
         "cells_observed": len(cells),
-        "cells_rankable": len(ranked),
+        "cells_rankable": len(rankable),
         "min_samples_to_rank": MIN_SAMPLES_TO_RANK,
-        "can_conclude": len(ranked) >= 2,
+        "can_conclude": can_conclude,
         "ranked": ranked,
         "under_sampled": sorted(
             (c for c in cells if (c.get("n") or 0) < MIN_SAMPLES_TO_RANK),

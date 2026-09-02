@@ -131,4 +131,5 @@ async def curate_performance(brand_id: str, *, by_cell: Any = None, complete: An
     log.info("learn.performance", brand_id=brand_id, wrote=wrote,
              rankable=summary["cells_rankable"])
     return {"wrote": wrote, "cells_rankable": summary["cells_rankable"],
-            "ranked": [f"{c['asset_kind']}×{c['pillar']}" for c in summary["ranked"][:3]]}
+            "ranked": [f"{c['asset_kind']}×{c['pillar']}×{c.get('platform')}"
+                      for c in summary["ranked"][:3]]}

@@ -3,6 +3,8 @@
 An image model cannot render a third-party mark; asked for the FTMO logo it produces a mangled
 approximation that both looks wrong and misrepresents a real trademark. So these are stored files.
 """
+import json
+
 import pytest
 
 from glitch_signal.agent import assets
@@ -22,6 +24,30 @@ async def test_register_upserts_on_owner_kind_slug():
     sql, params = eng.calls[0]
     assert "on conflict (owner_brand, kind, slug) do update" in sql.lower()
     assert params["o"] == "ge" and params["s"] == "ftmo"
+
+
+# ── reproducible handle writes (finding: "Verified handles never populated") ───────────────────────
+async def test_register_can_write_verified_handles():
+    """Before this, `register` had no `handles` parameter at all, so the only way a value ever
+    reached `brand_asset.handles` was an out-of-repository manual database edit — unreproducible on
+    a fresh environment and invisible to any migration or code review."""
+    eng = FakeEngine()
+    eng.queue(_Result(rowcount=1))
+    await assets.register("ge", kind="logo", slug="ftmo", name="FTMO", url="u",
+                          handles={"x": "@FTMO_com"}, engine=eng)
+    sql, params = eng.calls[0]
+    assert "handles" in sql.lower()
+    assert json.loads(params["handles"]) == {"x": "@FTMO_com"}
+
+
+async def test_register_leaves_handles_untouched_when_not_supplied():
+    """A caller updating unrelated asset fields (a new logo URL, say) must never accidentally wipe
+    verified handles it does not know about by omitting them."""
+    eng = FakeEngine()
+    eng.queue(_Result(rowcount=1))
+    await assets.register("ge", kind="logo", slug="ftmo", name="FTMO", url="u", engine=eng)
+    sql, params = eng.calls[0]
+    assert "handles" not in params
 
 
 async def test_find_is_scoped_to_the_owner_brand():

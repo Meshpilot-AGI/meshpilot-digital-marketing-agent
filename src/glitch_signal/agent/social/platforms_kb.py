@@ -20,17 +20,28 @@ from glitch_signal.db.session import _engine
 
 log = structlog.get_logger(__name__)
 
+# Reserved brand_id holding generic, public-knowledge per-platform defaults (seeded in the
+# `platform_profile_defaults` migration). This repo is open-core, so a real brand's specific
+# voice/register can never be committed — but a brand can still ship with a non-empty profile by
+# falling back to this row when it has not set its own.
+_DEFAULT_BRAND = "_default"
+
 
 async def profile(brand_id: str, platform: str, *, engine: Any = None) -> dict:
-    """One platform's profile, or {} when unset. Never raises — an absent profile degrades to the
-    previous behaviour (a medium-level caption), not a failed post."""
+    """One platform's profile: the brand's own if it has set one, else the generic default, else {}.
+
+    Never raises — an absent profile degrades to the previous behaviour (a medium-level caption),
+    not a failed post."""
     try:
         eng = engine or _engine()
+        p = (platform or "").lower()
         async with eng.connect() as conn:
             row = (await conn.execute(
                 text("SELECT platform, audience, register, max_chars, hashtags, avoid "
-                     "FROM platform_profile WHERE brand_id = :b AND platform = :p"),
-                {"b": brand_id, "p": (platform or "").lower()})).mappings().first()
+                     "FROM platform_profile WHERE platform = :p "
+                     "  AND brand_id IN (:b, :default_brand) "
+                     "ORDER BY (brand_id = :b) DESC LIMIT 1"),
+                {"b": brand_id, "p": p, "default_brand": _DEFAULT_BRAND})).mappings().first()
         return dict(row) if row else {}
     except Exception as exc:  # noqa: BLE001
         log.warning("social.platform_profile_failed", platform=platform, error=str(exc)[:200])
