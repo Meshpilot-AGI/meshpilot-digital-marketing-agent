@@ -1,15 +1,11 @@
 """Backdrop preparation — the generated half of a composite card.
 
-The split that makes this work: a model paints the ATMOSPHERE, code sets the TYPE. Neither half can
-do the other's job well. A model cannot be trusted to set a headline (kerning, wrap and the exact
-brand face are never guaranteed) and it cannot render a third-party mark at all. Code cannot invent
-a photograph. Composited, you get depth AND exact typography — which is what a flat card lacks and
-what a raw generation cannot promise.
+A model paints the atmosphere, code sets the type: a model can't guarantee headline kerning/wrap/
+brand face or render a third-party mark, and code can't invent a photograph.
 
-The scrim is not decoration. The backdrop is generated fresh per post, so its brightness varies run
-to run: a prompt asking for empty shadow sometimes returns a bright frame. Without a guaranteed
-contrast floor the headline would be legible in most posts and invisible in some, which is the worst
-possible failure mode because nothing errors — it just ships unreadable.
+The scrim enforces a contrast floor. The backdrop is generated fresh per post so brightness varies
+run to run — without the floor the headline would be legible in most posts and silently unreadable
+in others.
 """
 from __future__ import annotations
 
@@ -17,23 +13,19 @@ from io import BytesIO
 
 from PIL import Image, ImageDraw, ImageFilter
 
-# How far down the frame the top scrim reaches, and how hard. The type band lives in the upper
-# portion of every layout, so the gradient protects it and releases toward the subject below.
+# Top scrim protects the type band (upper portion of every layout), releasing toward the subject.
 _TOP_BAND = 0.72
 _TOP_STRENGTH = 225
 _TOP_FALLOFF = 2.2
-# A shorter, softer scrim at the bottom so the wordmark lockup separates from a busy subject.
+# Shorter, softer bottom scrim separates the wordmark lockup from a busy subject.
 _FOOT_BAND = 0.17
 _FOOT_STRENGTH = 200
 _FOOT_FALLOFF = 1.5
 
 
 def cover(img: Image.Image, w: int, h: int) -> Image.Image:
-    """Scale-and-crop to fill the frame, preserving aspect.
-
-    Never stretch: a squashed photograph reads as broken in a way a crop does not, and the model
-    returns whatever aspect it feels like regardless of what was asked.
-    """
+    """Scale-and-crop to fill the frame, preserving aspect — never stretch, since a squashed photo
+    reads as broken in a way a crop does not, and the model ignores the requested aspect anyway."""
     scale = max(w / img.width, h / img.height)
     img = img.resize((max(w, int(img.width * scale + 1)), max(h, int(img.height * scale + 1))),
                      Image.LANCZOS)
@@ -62,12 +54,8 @@ def prepare(data: bytes, w: int, h: int, *, ground: str = "#05070B") -> Image.Im
 
 
 def logo_tile(logo: Image.Image, size: int, *, radius_ratio: float = 0.24) -> tuple[Image.Image, Image.Image]:
-    """A rounded white tile carrying a brand mark, plus its mask.
-
-    White-backed on purpose: third-party marks are supplied as-is and many are dark, so placing one
-    straight onto a near-black ground would make it disappear. The tile is the same treatment the
-    product's own marquee uses, so the posts match the site.
-    """
+    """A rounded white tile carrying a brand mark, plus its mask. White-backed because third-party
+    marks are supplied as-is and often dark — straight onto a near-black ground they'd disappear."""
     tile = Image.new("RGBA", (size, size), (255, 255, 255, 255))
     mark = logo.convert("RGBA").copy()
     mark.thumbnail((size - int(size * 0.16), size - int(size * 0.16)), Image.LANCZOS)

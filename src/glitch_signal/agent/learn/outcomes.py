@@ -1,19 +1,17 @@
 """Revise strategy from MEASURED outcomes — the step that closes the loop.
 
-`curator.py` distils `kind='episode'` memories: the agent's own record of what it did. That can only
-ever produce lessons about intentions. This curator reads `social_post_metric` joined to the
-`choices` recorded on each campaign, so its lessons are about what actually happened.
+`curator.py` distils the agent's own record of what it did, producing lessons about intentions only.
+This curator reads `social_post_metric` joined to each campaign's `choices`, so its lessons are about
+what actually happened.
 
-The hard rule is that a lesson may not outrun its sample. Below the ranking threshold this writes
-NOTHING and says so — it does not hedge, soften or "note a possible trend". A durable lesson is
-recalled on every future run and shapes every future post, so an unfounded one is not a small error
-that decays: it compounds, and it looks exactly like a founded one once written. Refusing is the
-feature.
+Below the ranking threshold this writes nothing and says so, rather than hedging — a durable lesson
+shapes every future post and looks identical to a founded one once written, so an unfounded one
+compounds rather than decaying.
 
-Lessons are stored as `kind='fact'` with a stable `perf:` key so re-running updates rather than
-duplicates, and with `source='curator'` — which deliberately does NOT satisfy the operator-verified
-gate, so a self-derived lesson can never be quoted as ground truth by the conscience critic. It
-reaches the ideator through the unverified-notes recall, which is the right weight for it.
+Lessons are `kind='fact'` with a stable `perf:` key (re-running updates, not duplicates) and
+`source='curator'`, which deliberately does not satisfy the operator-verified gate — a self-derived
+lesson can never be quoted as ground truth by the conscience critic, only surfaced as an
+unverified note.
 """
 from __future__ import annotations
 
@@ -55,12 +53,8 @@ def _parse(raw: str) -> list[dict]:
 
 
 def _clamp_importance(value: Any, *, default: float = 0.5) -> float:
-    """Clamp untrusted LLM-provided importance to the declared, finite 0..1 range.
-
-    `importance` is model output, not a value we control — a non-numeric, non-finite (NaN/inf), or
-    out-of-range value must never reach `remember`, or it silently distorts importance-based recall
-    ordering for every future run.
-    """
+    """Clamp untrusted LLM-provided importance to the finite 0..1 range — a non-numeric, NaN/inf, or
+    out-of-range value reaching `remember` would silently distort recall ordering forever."""
     try:
         f = float(value)
     except (TypeError, ValueError):
@@ -72,26 +66,21 @@ def _clamp_importance(value: Any, *, default: float = 0.5) -> float:
 
 async def curate_performance(brand_id: str, *, by_cell: Any = None, complete: Any = None,
                              remember: Any = None, engine: Any = None) -> dict:
-    """Distil measured performance into durable lessons — or decline, explicitly.
-
-    Returns a summary dict either way. `wrote: 0` with a reason is a correct, expected outcome for
-    most of this loop's life, not a failure to report.
-    """
+    """Distil measured performance into durable lessons — or decline, explicitly. `wrote: 0` with a
+    reason is a correct, expected outcome for most of this loop's life."""
     from glitch_signal.agent.social import performance as _perf
 
     by_cell = by_cell or _perf.by_cell
     try:
         cells = await by_cell(brand_id, engine=engine)
     except _perf.PerformanceQueryError as exc:
-        # Distinct from "insufficient evidence": the loop could not look at all, so it must not be
-        # reported as if it looked and found nothing — that would hide an outage indefinitely.
+        # Distinct from "insufficient evidence" — an outage must not be reported as "looked, found
+        # nothing", or it hides indefinitely.
         log.warning("learn.performance_query_failed", brand_id=brand_id, error=str(exc)[:200])
         return {"wrote": 0, "reason": "performance query failed"}
     summary = _perf.summarise(cells)
 
     if not summary["can_conclude"]:
-        # The refusal is the feature. A hedged lesson written now is indistinguishable from a
-        # founded one later, and it will shape every future post until someone notices.
         log.info("learn.performance_insufficient", brand_id=brand_id,
                  observed=summary["cells_observed"], rankable=summary["cells_rankable"])
         return {"wrote": 0, "reason": "insufficient evidence",

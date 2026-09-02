@@ -1,20 +1,14 @@
 """The content matrix — deliberate variation, so outcomes are attributable.
 
-Two problems this solves, and they are the same problem seen from both ends.
+Recording the CHOICES (asset kind x pillar) alongside `social_post_metric` gives outcome analysis
+something to group by; without it "comparison posts land well" is unfalsifiable. Left to itself an
+LLM's priors are stable, so it keeps reaching for the same shape — coverage across cells is what
+turns a stream of posts into an experiment.
 
-MEASUREMENT: `social_post_metric` records what happened, but a number is only useful if you can say
-what produced it. Recording the CHOICES (asset kind × pillar) gives the outcome analysis something
-to group by; without it "comparison posts land well" is an unfalsifiable sentence.
-
-VARIANCE: if the agent always reaches for the same shape — and an LLM asked freely will, because its
-priors are stable — then every measurement describes that one shape and there is nothing to compare.
-Coverage is what turns a stream of posts into an experiment.
-
-Selection is LEAST-SAMPLED-FIRST, deterministically. That is deliberate rather than a placeholder:
-with a handful of posts no cell has enough signal to rank, and an agent that "exploits" on n=1 is
-just amplifying noise into a durable lesson. Coverage first; ranking becomes meaningful only once
-`MIN_SAMPLES_TO_RANK` observations exist per cell, and that decision belongs to the curator (step 4)
-which can see outcomes — not to this module, which only decides what to try next.
+Selection is least-sampled-first, deterministically: with few posts no cell has enough signal to
+rank, and "exploiting" on n=1 just amplifies noise into a durable lesson. Ranking (once
+`MIN_SAMPLES_TO_RANK` observations exist per cell) is the curator's call, not this module's — this
+module only decides what to try next.
 """
 from __future__ import annotations
 
@@ -25,13 +19,13 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-# The asset kinds worth varying across. Deliberately a subset of everything `plan.route_for` accepts:
-# these are the shapes that produce a genuinely different POST, not merely a different renderer.
+# Subset of what `plan.route_for` accepts — shapes that produce a genuinely different post, not
+# merely a different renderer.
 ASSET_KINDS: tuple[str, ...] = ("comparison", "definition", "numbered", "mechanism",
                                 "statement", "concept", "poster")
 
-# Fallback pillars if the brand has not declared any. Generic on purpose — a real brand's pillars
-# come from its positioning row, and inventing specific ones here would silently impose strategy.
+# Fallback if a brand hasn't declared pillars. Generic on purpose — inventing specifics here would
+# silently impose strategy that should come from the brand's positioning row.
 DEFAULT_PILLARS: tuple[str, ...] = ("education", "mechanism", "myth-correction")
 
 # Below this many observations a cell cannot be ranked against another; the loop stays in coverage.
@@ -56,8 +50,7 @@ def cells(pillars: tuple[str, ...] | list[str]) -> list[Cell]:
 def next_cell(pillars: tuple[str, ...] | list[str], recent: list[dict]) -> Cell:
     """Pick the least-sampled cell, breaking ties by matrix order.
 
-    `recent` is the recent campaigns' `choices` dicts. Counting only recent history rather than all
-    time is what lets the matrix re-explore after a strategy change — an all-time count would let
+    `recent` (not all-time) lets the matrix re-explore after a strategy change instead of letting
     early posts dominate the schedule forever.
     """
     grid = cells(pillars)
@@ -71,11 +64,8 @@ def next_cell(pillars: tuple[str, ...] | list[str], recent: list[dict]) -> Cell:
 
 
 def coverage(pillars: tuple[str, ...] | list[str], recent: list[dict]) -> dict[str, Any]:
-    """How much of the matrix has been tried, and whether anything is rankable yet.
-
-    Surfaced so the loop can say "still exploring" honestly instead of implying it has learned
-    something from three posts.
-    """
+    """How much of the matrix has been tried and whether anything is rankable yet — lets the loop
+    say "still exploring" honestly instead of implying it learned something from three posts."""
     grid = cells(pillars)
     counts: dict[tuple[str, str], int] = {(c.asset_kind, c.pillar): 0 for c in grid}
     for r in recent or []:
@@ -93,11 +83,7 @@ def coverage(pillars: tuple[str, ...] | list[str], recent: list[dict]) -> dict[s
 
 
 def directive(cell: Cell) -> str:
-    """The instruction handed to the ideator, as a constraint rather than a suggestion.
-
-    Phrased to bind the SHAPE and the TOPIC AREA while leaving the actual idea free — the point is
-    to vary deliberately, not to dictate the content.
-    """
+    """The instruction handed to the ideator: binds shape and pillar, leaves the idea itself free."""
     return (f"\nTODAY'S ASSIGNMENT (binding): make a '{cell.asset_kind}' post in the "
             f"'{cell.pillar}' pillar. Set asset_kind to exactly '{cell.asset_kind}'. The specific "
             f"idea is yours, but the shape and the pillar are fixed — this run is filling a gap in "

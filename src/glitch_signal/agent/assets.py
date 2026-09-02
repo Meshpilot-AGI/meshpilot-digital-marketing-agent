@@ -1,15 +1,10 @@
 """Brand asset library — the real image files the creative pipeline composites in.
 
-An image model cannot render a third-party mark. Asked for the FTMO or MT5 logo it produces a
-mangled approximation: worse-looking than no logo, and a misrepresentation of a real trademark. So
-logos are never generated — they are stored files, placed by code.
+An image model asked for a third-party mark (FTMO, MT5) produces a mangled, trademark-misrepresenting
+approximation — so logos are never generated, only stored files placed by code.
 
-That constraint is what makes the composite route load-bearing rather than a stylistic preference:
-a post comparing two firms' drawdown rules needs both real marks positioned precisely, which
-generation cannot do and a plain typographic card has no way to show.
-
-Assets are scoped to an OWNER brand (the tenant) while the `slug`/`name` identify the DEPICTED
-brand, which is usually a third party we integrate with.
+Assets are scoped to an OWNER brand (the tenant), while `slug`/`name` identify the DEPICTED brand,
+usually a third party we integrate with.
 """
 from __future__ import annotations
 
@@ -78,11 +73,8 @@ async def find(owner_brand: str, *, kind: str | None = None, slug: str | None = 
 
 async def resolve_named(owner_brand: str, names: list[str], *, kind: str = "logo",
                         engine: Any = None) -> list[dict]:
-    """Match free-text names the agent used ("FTMO", "Apex") onto real assets.
-
-    The agent writes a post about firms by NAME, so the lookup has to tolerate what it wrote rather
-    than demand a slug. Matching is case-insensitive on both name and slug, and unmatched names are
-    simply dropped — a post that mentions a firm we hold no mark for still renders, just without it.
+    """Match free-text names the agent used ("FTMO", "Apex") onto real assets. Case-insensitive on
+    both name and slug; unmatched names are dropped so the post still renders, just without a mark.
     """
     have = await find(owner_brand, kind=kind, engine=engine)
     out: list[dict] = []
