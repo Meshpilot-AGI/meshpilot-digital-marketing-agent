@@ -29,12 +29,15 @@ _TIMEOUT_S = 30.0
 # Platforms we can actually measure. Anything else yields None (not zero) — see the module docstring.
 MEASURABLE = ("facebook", "instagram")
 
-# VERIFIED against the live Page on v21 by probing each name individually — not taken from docs.
+# VERIFIED by probing each name individually against the live Page — not taken from docs.
 # `post_impressions`, `post_impressions_unique`, `post_engaged_users`, `post_views` and `post_reach`
-# ALL return "(#100) The value must be a valid insights metric" on this app, so impressions and
-# reach are simply not obtainable here. The loop therefore learns from ENGAGEMENT, not distribution
-# — which is arguably the better signal anyway, since reach is mostly the algorithm's choice rather
-# than the post's merit.
+# ALL return "(#100) The value must be a valid insights metric", and re-probing on v21, v23 and v26
+# gives the identical result — so this is NOT the version pin, and bumping the API version will not
+# recover them. The remaining explanation is the app lacking `read_insights` (App Review) and/or
+# Meta suppressing distribution metrics below an audience threshold.
+#
+# Consequence, stated plainly: the loop learns from ENGAGEMENT, not distribution. That is arguably
+# the better signal anyway — reach is mostly the algorithm's choice, engagement is the post's.
 _FB_METRICS = ("post_clicks", "post_reactions_by_type_total", "post_activity_by_action_type",
                "post_video_views")
 _IG_METRICS = ("reach", "likes", "comments", "saves", "shares", "views")
