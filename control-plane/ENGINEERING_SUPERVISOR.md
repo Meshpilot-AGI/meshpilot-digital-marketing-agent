@@ -1111,3 +1111,30 @@ render is never nudged.
 
 **Remains:** the styled-prompt render (`7f69bbcc`) never completed — hard-stuck in `thinking` — so
 the style paragraph has NOT yet been visually verified on a finished video.
+
+
+## HEYGEN-REFERENCE — 2026-09-02
+
+**Operator verdict:** "the pipeline itself was good" — video `1b9dea64563d46a1a7e55135b0042f3f`
+("Trading Rules: Drawdown Decoded", 28.4s portrait) approved as production quality. Recorded in
+`docs/vendors/heygen.md` as the known-good reference config to regress against: `mode=generate`,
+explicit `orientation=portrait`, pinned avatar LOOK id, brand kit, brand glossary, **no `files`**,
+script-first ~700-char prompt.
+
+**What it validates:** the brand kit is doing real work (first render that reads as one brand), and
+pinning the avatar fixes the changing-presenter problem. Also vindicates dropping attachments.
+
+**Root cause of the remaining failures is CREDIT, from HeyGen's own agent** (surfaced only because
+the `_reason` ladder reads `session.messages` — `failure_code`/`failure_message` stay null):
+"your account still has insufficient credits to proceed". Operator is with HeyGen support; the
+account shows three balances (`plan_credit` 1015, `api` 63, USD wallet $1.05) and the agent is not
+satisfied by the 1,015, so which pool Video Agent bills is still unanswered.
+
+⚠️ **Correction to this log:** the HEYGEN-VENDOR-EVIDENCE entry "eliminated" credits because failed
+renders are never billed. That inference was backwards — an insufficient-funds abort bills nothing
+by definition, so an unchanged balance is what this failure looks like, not evidence against it.
+Successful renders DO decrement (`plan_credit` 1091 -> 1015 across three).
+
+**Remains:** the style paragraph (#226) is still visually unverified — both attempts died in the
+credit-starved window. No burned-in captions on any render (`captioned_video_url`/`subtitle_url`
+null), which matters for sound-off TikTok/Reels viewing.
