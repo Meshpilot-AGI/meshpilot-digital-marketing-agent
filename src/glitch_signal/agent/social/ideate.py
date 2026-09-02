@@ -22,7 +22,7 @@ _PROMPT = (
     "one term -> definition; enumerate failure modes -> numbered; show how a mechanic behaves -> "
     "mechanism; a single sharp line -> statement; an abstract idea better shown as an object -> "
     "concept; a concept that needs a headline burned in -> poster.\n"
-    "{positioning}\n"
+    "{positioning}\n{directive}"
     "--- TREND NOTES ---\n{notes}\n\n--- BRAND FACTS ---\n{facts}\n"
 )
 
@@ -40,7 +40,8 @@ def _parse(raw: str) -> dict:
 
 
 async def propose_idea(brand_id: str, *, complete=None, recall=None, positioning=None,
-                       recent_keys: set[str] | None = None, engine: Any = None) -> Idea | None:
+                       directive: str = "", recent_keys: set[str] | None = None,
+                       engine: Any = None) -> Idea | None:
     from glitch_signal.agent.loop import llm as agent_llm
     from glitch_signal.agent.memory.store import recall as mem_recall
     from glitch_signal.agent import positioning as _positioning
@@ -57,7 +58,7 @@ async def propose_idea(brand_id: str, *, complete=None, recall=None, positioning
         facts_txt = "\n".join(f"- {m.content}" for m in facts)[:2000] or "(none)"
         pos_txt = _positioning.section(await positioning(brand_id, engine=engine))
         raw = await complete(_PROMPT.format(brand=brand_id, notes=notes_txt, facts=facts_txt,
-                                            positioning=pos_txt),
+                                            positioning=pos_txt, directive=directive),
                              tier="complex", timeout_s=60)
     except Exception as exc:  # noqa: BLE001
         log.warning("social.ideate_failed", error=str(exc)[:200])

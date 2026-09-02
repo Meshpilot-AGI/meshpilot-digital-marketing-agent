@@ -7,6 +7,7 @@ from typing import Any
 
 import structlog
 
+from glitch_signal.agent.social import matrix as _matrix
 from glitch_signal.agent.social.spec import (
     IMAGE_MODEL,
     IMAGE_PLATFORMS,
@@ -148,6 +149,23 @@ def _default_deps() -> RunDeps:
                    spend_now=_spend_now, positioning=_positioning.get)
 
 
+async def _pick_cell(brand_id: str, d: "RunDeps", engine: Any):
+    """The matrix cell this run should fill, or None if the matrix is unavailable.
+
+    Degrades to None rather than failing: an agent that cannot read its sampling history should
+    still post, just without the deliberate variation.
+    """
+    try:
+        from glitch_signal.agent import positioning as _pos
+
+        pillars = (await _pos.get_strategy(brand_id, engine=engine)).get("pillars") or []
+        history = await d.store_mod.recent_choices(brand_id, engine=engine)
+        return _matrix.next_cell(pillars, history)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("social.matrix_unavailable", error=str(exc)[:200])
+        return None
+
+
 async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: bool = False,
                        engine: Any = None) -> CampaignResult:
     """Run one campaign. With `dry_run`, produce the creative but NEVER publish.
@@ -174,7 +192,12 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: b
     spent0 = await d.spend_now(brand_id)
 
     recent = await d.store_mod.recent_dedup_keys(brand_id, engine=engine)
-    idea = await d.ideate(brand_id, recent_keys=recent, engine=engine)
+    # Pick the least-sampled cell of the content matrix and make it binding. Left to choose freely
+    # an LLM converges on the same shape run after run — and with no variation there is nothing for
+    # the outcome data to compare, so the learning loop has no signal no matter how well it measures.
+    cell = await _pick_cell(brand_id, d, engine)
+    idea = await d.ideate(brand_id, recent_keys=recent,
+                          directive=(_matrix.directive(cell) if cell else ""), engine=engine)
     if idea is None:
         return CampaignResult(idea=None, image_url=None, video_url=None,
                               skipped_reason="no fresh idea")
@@ -182,7 +205,11 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: b
     # RESERVE the campaign BEFORE any paid work — the DB unique(brand_id,dedup_key) is the dedup
     # authority, so two concurrent runs of the same idea can never both do paid work. A conflict
     # (no row returned) is a clean duplicate skip.
-    cid = None if dry_run else await d.store_mod.reserve_campaign(brand_id, idea, engine=engine)
+    # Record what was DECIDED alongside the campaign: without it the outcome data has nothing to
+    # group by and no lesson drawn from it can be falsified.
+    choices = {**(cell.as_choices() if cell else {}), "asset_kind": idea.asset_kind}
+    cid = None if dry_run else await d.store_mod.reserve_campaign(brand_id, idea, choices=choices,
+                                                                  engine=engine)
     if cid is None and not dry_run:
         return CampaignResult(idea=idea, image_url=None, video_url=None,
                               skipped_reason="duplicate idea (already reserved)")

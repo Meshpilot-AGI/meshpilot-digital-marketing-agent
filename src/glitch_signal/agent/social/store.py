@@ -20,7 +20,37 @@ async def recent_dedup_keys(brand_id: str, *, limit: int = 20, engine: Any = Non
     return {r._mapping["dedup_key"] if hasattr(r, "_mapping") else r[0] for r in rows}
 
 
-async def reserve_campaign(brand_id: str, idea: Idea, *, engine: Any = None) -> str | None:
+async def recent_choices(brand_id: str, *, limit: int = 40, engine: Any = None) -> list[dict]:
+    """The choices behind recent campaigns — the matrix's sampling history.
+
+    Recent rather than all-time on purpose: an all-time count would let the earliest posts pin the
+    schedule forever and stop the matrix re-exploring after a strategy change.
+    """
+    try:
+        eng = engine or _engine()
+        async with eng.connect() as conn:
+            rows = (await conn.execute(
+                text("SELECT choices FROM social_campaign WHERE brand_id = :brand "
+                     "ORDER BY created_at DESC LIMIT :k"),
+                {"brand": brand_id, "k": limit})).fetchall()
+        out = []
+        for r in rows:
+            v = r[0]
+            if isinstance(v, str):
+                import json
+                v = json.loads(v)
+            if isinstance(v, dict):
+                out.append(v)
+        return out
+    except Exception as exc:  # noqa: BLE001 — no history just means "explore from the start"
+        import structlog
+        structlog.get_logger(__name__).warning("social.recent_choices_failed",
+                                               brand_id=brand_id, error=str(exc)[:200])
+        return []
+
+
+async def reserve_campaign(brand_id: str, idea: Idea, *, choices: dict | None = None,
+                           engine: Any = None) -> str | None:
     """Atomically RESERVE a campaign row BEFORE any paid work — the DB is the dedup authority.
 
     `ON CONFLICT (brand_id, dedup_key) DO NOTHING` (unique index from 20260831010000) means two
@@ -30,11 +60,13 @@ async def reserve_campaign(brand_id: str, idea: Idea, *, engine: Any = None) -> 
     eng = engine or _engine()
     async with eng.begin() as conn:
         row = (await conn.execute(
-            text("INSERT INTO social_campaign (brand_id, dedup_key, idea, status) "
-                 "VALUES (:brand, :dedup_key, CAST(:idea AS jsonb), 'reserved') "
+            text("INSERT INTO social_campaign (brand_id, dedup_key, idea, status, choices) "
+                 "VALUES (:brand, :dedup_key, CAST(:idea AS jsonb), 'reserved', "
+                 "CAST(:choices AS jsonb)) "
                  "ON CONFLICT (brand_id, dedup_key) DO NOTHING RETURNING id"),
             {"brand": brand_id, "dedup_key": idea.dedup_key,
-             "idea": json.dumps(asdict(idea))})).first()
+             "idea": json.dumps(asdict(idea)),
+             "choices": json.dumps(choices or {})})).first()
     return str(row[0]) if row else None
 
 

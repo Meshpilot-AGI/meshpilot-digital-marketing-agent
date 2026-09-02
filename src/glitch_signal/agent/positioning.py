@@ -96,6 +96,28 @@ async def get_guardrails(brand_id: str, *, engine: Any = None) -> dict:
         return {}
 
 
+async def get_strategy(brand_id: str, *, engine: Any = None) -> dict:
+    """Content strategy for the brand ({} when unset) — currently the matrix's pillars.
+
+    Lives with the brand rather than in code: a second brand has different pillars and must not
+    need a deploy to say so.
+    """
+    try:
+        eng = engine or _engine()
+        async with eng.connect() as conn:
+            row = (await conn.execute(
+                text("SELECT strategy FROM brand_positioning WHERE brand_id = :brand"),
+                {"brand": brand_id})).first()
+        val = row[0] if row else None
+        if isinstance(val, str):
+            import json
+            val = json.loads(val)
+        return val if isinstance(val, dict) else {}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brand.strategy_read_failed", brand_id=brand_id, error=str(exc)[:200])
+        return {}
+
+
 async def put(brand_id: str, content: str, *, updated_by: str = "operator",
               engine: Any = None) -> None:
     """Upsert this brand's positioning doc. Operator-only by contract — see the /internal routes."""
