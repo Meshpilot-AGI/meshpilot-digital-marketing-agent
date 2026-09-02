@@ -3,6 +3,109 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### TARGETING — sensing, surfaces, Reddit, SEO                                   [OPEN — designed]
+Owner: unassigned        Opened: 2026-09-02
+Reading: docs/plans/2026-09-02-targeting-and-distribution.md, and for the SEO half
+`~/dev/glitch-executor/glitch-trade-app/docs/marketing/ai-seo-program.md` (the operator's own 10-phase
+program — Phase 7 is the content engine) + `src/data/blog.ts` (the typed publishing target).
+Acceptance: per sub-lane in the design doc (TARGET-1..4, SEO-1..3). Everything ships GATED OFF.
+Write-back: ARCHITECTURE.md (new tables), docs/vendors/*, control-plane/ENGINEERING_SUPERVISOR.md
+
+**The gap, measured:** the agent broadcasts but cannot perceive. Its one sensing organ
+(`discover_trending` → CaptAPI) covers **Instagram + TikTok only** — the two platforms the operator
+says this audience is not on. `web_search`/`web_fetch` are built and hardened but gated off; the
+`orm` pipeline's "monitoring" is a static markdown playbook; SEO is a markdown checklist with no
+executing code; **Reddit has no reader and no publisher**. `APIFY_KEY`, `BRIGHTDATA_KEY` and
+`SCRAPEGRAPH_API_KEY` are all held and **completely unwired**.
+
+**Shape:** a targeting loop — listen → surface → score → decide → act → measure → learn — where a
+**Surface** (subreddit / X account / query / forum) is a first-class scored record. The brand
+declares its AUDIENCE; the agent DISCOVERS the surfaces. That is what keeps it brand-neutral.
+
+**Reddit — TESTED LIVE 2026-09-02.** `redditapis.com` (operator-supplied token) works: post search
+returned live threads with subreddit/upvotes/permalink, and community search returned `r/propfirm`
+(39k), `r/PropFirmTester` (28k), `r/PropFirms`, `r/PropfirmsForum` **with subscriber counts** — the
+surface-discovery primitive, working today, at **$0.002/read (~$12/mo)** against Reddit's own
+**$12,000/mo** commercial minimum. It also surfaced `r/tradeify` and `r/Propfirmstory`, which we
+would not have guessed, plus a competitor launching in `r/SideProject`.
+⚠️ **Reads only.** The same service offers comment/vote/DM writes and an auth route that takes a
+Reddit **username and password**. Reads risk nothing of ours; writes hand a third party our
+credentials and act through an unofficial API — against Reddit's User Agreement, risking the exact
+account whose standing the strategy depends on. Post through Reddit's own OAuth API instead.
+**Original answer stands:** no third party for posting.
+**Zernio TESTED LIVE 2026-09-02** (`zernio.com/api/v1`, 419 endpoints): `reddit / glitchExecutor`
+already **OAuth-connected and active**, and `GET .../reddit-subreddits/{sub}/rules` returns full
+structured subreddit rules (`kind`, `shortName`, `violationReason`, `priority`) — the exact
+per-subreddit guardrail the design specified, as one API call. Also exposes flairs (many subs require
+one), voting, feeds and `POST /v1/posts`. **This resolves the credential objection**: the complaint
+was about handing over a Reddit username/password; Zernio is OAuth, same model as our existing Buffer
+publisher. ✅ **RESOLVED 2026-09-02** — with the Inbox add-on enabled, Zernio reads comments on strangers'
+threads (`r/StockMarket` → 4 real comments; `r/Propfirmstory` → post resolved, `numComments: 0` so
+the empty list was correct). `POST /v1/inbox/comments/{postId}` uses the same resolution and takes
+`{accountId, message, commentId, parentCid}`, so threaded replies into arbitrary threads work.
+**TARGET-4 therefore needs no separate Reddit OAuth app** — Zernio covers rules, flairs, posting,
+voting and replies over OAuth. No test comment was posted: a throwaway reply from a zero-karma brand
+account is the exact damage the standing gate prevents.
+⚠️ **The real blocker is ACCOUNT STANDING, not API access.** Measured 2026-09-02:
+`u/glitchExecutor` (the account the Mac's Devvit CLI is logged in as) was created 2026-05-02 with
+**total karma 1, comment karma 0**. Target subs enforce karma/age minimums via AutoModerator, so
+automated participation would be removed before a human saw it and would burn the account. Therefore
+TARGET-1..3 (discovery, ~$12/mo, zero account risk) proceed now; **TARGET-4 gates on a measured
+karma/age threshold**, and standing is earned by human participation first — the same
+earn-it-then-automate shape as the SEO graduation. This also strengthens DEVVIT: publishing an app
+does not depend on karma. Reddit's free API tier is **non-commercial only** and names brand/social monitoring as
+commercial; commercial is **~$0.24/1k calls from ~$12k/month**, and self-service client registration
+**closed in late 2025**. So: discover threads through the **SERP** (Bright Data, already paid for),
+read them with the existing hardened `web_fetch`, and post through **Reddit's own OAuth API** — no
+third party offers Reddit publishing. The binding constraint is not the API but Reddit's hostility to
+promotional automation: per-subreddit rules capture, self-promo ratio budget, account-standing check
+and cadence caps are hard gates, not advice.
+
+**SEO — execute the operator's existing program, do not invent one.** `glitch-trade-app` already has
+a 10-phase AI-SEO program, 11 live posts, and a typed publishing target (`src/data/blog.ts`,
+`BlogBlock` union + FAQ, emitting FAQPage/Quotation JSON-LD). Its editorial contract and its
+verification gates (`schemas:validate`, `links:audit`, prerender, sitemap, Lighthouse ≥95) are
+**machine-checkable**, which is exactly what autonomous publishing needs.
+
+⚠️ **Operator decisions blocking build:** (1) `ai-seo-program.md` lists *"AI-generated thin content at
+scale; every page human-edited"* as explicitly OUT OF SCOPE, which contradicts the instruction to
+publish with no HITL — the doc is the operator's and can be amended, but deliberately, not silently.
+(2) Who files the Reddit OAuth approval ticket, under what declared use case. (3) Direct commits to
+`glitch-trade-app` or a fork it PRs from.
+
+**Autonomy graduation (operator: no HITL, "but only when we prepare him"):** S0 draft+human-merge →
+S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
+Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
+edits" is measured as the diff between proposed and merged.
+
+### DEVVIT — a Reddit-native app for GE                                          [OPEN — scoping]
+Owner: unassigned        Opened: 2026-09-02
+Reading: docs/plans/2026-09-02-targeting-and-distribution.md (§ DEVVIT), `~/dev/reddit-devvit/glitch-executor`
+Acceptance: TBD — blocked on the two scoping questions below.
+Write-back: control-plane/ENGINEERING_SUPERVISOR.md
+
+`~/dev/reddit-devvit/glitch-executor` exists but is the **unmodified Devvit "vibe coding" starter** —
+`src/server/core/count.ts` is still the Redis counter demo. Name `glitch-executor`, dev subreddit
+`glitch_executor_dev`, permissions declared (`SUBMIT_POST`, `SUBMIT_COMMENT`,
+`SUBSCRIBE_TO_SUBREDDIT`, all `asUser`). No commits, no remote, not published.
+
+**Separate from TARGETING on purpose.** Devvit builds experiences that run INSIDE Reddit, installed
+per-subreddit at the subreddit's discretion; `asUser` lets it act for a user interacting with it, not
+broadcast outward, and it gives no cross-Reddit listening. It shares almost no machinery with the
+agent — it is a TypeScript app on Reddit's platform.
+
+**Why it may be the better bet anyway:** it is the one form of Reddit presence Reddit actively
+rewards (Developer Funds pays for engagement). Something genuinely useful to this audience — a
+drawdown calculator as an interactive post, a "would this trade have breached your firm's rules?"
+checker — earns installs and native presence with none of the shadowban exposure automated
+participation carries. **Participation is the risky channel; a useful app is the sanctioned one.**
+
+⚠️ Reddit blocks automated fetching of `developers.reddit.com`, so the characterisation above is from
+model knowledge and needs confirming against their docs before building.
+
+**Blocked on:** (1) agent-owned or operator-owned project? (2) which subreddit is the target — one
+the operator moderates, or build-it-and-they-install?
+
 ## Recently closed
 
 - **DB-OPT — retire the legacy LangGraph pipeline + drop 14 dead tables** (2026-09-02, PRs #231/#232/#233) —
