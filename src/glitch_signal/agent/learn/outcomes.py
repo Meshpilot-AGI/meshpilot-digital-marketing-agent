@@ -18,6 +18,7 @@ reaches the ideator through the unverified-notes recall, which is the right weig
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any
 
@@ -53,6 +54,22 @@ def _parse(raw: str) -> list[dict]:
         return []
 
 
+def _clamp_importance(value: Any, *, default: float = 0.5) -> float:
+    """Clamp untrusted LLM-provided importance to the declared, finite 0..1 range.
+
+    `importance` is model output, not a value we control — a non-numeric, non-finite (NaN/inf), or
+    out-of-range value must never reach `remember`, or it silently distorts importance-based recall
+    ordering for every future run.
+    """
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(f):
+        return default
+    return max(0.0, min(1.0, f))
+
+
 async def curate_performance(brand_id: str, *, by_cell: Any = None, complete: Any = None,
                              remember: Any = None, engine: Any = None) -> dict:
     """Distil measured performance into durable lessons — or decline, explicitly.
@@ -63,7 +80,13 @@ async def curate_performance(brand_id: str, *, by_cell: Any = None, complete: An
     from glitch_signal.agent.social import performance as _perf
 
     by_cell = by_cell or _perf.by_cell
-    cells = await by_cell(brand_id, engine=engine)
+    try:
+        cells = await by_cell(brand_id, engine=engine)
+    except _perf.PerformanceQueryError as exc:
+        # Distinct from "insufficient evidence": the loop could not look at all, so it must not be
+        # reported as if it looked and found nothing — that would hide an outage indefinitely.
+        log.warning("learn.performance_query_failed", brand_id=brand_id, error=str(exc)[:200])
+        return {"wrote": 0, "reason": "performance query failed"}
     summary = _perf.summarise(cells)
 
     if not summary["can_conclude"]:
@@ -100,7 +123,8 @@ async def curate_performance(brand_id: str, *, by_cell: Any = None, complete: An
         if not key or not content:
             continue
         try:
-            await remember(brand_id, content, f"perf:{key}", float(item.get("importance", 0.5)))
+            importance = _clamp_importance(item.get("importance", 0.5))
+            await remember(brand_id, content, f"perf:{key}", importance)
             wrote += 1
         except Exception as exc:  # noqa: BLE001
             log.warning("learn.performance_write_failed", key=key, error=str(exc)[:200])

@@ -114,6 +114,14 @@ longer matches `<= now()`. We never hold a row lock across a long agent turn.
   INC-1 registers: `curate` (`agent.learn.curate`), `drive_scout` (existing graph entry). `reconcile`
   is registered as a hook whose body is delivered by COST-METER INC-2. The allowlist means a job can
   never invoke arbitrary code. Each capability run is wrapped in `asyncio.wait_for`.
+  - **`learn_performance`** (AGENT-LEARN, added post-INC-1): revises strategy from MEASURED post
+    performance via `agent.learn.outcomes.curate_performance(brand_id)`. Takes no `args`. Returns
+    `{wrote: <int>, ...}` — either `{wrote: 0, reason: "insufficient evidence", cells_observed,
+    cells_rankable, min_samples_to_rank}` (the expected result for most of the loop's life, not a
+    failure), `{wrote: 0, reason: "performance query failed"}` (the evidence query itself broke —
+    distinct from "insufficient evidence" so an outage cannot masquerade as an ordinary evidence
+    gate), `{wrote: 0, reason: "curator llm failed"}`, or `{wrote: <n>, cells_rankable, ranked}` on
+    success. Requires the `memory` permission (writes durable `kind='fact'` lessons via `remember`).
 
 Failure handling: a payload error increments `fail_count`; after N consecutive failures (config,
 default 3) the job is disabled with `disabled_reason`. A success resets `fail_count`.

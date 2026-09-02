@@ -111,6 +111,64 @@ async def test_curator_ignores_malformed_lessons():
     assert out["wrote"] == 1 and written == ["perf:good"]
 
 
+async def test_curator_reports_a_query_failure_distinctly_from_insufficient_evidence():
+    """A broken query must not be reported with the same reason as genuinely having no data — that
+    would let an outage disable learning while looking like an ordinary evidence gate."""
+    called = {"llm": 0}
+
+    async def by_cell(brand, *, engine=None):
+        raise performance.PerformanceQueryError("connection refused")
+
+    async def complete(*a, **k):
+        called["llm"] += 1
+        return "[]"
+
+    out = await outcomes.curate_performance("ge", by_cell=by_cell, complete=complete)
+    assert out["wrote"] == 0
+    assert out["reason"] == "performance query failed"
+    assert out["reason"] != "insufficient evidence"
+    assert called["llm"] == 0
+
+
+async def test_curator_clamps_out_of_range_importance():
+    """Model output is untrusted: an importance outside 0..1 must be clamped before it is persisted,
+    or it distorts importance-based recall ordering for every future run."""
+    written = []
+
+    async def by_cell(brand, *, engine=None):
+        return [_cell("a", "p", 5, 4.0), _cell("b", "p", 5, 1.0)]
+
+    async def complete(*a, **k):
+        return '[{"key":"too-high","content":"c1","importance":7.5}]'
+
+    async def remember(brand, content, key, importance):
+        written.append((key, importance))
+
+    out = await outcomes.curate_performance("ge", by_cell=by_cell, complete=complete,
+                                            remember=remember)
+    assert out["wrote"] == 1
+    assert written[0] == ("perf:too-high", 1.0)
+
+
+async def test_curator_clamps_non_finite_importance_to_the_default():
+    """NaN/inf must never reach the memory store — fall back to the documented default instead."""
+    written = []
+
+    async def by_cell(brand, *, engine=None):
+        return [_cell("a", "p", 5, 4.0), _cell("b", "p", 5, 1.0)]
+
+    async def complete(*a, **k):
+        return '[{"key":"nan","content":"c1","importance":NaN}]'
+
+    async def remember(brand, content, key, importance):
+        written.append((key, importance))
+
+    out = await outcomes.curate_performance("ge", by_cell=by_cell, complete=complete,
+                                            remember=remember)
+    assert out["wrote"] == 1
+    assert written[0] == ("perf:nan", 0.5)
+
+
 async def test_curator_caps_the_number_of_lessons():
     written = []
 
