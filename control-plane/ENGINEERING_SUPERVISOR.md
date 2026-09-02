@@ -1267,3 +1267,14 @@ references.
 **Noted, not actioned:** `influencer/content_plan.py` also depends on `POSTGRES_BRAIN_URL`, so that
 module cannot currently run either — flagged in its docstring rather than removed, since it was not
 in scope.
+
+
+## INFLUENCER-KEEP — 2026-09-02
+
+**Operator decision:** `influencer/` is **retained deliberately** — planned Mesh Pilot work, to be
+picked up later. It is NOT dead code, despite depending on `POSTGRES_BRAIN_URL`, which is configured
+nowhere and whose last other consumer the DEAD-HUB-SHIM lane just removed.
+
+Recorded because the previous entry flagged the module as unable to run, and an unqualified note
+like that reads as an invitation to delete — especially right after a session that removed ~7,000
+lines on exactly that reasoning. A keep-marker now sits in the module docstring.

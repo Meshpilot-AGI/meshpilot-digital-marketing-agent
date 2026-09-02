@@ -18,9 +18,13 @@ Table: core.influencer_post_plan (glitch_brain). FK to
 core.influencer_personas(brand_id, persona_id) / core.brands.
 Migration: migrations/2026-06-03-influencer-content-plan.sql
 
-Env: POSTGRES_BRAIN_URL — the v1 monorepo hub DSN. ⚠️ Not configured in prod or local
-env, so this module cannot currently run; `shared_context.py`, which shared it, was removed as
-dead on 2026-09-02.
+Env: POSTGRES_BRAIN_URL — the v1 monorepo hub DSN. Not configured in prod or local env, so this
+module cannot run as-is; `shared_context.py`, which shared that DSN, was removed as dead on
+2026-09-02.
+
+⚠️ KEEP. This is NOT dead code awaiting cleanup — the operator retained it deliberately
+(2026-09-02) as planned Mesh Pilot work. Do not delete it on the grounds that it cannot run; the
+missing DSN is the blocker, not the module.
 
 The previous Google-Sheet implementation is archived at
 archive/influencer-sheet-content-plan-2026-06-03/content_plan_sheet.py.
