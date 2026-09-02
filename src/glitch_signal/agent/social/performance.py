@@ -14,6 +14,11 @@ NO NORMALISATION IS POSSIBLE. Meta does not expose impressions or reach for thes
 here is therefore an ABSOLUTE count, which is confounded by posting time and by follower growth over
 the period. That is a real limitation, stated rather than hidden, and it is why the ranking
 threshold exists.
+
+PLATFORM IS PART OF THE CELL. Facebook and Instagram (and the rest) have different audiences and
+different engagement scales, so pooling their absolute counts into one mean would let platform mix,
+not the content choice, decide which cell looks best. Cells are therefore keyed on
+(asset_kind, pillar, platform), never on (asset_kind, pillar) alone.
 """
 from __future__ import annotations
 
@@ -35,16 +40,37 @@ DEFAULT_BUCKET = "24h"
 _ENGAGEMENT = ("coalesce(m.likes,0) + coalesce(m.comments,0) + coalesce(m.shares,0) "
                "+ coalesce(m.clicks,0)")
 
+# A row where every engagement component is NULL was never actually measured (a failed or partial
+# collector read) — it must not be counted as a genuine zero-engagement observation, or a read
+# failure silently drags the cell's mean down. A row with at least one real value is a genuine
+# observation whose still-absent components (e.g. Facebook has no `saves`) are legitimately zero.
+_UNMEASURED = ("m.likes IS NULL AND m.comments IS NULL AND m.shares IS NULL AND m.clicks IS NULL")
+
+
+class PerformanceQueryError(RuntimeError):
+    """`by_cell` could not complete its query — a DB/SQL failure, not "no evidence yet".
+
+    Kept distinct from an empty list on purpose: `summarise([])` reads as "the loop looked and found
+    nothing", which is a normal, expected state for most of this loop's life. An outage must not be
+    allowed to look identical to that — a caller needs to be able to tell "we looked" apart from
+    "we could not look".
+    """
+
 
 async def by_cell(brand_id: str, *, bucket: str = DEFAULT_BUCKET,
                   engine: Any = None) -> list[dict]:
-    """Per (asset_kind, pillar): sample size and mean engagement at one age bucket."""
+    """Per (asset_kind, pillar, platform): sample size and mean engagement at one age bucket.
+
+    Raises `PerformanceQueryError` on a DB/SQL failure — never returns `[]` for that case, so a
+    genuine "no evidence yet" result stays distinguishable from "the query could not run".
+    """
     try:
         eng = engine or _engine()
         async with eng.connect() as conn:
             rows = (await conn.execute(
                 text(f"SELECT c.choices->>'asset_kind' AS asset_kind, "
                      f"       c.choices->>'pillar'     AS pillar, "
+                     f"       m.platform                AS platform, "
                      f"       count(*)                 AS n, "
                      f"       avg({_ENGAGEMENT})::float AS mean_engagement, "
                      f"       sum({_ENGAGEMENT})        AS total_engagement "
@@ -53,12 +79,14 @@ async def by_cell(brand_id: str, *, bucket: str = DEFAULT_BUCKET,
                      f"JOIN social_campaign c ON c.id = p.campaign_id "
                      f"WHERE c.brand_id = :brand AND m.age_bucket = :bucket "
                      f"  AND c.choices->>'asset_kind' IS NOT NULL "
-                     f"GROUP BY 1, 2 ORDER BY 1, 2"),
+                     f"  AND c.choices->>'pillar' IS NOT NULL "
+                     f"  AND NOT ({_UNMEASURED}) "
+                     f"GROUP BY 1, 2, 3 ORDER BY 1, 2, 3"),
                 {"brand": brand_id, "bucket": bucket})).mappings().all()
         return [dict(r) for r in rows]
-    except Exception as exc:  # noqa: BLE001 — no evidence is a valid state, not a failure
+    except Exception as exc:  # noqa: BLE001 — re-raised as a typed, distinguishable failure
         log.warning("social.performance_query_failed", brand_id=brand_id, error=str(exc)[:200])
-        return []
+        raise PerformanceQueryError(str(exc)) from exc
 
 
 def summarise(cells: list[dict]) -> dict[str, Any]:
@@ -97,6 +125,6 @@ def evidence_block(summary: dict[str, Any]) -> str:
                 f"performs better.")
     lines = ["MEASURED PERFORMANCE (mean engagement at 24h, absolute — reach is not available):"]
     for c in summary["ranked"]:
-        lines.append(f"- {c['asset_kind']} × {c['pillar']}: "
+        lines.append(f"- {c['asset_kind']} × {c['pillar']} × {c.get('platform')}: "
                      f"{c['mean_engagement']:.2f} mean over n={c['n']}")
     return "\n".join(lines)
