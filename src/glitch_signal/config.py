@@ -322,7 +322,7 @@ class Settings(BaseSettings):
     # HeyGen Video Agent render deadline for a social run. Kept well under the cron capability
     # timeout so a slow video times out to IMAGE-ONLY (fail-soft) instead of the cron killing the
     # whole run and losing image progress.
-    agent_social_video_timeout_s: int = 420
+    agent_social_video_timeout_s: int = 1500   # a resumed HeyGen render measured ~555s
     # PIPELINE: when False, the `content` pipeline runs caption-first (scope `content_draft`, no paid
     # media) — it drafts copy + a media brief. Flip True to have content runs also generate the media
     # (scope `content`, MUapi/Higgsfield, bounded by agent_max_media_per_run).

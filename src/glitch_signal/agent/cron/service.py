@@ -19,6 +19,17 @@ CRON_SWEEP_INTERVAL_S = 20      # don't sweep on every fast scheduler tick
 CRON_CLAIM_LIMIT = 20           # max jobs claimed per sweep
 CAPABILITY_TIMEOUT_S = 600      # hard cap on a capability payload
 
+# Per-capability overrides. `social_campaign` renders video on HeyGen, whose sessions flap through
+# `failed` and need nudging back (see agent/social/video.py); a real recovered render measured ~555s
+# for the video ALONE, before ideate/image/captions/fan-out. At the 600s default the cron could never
+# finish one and silently demoted to image-only every night.
+CAPABILITY_TIMEOUTS = {"social_campaign": 1800}
+
+
+def timeout_for(name: str) -> int:
+    """The wall-clock cap for one capability payload."""
+    return CAPABILITY_TIMEOUTS.get(name, CAPABILITY_TIMEOUT_S)
+
 _last_sweep: datetime | None = None
 
 
@@ -188,4 +199,4 @@ async def _run_capability(brand: str, payload: dict) -> dict:
     fn = capabilities.get(name)
     if fn is None:
         raise ValueError(f"unknown capability {name!r}; allowed: {capabilities.names()}")
-    return await asyncio.wait_for(fn(brand, payload.get("args", {}) or {}), timeout=CAPABILITY_TIMEOUT_S)
+    return await asyncio.wait_for(fn(brand, payload.get("args", {}) or {}), timeout=timeout_for(name))

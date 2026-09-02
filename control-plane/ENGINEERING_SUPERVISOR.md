@@ -1048,3 +1048,23 @@ failed->thinking->generating->completed flap. Two real videos recovered and deli
 **Remains:** the campaign's video deadline is clamped under the cron capability cap; a resumed render
 took ~9 minutes end to end, so confirm `agent_social_video_timeout_s` leaves room for a nudge cycle
 before relying on it unattended.
+
+
+## VIDEO-DEADLINE — 2026-09-02
+
+**Found:** with `failed` now recoverable, the cron still could not finish a video. `CAPABILITY_TIMEOUT_S`
+is 600s and the video deadline clamped to **420s**, but a real recovered render took **555s for the
+video alone** (session flapped failed -> thinking -> generating -> completed over ~9 min), before
+ideate/image/captions/fan-out. Unattended it would time out and demote to image-only every night —
+the fix in #224 would have looked like it changed nothing.
+
+**Changed:** per-capability caps — `service.CAPABILITY_TIMEOUTS = {"social_campaign": 1800}` with
+`timeout_for(name)`; other capabilities keep the 600s default. `_video_deadline_s()` now clamps
+against THIS capability's cap, and `agent_social_video_timeout_s` default 420 -> **1500**.
+
+**Also:** guard test asserting the video path attaches **no `files`** (operator: stop attaching
+platform screenshots/logos — HeyGen pastes them into the B-roll instead of using them as style
+reference). The removal shipped in #224; this stops it creeping back.
+
+**Verified:** `timeout_for('social_campaign')` 1800 / `timeout_for('curate')` 600;
+`_video_deadline_s()` 1500. Suite 857 pass / 1 skip.

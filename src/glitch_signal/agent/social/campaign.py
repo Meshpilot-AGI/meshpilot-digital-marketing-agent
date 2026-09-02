@@ -30,11 +30,13 @@ _VIDEO_DEADLINE_MIN_S = 30
 
 def _video_deadline_s() -> int:
     """Configured video timeout, CLAMPED so a mis-set value can never defeat the fallback."""
-    from glitch_signal.agent.cron.service import CAPABILITY_TIMEOUT_S
+    from glitch_signal.agent.cron.service import timeout_for
     from glitch_signal.config import settings
 
-    configured = int(getattr(settings(), "agent_social_video_timeout_s", 420))
-    ceiling = max(_VIDEO_DEADLINE_MIN_S, CAPABILITY_TIMEOUT_S - _VIDEO_DEADLINE_MARGIN_S)
+    configured = int(getattr(settings(), "agent_social_video_timeout_s", 1500))
+    # Clamp against THIS capability's own cap, not the global default — social_campaign is given a
+    # longer one precisely so a HeyGen render (which can need a resume) can finish.
+    ceiling = max(_VIDEO_DEADLINE_MIN_S, timeout_for("social_campaign") - _VIDEO_DEADLINE_MARGIN_S)
     return max(_VIDEO_DEADLINE_MIN_S, min(configured, ceiling))
 
 

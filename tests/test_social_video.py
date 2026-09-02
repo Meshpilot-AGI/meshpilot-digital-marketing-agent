@@ -226,3 +226,20 @@ async def test_poll_gives_up_after_the_resume_budget(monkeypatch):
                                   max_resumes=2)
     assert len(tries) == 2 and "2 resume attempts" in str(e.value)
     assert "hard stop" in str(e.value)
+
+
+def test_campaign_attaches_no_files_to_a_render():
+    """Operator, 2026-09-02: stop attaching platform screenshots and logos.
+
+    HeyGen does not treat `files` as style reference — it drops the literal images into the B-roll,
+    so posts came back showing raw product screenshots and other companies' marks. Brand identity
+    comes from `brand_kit_id` instead. This asserts the pipeline sends an empty attachment list, so
+    the behaviour cannot creep back in.
+    """
+    import inspect
+
+    from glitch_signal.agent.social import campaign
+
+    src = inspect.getsource(campaign._default_deps)
+    assert "reference_urls" not in src, "the video path must not attach reference files"
+    assert "video.build_video_prompt(idea), []" in src, "file_urls must be an empty list"

@@ -63,14 +63,16 @@ async def _noop():
 def test_video_deadline_is_clamped_under_the_cron_capability_cap(monkeypatch):
     """REVIEW #5: a configured timeout at/above the capability cap defeats the fail-soft fallback —
     the outer cron wait_for kills the whole run before we can demote to image-only."""
-    from glitch_signal.agent.cron.service import CAPABILITY_TIMEOUT_S
+    from glitch_signal.agent.cron.service import timeout_for
 
     class _S:
         agent_social_video_timeout_s = 99_999
 
     monkeypatch.setattr(campaign, "settings", lambda: _S(), raising=False)
     monkeypatch.setattr("glitch_signal.config.settings", lambda: _S())
-    assert campaign._video_deadline_s() < CAPABILITY_TIMEOUT_S
+    # Clamped against THIS capability's cap — social_campaign has a longer one so a HeyGen render
+    # that needs a resume can finish.
+    assert campaign._video_deadline_s() < timeout_for("social_campaign")
 
 
 def test_sane_configured_timeout_is_left_alone(monkeypatch):

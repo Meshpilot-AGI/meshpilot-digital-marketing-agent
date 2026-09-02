@@ -257,3 +257,22 @@ def test_parse_duration():
     assert cron_tool.parse_duration_ms("2h") == 7_200_000
     with pytest.raises(ValueError):
         cron_tool.parse_duration_ms("soon")
+
+
+# ── per-capability timeouts ──
+def test_social_campaign_gets_a_longer_cap_than_the_default():
+    """A HeyGen render can need a resume; a real recovered one took ~555s for the video alone.
+
+    At the 600s global default the campaign could never finish one and silently demoted to
+    image-only every night.
+    """
+    assert service.timeout_for("social_campaign") == 1800
+    assert service.timeout_for("curate") == service.CAPABILITY_TIMEOUT_S == 600
+
+
+def test_video_deadline_leaves_room_for_a_resumed_render():
+    from glitch_signal.agent.social.campaign import _video_deadline_s
+
+    deadline = _video_deadline_s()
+    assert deadline >= 900, "must exceed a measured resumed render (~555s) with margin"
+    assert deadline < service.timeout_for("social_campaign"), "must stay under the capability cap"
