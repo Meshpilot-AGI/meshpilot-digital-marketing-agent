@@ -52,13 +52,25 @@ async def find(owner_brand: str, *, kind: str | None = None, slug: str | None = 
         eng = engine or _engine()
         async with eng.connect() as conn:
             rows = (await conn.execute(
-                text("SELECT slug, name, kind, url, width, height, accent, usage_note "
+                text("SELECT slug, name, kind, url, width, height, accent, usage_note, handles "
                      "FROM brand_asset WHERE owner_brand = :o "
                      "  AND (cast(:k as text) IS NULL OR kind = cast(:k as text)) "
                      "  AND (cast(:s as text) IS NULL OR slug = cast(:s as text)) "
                      "ORDER BY name"),
                 {"o": owner_brand, "k": kind, "s": slug})).mappings().all()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            h = d.get("handles")
+            if isinstance(h, str):          # asyncpg may hand jsonb back as text
+                import json
+                try:
+                    h = json.loads(h)
+                except Exception:  # noqa: BLE001
+                    h = {}
+            d["handles"] = h if isinstance(h, dict) else {}
+            out.append(d)
+        return out
     except Exception as exc:  # noqa: BLE001
         log.warning("brand.assets_lookup_failed", owner_brand=owner_brand, error=str(exc)[:200])
         return []
