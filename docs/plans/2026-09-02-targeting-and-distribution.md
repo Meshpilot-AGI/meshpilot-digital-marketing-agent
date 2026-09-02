@@ -85,18 +85,48 @@ Building brand monitoring on Reddit's Data API is either a terms violation or a 
 item. Neither is acceptable. But scraping Reddit is *also* against their user agreement, so
 "just scrape it" is not the clean answer either.
 
-### The design that is defensible
+### redditapis.com — tested live, 2026-09-02 ✅
 
-**Discovery via SERP, not via Reddit.** Find Reddit threads by searching the public search index
-(`site:reddit.com` + intent queries) through the Bright Data SERP API we already hold. We are
-reading a search engine's index of public pages — the same thing a person does — rather than
-harvesting Reddit's API at scale. `web_fetch` (already SSRF-hardened) reads the specific thread.
+The operator supplied a token for **redditapis.com**, a third-party Reddit proxy. Verified working
+against the real service (not read from docs):
 
-**Posting via Reddit's own OAuth API.** No third party offers Reddit publishing — Buffer does not,
-which is why `_PUBLISH_PRIORITY` excludes it. Posting must go through Reddit's API with a real
-account, at genuinely human cadence. This needs an approved OAuth client (manual ticket now).
+| Test | Result |
+|---|---|
+| `GET /api/reddit/search?q=trailing drawdown&sort=new` | **200** — 5 live posts with subreddit, upvotes, permalink |
+| `GET /api/reddit/search/communities?q=prop firm` | **200** — 10 communities **with subscriber counts** |
 
-**So: no third-party *Reddit* tool. A third-party *search* tool, which we already pay for.**
+The community search returned `r/propfirm` (39,227), `r/PropFirmTester` (28,257), `r/PropFirms`,
+`r/PropfirmsForum`, `r/PropFirmHunter`, `r/PropFirmExchange`, alongside the broad rooms
+(`r/Daytrading` 5.2M, `r/Forex` 547k). The post search surfaced `r/tradeify` and `r/Propfirmstory` —
+**subreddits we would not have guessed** — and a direct competitor launching an "AI-powered trading
+journal for prop firm traders" in `r/SideProject`.
+
+That is the `surface` discovery primitive and the `signal_item` feed, working, today. Pricing is
+**$0.002/read**: ~200 reads/day is roughly **$12/month**, against Reddit's $12,000/month commercial
+minimum.
+
+### ⚠️ Use it for READS. Do not route WRITES through it.
+
+The same service offers `POST` comment / vote / DM, and an auth route that takes a **Reddit username
+and password** to mint session cookies. Reads and writes have very different risk profiles and
+should not be treated as one decision:
+
+- **Reads** fetch public data through a proxy. No credentials of ours, nothing attributed to our
+  account. This is the low-risk half and it is the half we need most.
+- **Writes** require handing a third party our Reddit password and then acting through an unofficial
+  API. That is against Reddit's User Agreement, and the account it puts at risk is precisely the one
+  whose standing the whole Reddit strategy depends on. Automated DMs are the fastest ban of all.
+
+**Recommendation: discovery and listening through redditapis.com; posting through Reddit's own OAuth
+API or the Devvit app.** This costs nothing extra — we need the official client for posting anyway —
+and it keeps the account's activity sanctioned and attributable.
+
+### The rest of the design
+
+**Discovery** via redditapis.com (above), with the SERP (Bright Data) as a second source for
+`site:reddit.com` intent queries. **Reading a specific thread** via the existing SSRF-hardened
+`web_fetch`. **Posting** via Reddit's official OAuth API — no third party publishes to Reddit, which
+is why `_PUBLISH_PRIORITY` excludes it.
 
 ### The constraint that actually decides success
 
@@ -209,8 +239,38 @@ That is the evidence that earns S1, and it is why S0 is not busywork.
 | **SEO-2 — publish path** | Commit + PR into `glitch-trade-app`; run the program's gates; CF Pages verify. Stage **S0**. | SEO-1 |
 | **SEO-3 — autonomy** | Track record measurement, S1 gated auto-merge, then S2. | SEO-2 evidence |
 
+### DEVVIT — a separate lane, and a different kind of bet
+
+`~/dev/reddit-devvit/glitch-executor` exists: a Devvit (Reddit Developer Platform) app, currently the
+**unmodified "vibe coding" starter** — `src/server/core/count.ts` is still the Redis counter demo.
+Name set to `glitch-executor`, dev subreddit `glitch_executor_dev`, permissions declared
+(`SUBMIT_POST`, `SUBMIT_COMMENT`, `SUBSCRIBE_TO_SUBREDDIT`, all `asUser`). No commits, no remote, not
+published.
+
+**This does not replace the Reddit lanes.** Devvit builds experiences that run INSIDE Reddit —
+interactive posts, games, mod tools — installed **per-subreddit**, and installation is the
+subreddit's decision. The `asUser` permissions let the app act for a user *interacting with it*, not
+broadcast into subreddits. It gives no cross-Reddit listening. (⚠️ Reddit blocks automated fetching
+of `developers.reddit.com`, so this characterisation needs confirming against their docs.)
+
+**But it is the better-shaped bet, and worth its own lane.** It is the one form of Reddit presence
+Reddit actively rewards rather than punishes — there is a Developer Funds programme paying for
+engagement. Something genuinely useful to this audience (a drawdown calculator as an interactive
+post, a "would this trade have breached your firm's rules?" checker, a prop-firm rules quiz) earns
+installs and native brand presence with none of the shadowban exposure that automated participation
+carries.
+
+The strategic point: **participation is the risky channel; a genuinely useful app is the sanctioned
+one.** Note this is a TypeScript app on Reddit's platform — it shares almost no machinery with the
+agent, which is why it is a separate lane rather than a sub-lane of TARGETING.
+
+Open questions: is the agent meant to build/feed it, or is it the operator's own project? And which
+subreddit is the target — one the operator moderates, or build-it-and-they-install?
+
 **Open decisions for the operator**
 
 1. Amend `ai-seo-program.md`'s "every page human-edited" guardrail, or keep HITL for the blog?
 2. Reddit OAuth client — who files the approval ticket, and under what declared use case?
 3. Does the agent commit to `glitch-trade-app` directly, or to a fork it PRs from?
+4. Confirm reads-only through redditapis.com — or is routing writes through it an accepted risk?
+5. DEVVIT: agent-owned or operator-owned, and which subreddit is the target?

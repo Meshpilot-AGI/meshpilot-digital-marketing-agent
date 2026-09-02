@@ -22,8 +22,17 @@ executing code; **Reddit has no reader and no publisher**. `APIFY_KEY`, `BRIGHTD
 **Surface** (subreddit / X account / query / forum) is a first-class scored record. The brand
 declares its AUDIENCE; the agent DISCOVERS the surfaces. That is what keeps it brand-neutral.
 
-**Reddit — do we need a third party?** Not for posting; effectively yes for discovery, but not a
-Reddit tool. Reddit's free API tier is **non-commercial only** and names brand/social monitoring as
+**Reddit — TESTED LIVE 2026-09-02.** `redditapis.com` (operator-supplied token) works: post search
+returned live threads with subreddit/upvotes/permalink, and community search returned `r/propfirm`
+(39k), `r/PropFirmTester` (28k), `r/PropFirms`, `r/PropfirmsForum` **with subscriber counts** — the
+surface-discovery primitive, working today, at **$0.002/read (~$12/mo)** against Reddit's own
+**$12,000/mo** commercial minimum. It also surfaced `r/tradeify` and `r/Propfirmstory`, which we
+would not have guessed, plus a competitor launching in `r/SideProject`.
+⚠️ **Reads only.** The same service offers comment/vote/DM writes and an auth route that takes a
+Reddit **username and password**. Reads risk nothing of ours; writes hand a third party our
+credentials and act through an unofficial API — against Reddit's User Agreement, risking the exact
+account whose standing the strategy depends on. Post through Reddit's own OAuth API instead.
+**Original answer stands:** no third party for posting. Reddit's free API tier is **non-commercial only** and names brand/social monitoring as
 commercial; commercial is **~$0.24/1k calls from ~$12k/month**, and self-service client registration
 **closed in late 2025**. So: discover threads through the **SERP** (Bright Data, already paid for),
 read them with the existing hardened `web_fetch`, and post through **Reddit's own OAuth API** — no
@@ -47,6 +56,34 @@ publish with no HITL — the doc is the operator's and can be amended, but delib
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+
+### DEVVIT — a Reddit-native app for GE                                          [OPEN — scoping]
+Owner: unassigned        Opened: 2026-09-02
+Reading: docs/plans/2026-09-02-targeting-and-distribution.md (§ DEVVIT), `~/dev/reddit-devvit/glitch-executor`
+Acceptance: TBD — blocked on the two scoping questions below.
+Write-back: control-plane/ENGINEERING_SUPERVISOR.md
+
+`~/dev/reddit-devvit/glitch-executor` exists but is the **unmodified Devvit "vibe coding" starter** —
+`src/server/core/count.ts` is still the Redis counter demo. Name `glitch-executor`, dev subreddit
+`glitch_executor_dev`, permissions declared (`SUBMIT_POST`, `SUBMIT_COMMENT`,
+`SUBSCRIBE_TO_SUBREDDIT`, all `asUser`). No commits, no remote, not published.
+
+**Separate from TARGETING on purpose.** Devvit builds experiences that run INSIDE Reddit, installed
+per-subreddit at the subreddit's discretion; `asUser` lets it act for a user interacting with it, not
+broadcast outward, and it gives no cross-Reddit listening. It shares almost no machinery with the
+agent — it is a TypeScript app on Reddit's platform.
+
+**Why it may be the better bet anyway:** it is the one form of Reddit presence Reddit actively
+rewards (Developer Funds pays for engagement). Something genuinely useful to this audience — a
+drawdown calculator as an interactive post, a "would this trade have breached your firm's rules?"
+checker — earns installs and native presence with none of the shadowban exposure automated
+participation carries. **Participation is the risky channel; a useful app is the sanctioned one.**
+
+⚠️ Reddit blocks automated fetching of `developers.reddit.com`, so the characterisation above is from
+model knowledge and needs confirming against their docs before building.
+
+**Blocked on:** (1) agent-owned or operator-owned project? (2) which subreddit is the target — one
+the operator moderates, or build-it-and-they-install?
 
 ## Recently closed
 
