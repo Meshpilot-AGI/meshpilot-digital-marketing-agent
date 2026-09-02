@@ -44,8 +44,3 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
 
-
-async def create_all_tables() -> None:
-    """Create tables if they don't exist (dev/test only — use Alembic in prod)."""
-    async with _engine().begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)

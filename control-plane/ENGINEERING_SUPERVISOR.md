@@ -1240,3 +1240,30 @@ Anything monitoring that field needs to know.
 
 **Remains:** `create_all_tables()` in `db/session.py` is now dead code. `shared_context.py` is mostly
 dead but load-bearing in two places — worth extracting those two helpers and deleting the rest.
+
+
+## DEAD-HUB-SHIM — 2026-09-02
+
+**The follow-up turned out bigger and simpler than planned.** The intent was "extract the two live
+`shared_context` helpers, delete the rest". Checking first showed there was nothing live to extract:
+
+- `POSTGRES_BRAIN_URL` / `HUB_DB_URL` (the v1 monorepo hub DSN) is configured in **neither prod nor
+  local env** — verified against the FastAPI Cloud env list, not assumed.
+- So `audit_brand_registry_against_hub` always returned `hub_unreachable` and never populated its
+  cache; `canonical_brand_id` therefore **always returned None**.
+- And **nothing ever read** the `hub_canonical_brand_id` field it stamped onto every brand config —
+  zero consumers outside `config.py` itself.
+
+A resolver against a database that no longer exists, feeding a field nobody reads.
+
+**Removed:** `shared_context.py` (311 lines) entirely, the startup brand-drift audit in `server.py`,
+the `hub_canonical_brand_id` stamping in `config.py`, and the dead `create_all_tables()` in
+`db/session.py` (the one that would have recreated every table dropped in #232/#233 had anything
+called it). Corrected two docstrings that still documented the removed behaviour.
+
+**Verified:** app boots, 40 routes, `brand_config()` intact, 792 pass / 1 skip, no residual
+references.
+
+**Noted, not actioned:** `influencer/content_plan.py` also depends on `POSTGRES_BRAIN_URL`, so that
+module cannot currently run either — flagged in its docstring rather than removed, since it was not
+in scope.

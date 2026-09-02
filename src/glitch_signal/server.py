@@ -127,14 +127,6 @@ async def _on_startup() -> None:
     # so the agent's MCP client always resolves a fresh Bearer even when idle.
     asyncio.create_task(_oauth_keepalive())
 
-    # Mesh Pilot brand-drift audit: log every locally-configured brand
-    # against the hub `core.brands` table. Observation-only — never
-    # blocks boot, even if the hub DB is unreachable.
-    from glitch_signal.shared_context import audit_brand_registry_against_hub
-    try:
-        await audit_brand_registry_against_hub(brand_ids())
-    except Exception as exc:  # pragma: no cover — pure diagnostic
-        log.warning("signal.brand_drift audit_failed reason=%s", exc)
 
     log.info("glitch_signal.started", version=__version__, port=3111)
 

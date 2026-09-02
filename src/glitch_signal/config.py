@@ -543,17 +543,11 @@ def brand_config(brand_id: str | None = None) -> dict:
     Kept backward-compatible: existing callers that pass no argument still
     get the same single-brand config they used to read from brand.config.json.
 
-    Signal-PHASE-2b (2026-05-26): the returned dict is stamped with
-    `hub_canonical_brand_id` — the canonical `core.brands.brand_id`
-    that the local Signal brand_id maps to (resolved via
-    `core.brand_aliases` with `system='signal_brand_id'`, or identity
-    when the local id is already canonical). The field is None if the
-    startup audit hasn't run yet or the hub doesn't know this brand.
-    Callers that need to talk to hub-owned surfaces should prefer
-    `cfg["hub_canonical_brand_id"]` over `cfg["brand_id"]`.
+    Previously also stamped `hub_canonical_brand_id`, resolved from the v1 monorepo's hub DB. That
+    hub is gone — `POSTGRES_BRAIN_URL` is configured in neither prod nor local env, so the startup
+    audit always reported `hub_unreachable`, the value was always None, and nothing ever read it.
+    Removed with `shared_context.py` (2026-09-02).
     """
-    from glitch_signal.shared_context import canonical_brand_id
-
     registry = _brands()
     key = brand_id or settings().default_brand_id
     if key not in registry:
@@ -561,11 +555,6 @@ def brand_config(brand_id: str | None = None) -> dict:
             f"Unknown brand_id {key!r}. Configured brands: {sorted(registry.keys())}"
         )
     cfg = registry[key]
-    # Stamp every read with the canonical id from the startup audit.
-    # Stamping at read time (rather than once at registry build) means
-    # the field reflects the live cache state — useful when the audit
-    # ran after registry was built, or when callers query before audit.
-    cfg["hub_canonical_brand_id"] = canonical_brand_id(key)
     return cfg
 
 
