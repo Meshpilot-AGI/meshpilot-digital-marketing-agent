@@ -113,6 +113,32 @@ job slots**. Recovery for a `thinking` stall is to abandon and let the next run 
 > **Never treat a HeyGen status as terminal on first read.** It is the single most expensive
 > assumption made in this integration.
 
+### ✅ Known-good reference render (2026-09-02)
+
+Operator-approved as production quality: **"Trading Rules: Drawdown Decoded"**, 28.4s portrait —
+video `1b9dea64563d46a1a7e55135b0042f3f`, session `2dc60d2f738e4c0ab74e361dd62b2121`. Regress against
+this before changing the video path.
+
+The configuration that produced it — every element deliberate, and each one earned:
+
+| Setting | Value | Why |
+|---|---|---|
+| `mode` | `generate` | one-shot; no approval pause on an unattended run |
+| `orientation` | `portrait` | always set explicitly, never auto-detected |
+| `avatar_id` | a **look** id (not a group id) | unpinned, the agent re-rolls the narrator every post |
+| `brand_kit_id` | GE kit | palette, fonts, logo applied to everything it builds |
+| `brand_glossary_id` | GE glossary | narrator says the brand name correctly |
+| `files` | **none** | attachments get pasted into the B-roll as literal images |
+| prompt | script-first, ~700 chars | tone not timestamps, positive framing, no questions |
+
+Two things it confirms: the **brand kit is doing real work** (this is the first render that looks like
+one brand rather than a stock explainer), and **pinning the avatar matters** — the same brief without
+it produced a different presenter each time.
+
+⚠️ **No burned-in captions.** `captioned_video_url` and `subtitle_url` are both `null` on this
+render. For TikTok/Reels, where most viewing is sound-off, that is a real gap — captions drive
+completion rate. Unresolved: what makes HeyGen populate those fields.
+
 ## 1. Video Agent — the contract
 
 One prompt in, a finished multi-scene video out; the agent writes the script, picks the avatar and
