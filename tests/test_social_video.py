@@ -57,23 +57,25 @@ def test_session_options_omits_unset_keys(monkeypatch):
     assert opts["brand_kit_id"] == "bk_1" and "voice_id" not in opts
 
 
-# ── credit preflight: the wallet, not the prompt, is what killed five nightly runs ──
-async def test_preflight_raises_below_floor(monkeypatch):
-    monkeypatch.setattr(video, "wallet_balance", lambda: _bal(1.05))
+# ── credit preflight: PLAN CREDITS, not the USD wallet (renders bill credits: 26/clip) ──
+async def test_preflight_raises_below_credit_floor(monkeypatch):
+    monkeypatch.setattr(video, "credit_balance", lambda: _bal(10.0))
     with pytest.raises(video.HeyGenCreditError) as e:
         await video.preflight()
-    assert "1.05" in str(e.value)
+    assert "10" in str(e.value)
 
 
-async def test_preflight_passes_when_funded(monkeypatch):
-    monkeypatch.setattr(video, "wallet_balance", lambda: _bal(25.0))
+async def test_preflight_passes_on_a_healthy_credit_plan(monkeypatch):
+    """Regression: the gate used to read the USD wallet, which sat at $1.05 on an account holding
+    1,091 plan credits — it would have refused every render the plan could comfortably fund."""
+    monkeypatch.setattr(video, "credit_balance", lambda: _bal(1091.0))
     await video.preflight()          # must not raise
 
 
 async def test_preflight_proceeds_when_balance_unreadable(monkeypatch):
     # Fails OPEN on None: refusing every render on a transient profile-endpoint blip would be
     # worse than the underfunded-wallet case this guards.
-    monkeypatch.setattr(video, "wallet_balance", lambda: _bal(None))
+    monkeypatch.setattr(video, "credit_balance", lambda: _bal(None))
     await video.preflight()
 
 

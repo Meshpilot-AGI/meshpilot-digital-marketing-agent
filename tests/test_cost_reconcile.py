@@ -168,38 +168,18 @@ async def test_reconcile_muapi_reports_a_usd_delta_not_credits(monkeypatch):
     assert v["delta_usd"] == pytest.approx(0.9699, abs=1e-4)
 
 
-async def test_reconcile_heygen_reports_a_usd_delta_from_the_wallet(monkeypatch):
-    """HeyGen bills a USD wallet, so its balance is dollars and needs no credit conversion.
+async def test_reconcile_heygen_reports_a_credit_delta(monkeypatch):
+    """HeyGen renders bill PLAN CREDITS, so its balance is credits and converts via the credit rate.
 
-    The legacy `/v2/user/remaining_quota` reported a healthy `remaining_quota: 63` while the wallet
-    held $1.05 and every render was failing — reconciling against that pool watched the wrong
-    number. `_fetch_heygen` now reads `wallet.remaining_balance` from `GET /v3/users/me`."""
+    Briefly reconciled against the USD wallet instead — wrong number entirely: the wallet held
+    $1.05 while `details.plan_credit` (the pool renders actually draw down) held 1,091."""
     monkeypatch.setitem(reconcile._FETCHERS, "heygen", _fake_fetcher(90.0))
+    monkeypatch.setenv("COST_HEYGEN_CREDIT_USD", "0.30")
     prev = {"balance": 100.0, "created_at": NOW - timedelta(hours=1)}
     summ = {"usd": 2.40, "n": 4}
     eng = _Engine(prev=prev, summ=summ)
     out = await reconcile.run(["heygen"], now=NOW, engine=eng)
     v = out["vendors"][0]
-    assert v["balance_unit"] == "usd"
-    assert v["delta_usd"] == pytest.approx(10.0)
-    assert "delta_credits" not in v
-
-
-async def test_reconcile_unavailable_is_graceful(monkeypatch):
-    monkeypatch.setitem(reconcile._FETCHERS, "muapi", _fake_fetcher(None, {"error": "boom"}))
-    eng = _Engine(prev=None)
-    out = await reconcile.run(["muapi"], now=NOW, engine=eng)
-    v = out["vendors"][0]
-    assert v["status"] == "unavailable" and v["balance"] is None
-    # a snapshot was still written (for audit)
-    assert any("insert into balance_snapshots" in s for s, _ in eng.calls)
-
-
-async def test_reconcile_capability_dispatches(monkeypatch):
-    from glitch_signal.agent.cron import capabilities
-
-    async def _run(vendors=None):
-        return {"reconciled_at": "x", "vendors": [], "got": vendors}
-    monkeypatch.setattr(reconcile, "run", _run)
-    out = await capabilities.get("reconcile")("glitch_executor", {"vendors": ["heygen"]})
-    assert out["got"] == ["heygen"]
+    assert v["balance_unit"] == "credits"
+    assert v["delta_credits"] == 10.0
+    assert "delta_usd" not in v

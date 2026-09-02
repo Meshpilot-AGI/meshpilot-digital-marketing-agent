@@ -153,6 +153,19 @@ def muapi_cost(model: str) -> float:
 
 # ── HeyGen (credit-based; ~1 credit per API video by default) ──
 def heygen_credit_usd() -> float:
+    """USD per HeyGen credit.
+
+    ⚠️ **The 0.30 default is almost certainly wrong for this account and needs the real plan price.**
+    It dates from a pay-as-you-go assumption. This account is on a subscription that grants 600
+    credits/month (+491 rollover), and at $0.30 those 600 credits would imply ~$180/month of value
+    on a plan that costs a fraction of that. Combined with the measured 26 credits/render it prices
+    a single 30s video at $7.80, which is not plausible.
+
+    The correct figure is (monthly plan price) / (monthly credit grant) -- roughly $0.05/credit for
+    a ~$30 plan. Set `COST_HEYGEN_CREDIT_USD` from the actual invoice rather than leaving this
+    guess in place; until then every HeyGen cost in `usage_events` is inflated, and the
+    balance-delta reconcile will report it as drift.
+    """
     try:
         return float(os.environ.get("COST_HEYGEN_CREDIT_USD", "0.30"))
     except ValueError:
@@ -160,8 +173,14 @@ def heygen_credit_usd() -> float:
 
 
 def heygen_cost(model: str, *, credits: float | None = None) -> tuple[float, float]:
-    """Return (credits, cost_usd). Defaults to 1 credit/video; trued up by balance-delta reconcile."""
-    c = credits if credits is not None else float(os.environ.get("COST_HEYGEN_DEFAULT_CREDITS", "1") or 1)
+    """Return (credits, cost_usd). Defaults to a MEASURED 26 credits/video.
+
+    It defaulted to 1, understating every Video Agent render 26x. The account's own usage history
+    prices "Glitch Executor: The Payout Truth" (~38s) at **26 credits** -- same class of error as
+    the MUapi unit mistake above, found the same way: by reading the vendor's own billing screen
+    instead of trusting the constant.
+    """
+    c = credits if credits is not None else float(os.environ.get("COST_HEYGEN_DEFAULT_CREDITS", "26") or 26)
     return round(float(c), 4), round(float(c) * heygen_credit_usd(), 6)
 
 

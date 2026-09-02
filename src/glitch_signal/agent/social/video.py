@@ -11,15 +11,14 @@ which is the knowledge base this module implements:
     POST {base}/v3/video-agents            -> {data: {session_id, status, video_id|null, created_at}}
     GET  {base}/v3/video-agents/{sid}      -> {data: {status, progress, video_id, messages[]}}
     GET  {base}/v3/videos/{video_id}       -> {data: {status, video_url, failure_code, failure_message}}
-    GET  {base}/v3/users/me                -> {data: {wallet: {remaining_balance, currency}}}
+    GET  {base}/v2/user/remaining_quota    -> {data: {details: {plan_credit}}}   (no v3 equivalent)
 
 Three production lessons are encoded here, each of which cost us real renders:
 
-1. **Credit is checked BEFORE submitting.** A wallet below one render's price is the leading
-   SUSPECT for the sessions that fail instantly at `progress: 0` with no reason attached (five
-   consecutive nightly campaigns, 2026-09-01/02, wallet at $1.05). It is *not confirmed* — see
-   `docs/vendors/heygen.md` §0 for what direct testing has eliminated. The gate is cheap and names
-   a real risk; it is not a proven diagnosis.
+1. **Credit is checked BEFORE submitting — in PLAN CREDITS, not the USD wallet.** A Video Agent
+   render bills plan credits (26 for a ~38s clip, from the account's own usage history), so the
+   wallet balance is irrelevant to whether a render can run. An earlier version of this gate read
+   the wallet and would have refused every render on an account with 1,091 credits available.
 2. **The SESSION is the authority, not the video.** A session can fail before it is ever assigned a
    `video_id`; polling only the video means waiting out the whole timeout on a run that is already
    dead.
@@ -44,9 +43,10 @@ _API = f"{_API_BASE.rstrip('/')}/v3"
 _MAX_FILES = 20          # HeyGen caps `files` at 20 attachments
 _MAX_PROMPT = 10_000     # documented `prompt` maxLength
 
-# A Video Agent render bills the wallet at roughly $1–2 (monorepo UGC lane, 22 iterations). Below
-# this we refuse to submit: HeyGen accepts the session, fails it at progress 0, and tells us nothing.
-_MIN_WALLET_USD = 2.0
+# A Video Agent render bills PLAN CREDITS, not the USD wallet. Measured from the account's own
+# usage history: "Glitch Executor: The Payout Truth" (~38s) cost **26 credits**. Below one render's
+# worth we refuse to submit rather than let HeyGen accept a session it cannot fund.
+_MIN_CREDITS = 26.0
 
 # Session statuses (GET session enum is a SUPERSET of the create enum — `waiting_for_input` and
 # `reviewing` only ever appear on the read side).
@@ -149,51 +149,54 @@ def _heygen_headers() -> dict[str, str]:
     return {"X-Api-Key": _heygen_key(), "Content-Type": "application/json"}
 
 
-def _min_wallet_usd() -> float:
+def _min_credits() -> float:
     try:
-        return float(os.environ.get("HEYGEN_MIN_WALLET_USD") or _MIN_WALLET_USD)
+        return float(os.environ.get("HEYGEN_MIN_CREDITS") or _MIN_CREDITS)
     except ValueError:
-        return _MIN_WALLET_USD
+        return _MIN_CREDITS
 
 
-async def wallet_balance() -> float | None:
-    """Remaining wallet balance in USD, or None if it cannot be read.
+async def credit_balance() -> float | None:
+    """Remaining PLAN CREDITS, or None if unreadable.
 
-    `GET /v3/users/me` — the v3 replacement for the legacy `/v2/user/remaining_quota`, which HeyGen
-    removes on 2026-10-31 and whose response now carries a warning telling agents not to use it.
-    Video Agent bills the WALLET, so `wallet.remaining_balance` is the number that decides whether a
-    render can run; the v2 endpoint's `plan_credit` does not.
+    ⚠️ Read from the legacy `GET /v2/user/remaining_quota` deliberately. `GET /v3/users/me` is the
+    documented replacement but returns only the USD `wallet` for this account — it does not expose
+    the credit pool at all, and no v3 endpoint does (`/v3/users/me/credits`, `/v3/credits`,
+    `/v3/users/me/usage` all 404). So the endpoint HeyGen removes on **2026-10-31** is currently the
+    only source of the number that decides whether a render can run. Re-check for a v3 equivalent
+    before that date.
+
+    `details.plan_credit` is the render budget (verified against the account UI: 1,091 remaining).
+    The top-level `remaining_quota` is a DIFFERENT, much smaller API-specific pool (63) — reading it
+    as the render budget is what the previous version of this code got wrong.
     """
     import httpx
 
     try:
         async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.get(f"{_API}/users/me", headers=_heygen_headers())
+            r = await c.get(f"{_API_BASE.rstrip('/')}/v2/user/remaining_quota",
+                            headers=_heygen_headers())
             r.raise_for_status()
-            w = ((r.json() or {}).get("data") or {}).get("wallet") or {}
-        if str(w.get("currency", "usd")).lower() != "usd":
-            return None
-        return float(w["remaining_balance"])
+            d = ((r.json() or {}).get("data") or {}).get("details") or {}
+        return float(d["plan_credit"])
     except Exception:  # noqa: BLE001 — an unreadable balance must not block a render
         return None
 
 
 async def preflight() -> None:
-    """Raise `HeyGenCreditError` when the wallet cannot fund a render.
+    """Raise `HeyGenCreditError` when the PLAN CREDITS cannot fund a render.
 
     Fails CLOSED only on a balance we actually read: an unreadable balance (None) proceeds, because
-    refusing every render on a transient profile-endpoint blip would be worse than the thing this
-    guards against.
+    refusing every render on a transient endpoint blip would be worse than the thing this guards.
     """
-    bal = await wallet_balance()
+    bal = await credit_balance()
     if bal is None:
         return
-    floor = _min_wallet_usd()
+    floor = _min_credits()
     if bal < floor:
         raise HeyGenCreditError(
-            f"heygen wallet ${bal:.2f} is below the ${floor:.2f} a render is expected to cost — "
-            "refusing to submit. Top up the wallet (auto-reload is off); if renders still fail at "
-            "progress 0 once funded, the cause is vendor-side, not credit (see docs/vendors/heygen.md)"
+            f"heygen plan credits {bal:.0f} below the {floor:.0f} a render costs — refusing to "
+            "submit (see docs/vendors/heygen.md)"
         )
 
 
