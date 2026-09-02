@@ -208,6 +208,60 @@ async def _t_discover_trending(args: dict, brand_id: str) -> str:
                        "count": len(trimmed), "trending": trimmed})
 
 
+async def _t_discover_conversations(args: dict, brand_id: str) -> str:
+    """Find live Reddit THREADS matching a query — what people are actually saying, right now.
+
+    Complements `discover_trending`, which sees Instagram/TikTok only. Observations are persisted to
+    `signal_item`, and each is marked `new` or not, so the loop can tell a fresh thread from one it
+    has already looked at. Gated by the same discovery kill-switch — no external pull until enabled.
+    """
+    from glitch_signal.agent.discovery import reddit as _reddit
+    from glitch_signal.agent.discovery import store as _store
+
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return "ERROR: query is required"
+    try:
+        res = await _reddit.search_posts(
+            query, subreddit=(args.get("subreddit") or None),
+            sort=str(args.get("sort") or "relevance"),
+            limit=int(args.get("limit") or 10),
+            time_window=(args.get("time_window") or None))
+    except Exception as exc:  # noqa: BLE001 — surface to the loop, don't crash it
+        return f"ERROR: reddit discovery failed: {str(exc)[:200]}"
+
+    posts = res.get("posts") or []
+    ids = [str(p.get("id")) for p in posts if p.get("id")]
+    already = await _store.seen_ids(brand_id, "reddit", ids)
+    await _store.record(brand_id, "reddit", "post", posts, query=query)
+    for p in posts:
+        p["new"] = str(p.get("id")) not in already
+    return json.dumps({"query": query, "count": len(posts),
+                       "new": sum(1 for p in posts if p.get("new")), "posts": posts})
+
+
+async def _t_discover_communities(args: dict, brand_id: str) -> str:
+    """Find the ROOMS an audience is in — subreddits matching a query, with subscriber counts.
+
+    This is the "where to hit" primitive: the brand declares who it serves, and this finds where they
+    gather. Nothing here is hardcoded to any industry. Gated by the discovery kill-switch.
+    """
+    from glitch_signal.agent.discovery import reddit as _reddit
+    from glitch_signal.agent.discovery import store as _store
+
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return "ERROR: query is required"
+    try:
+        res = await _reddit.search_communities(query, limit=int(args.get("limit") or 15))
+    except Exception as exc:  # noqa: BLE001
+        return f"ERROR: reddit community search failed: {str(exc)[:200]}"
+
+    rows = res.get("communities") or []
+    await _store.record(brand_id, "reddit", "community", rows, query=query)
+    return json.dumps({"query": query, "count": len(rows), "communities": rows})
+
+
 async def _t_web_search(args: dict, brand_id: str) -> str:
     """Search the LIVE web via OpenRouter's native web plugin. Returns {answer, sources}. Gated: the
     policy denies this unless agent_web_search_enabled is on, so it only runs when deliberately enabled."""
@@ -461,6 +515,31 @@ TOOLS: dict[str, dict[str, Any]] = {
                                                 "kind": {"type": "string",
                                                          "enum": ["reels", "feed", "hashtags", "songs", "creators"]},
                                                 "country": {"type": "string"}}, ["platform"], closed=False)},
+    "discover_conversations": {"fn": _t_discover_conversations,
+                               "description": "Find live Reddit THREADS matching a query — what people "
+                                              "are saying right now. Returns posts with subreddit, "
+                                              "traction, permalink and a `new` flag (false = already "
+                                              "observed before). Use to find conversations worth "
+                                              "answering. Leave `sort` at the default `relevance`: "
+                                              "`top` returns all-time global posts and `new` returns "
+                                              "whatever is recent, both nearly ignoring the query — "
+                                              "use `new` only together with `subreddit`. "
+                                              "NOTE: gated — denied unless discovery is enabled.",
+                               "input_schema": _obj({"query": {"type": "string"},
+                                                     "subreddit": {"type": "string"},
+                                                     "sort": {"type": "string",
+                                                              "enum": ["relevance", "new", "top"]},
+                                                     "time_window": {"type": "string",
+                                                                     "enum": ["hour", "day", "week",
+                                                                              "month", "year", "all"]},
+                                                     "limit": {"type": "integer"}}, ["query"], closed=False)},
+    "discover_communities": {"fn": _t_discover_communities,
+                             "description": "Find the ROOMS an audience gathers in — subreddits matching "
+                                            "a query, with subscriber counts. Use to decide WHERE to "
+                                            "participate before deciding what to say. NOTE: gated — "
+                                            "denied unless discovery is enabled.",
+                             "input_schema": _obj({"query": {"type": "string"},
+                                                   "limit": {"type": "integer"}}, ["query"], closed=False)},
     "web_search": {"fn": _t_web_search, "strict": True,
                    "description": "Search the LIVE web for current information (trends, examples, facts). "
                                   "Returns {answer, sources}.",

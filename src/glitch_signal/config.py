@@ -294,6 +294,7 @@ class Settings(BaseSettings):
     agent_email_brand_daily_cap: int = 50    # per-brand/day cap (send path; 0 = unlimited)
     # --- Discovery (CaptAPI) — trending social content signals ---
     captapi_key: str = ""                    # capt_live_… (Bearer); the discover_trending tool
+    redditapis_token: str = ""       # redditapis.com — Reddit discovery reads ($0.002/call), TARGET-1
     # Discovery kill-switch (mirrors agent_email_enabled): while False the agent's
     # `discover_trending` tool is denied by the policy gate. Stays OFF (no external pulls) until
     # deliberately enabled — the ability ships inert.

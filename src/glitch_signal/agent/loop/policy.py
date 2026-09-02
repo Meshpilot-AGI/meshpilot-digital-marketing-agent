@@ -27,7 +27,7 @@ EMAIL_TOOLS = frozenset({"send_email"})
 
 # Discovery tools (CaptAPI trending pulls) — gated by their own kill-switch. External, credit-metered
 # pulls stay OFF until deliberately enabled, so the ability ships inert (no scraping until flipped).
-DISCOVERY_TOOLS = frozenset({"discover_trending"})
+DISCOVERY_TOOLS = frozenset({"discover_trending", "discover_conversations", "discover_communities"})
 
 # Web tools (web_search / web_fetch) — each gated by its own kill-switch (#191). Live outbound
 # search/fetch + LLM-plugin cost stay OFF until deliberately enabled, so the ability ships inert.
