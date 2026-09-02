@@ -999,3 +999,23 @@ value inside a $39 plan.
 
 **Effect:** HeyGen spend in `usage_events` is now right on BOTH axes -- it was 26x low on credits
 (default 1) and 4.6x high on the rate, so the two errors were partially masking each other.
+
+
+## HEYGEN-VENDOR-EVIDENCE — 2026-09-02
+
+**Verified (two decisive experiments, real sessions):**
+1. `mode: "chat"` — agent produced a real blueprint (`model`/`resource`) and reached
+   `waiting_for_input` at 70s; approval via `POST /v3/video-agents/{id}` `{"message": ...}` returned
+   **200 + run_id**; session `failed` 10s later at progress 0. **Planning and the approval handshake
+   work; only the render fails.**
+2. Bare minimum `{"prompt": "Create a 15-second video about morning coffee."}` — no avatar, kit,
+   glossary, files or orientation, unrelated subject — **fails identically**. Our payload is not
+   involved in any way.
+
+**Conclusion:** account/vendor-side failure of the Video Agent RENDER step. Not fixable in this repo.
+A ready-to-send support ticket (with all nine failed session ids) is in `docs/vendors/heygen.md`.
+
+**Note on the accept step:** `generate` auto-proceeds past the blueprint (docs + observed). `chat`
+pauses and resumes on any follow-up message; no `auto_proceed` parameter exists. We deliberately do
+NOT use `chat` on the cron path — nothing would approve it, and `waiting_for_input` unattended is
+treated as failure. Blueprint review is a future quality lever, not a fix.
