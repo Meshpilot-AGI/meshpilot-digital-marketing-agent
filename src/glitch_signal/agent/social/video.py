@@ -15,9 +15,11 @@ which is the knowledge base this module implements:
 
 Three production lessons are encoded here, each of which cost us real renders:
 
-1. **Credit is checked BEFORE submitting.** A wallet below one render's price makes every session
-   fail instantly at `progress: 0`, and HeyGen surfaces no reason for it. Five consecutive nightly
-   campaigns burned that way (2026-09-01/02) while the wallet sat at $1.05.
+1. **Credit is checked BEFORE submitting.** A wallet below one render's price is the leading
+   SUSPECT for the sessions that fail instantly at `progress: 0` with no reason attached (five
+   consecutive nightly campaigns, 2026-09-01/02, wallet at $1.05). It is *not confirmed* — see
+   `docs/vendors/heygen.md` §0 for what direct testing has eliminated. The gate is cheap and names
+   a real risk; it is not a proven diagnosis.
 2. **The SESSION is the authority, not the video.** A session can fail before it is ever assigned a
    `video_id`; polling only the video means waiting out the whole timeout on a run that is already
    dead.
@@ -189,8 +191,9 @@ async def preflight() -> None:
     floor = _min_wallet_usd()
     if bal < floor:
         raise HeyGenCreditError(
-            f"heygen wallet ${bal:.2f} is below the ${floor:.2f} needed for one render — "
-            "top up the wallet (auto-reload is off) or renders will keep failing at progress 0"
+            f"heygen wallet ${bal:.2f} is below the ${floor:.2f} a render is expected to cost — "
+            "refusing to submit. Top up the wallet (auto-reload is off); if renders still fail at "
+            "progress 0 once funded, the cause is vendor-side, not credit (see docs/vendors/heygen.md)"
         )
 
 
