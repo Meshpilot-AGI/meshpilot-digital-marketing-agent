@@ -33,6 +33,15 @@ Reddit **username and password**. Reads risk nothing of ours; writes hand a thir
 credentials and act through an unofficial API — against Reddit's User Agreement, risking the exact
 account whose standing the strategy depends on. Post through Reddit's own OAuth API instead.
 **Original answer stands:** no third party for posting.
+**Zernio TESTED LIVE 2026-09-02** (`zernio.com/api/v1`, 419 endpoints): `reddit / glitchExecutor`
+already **OAuth-connected and active**, and `GET .../reddit-subreddits/{sub}/rules` returns full
+structured subreddit rules (`kind`, `shortName`, `violationReason`, `priority`) — the exact
+per-subreddit guardrail the design specified, as one API call. Also exposes flairs (many subs require
+one), voting, feeds and `POST /v1/posts`. **This resolves the credential objection**: the complaint
+was about handing over a Reddit username/password; Zernio is OAuth, same model as our existing Buffer
+publisher. ⚠️ Unverified whether it can comment on ARBITRARY threads (its comment endpoints sit under
+`/v1/inbox/*`, which usually means engagement on your own posts) — must be settled before TARGET-4,
+since participation-by-comment is the whole thesis.
 ⚠️ **The real blocker is ACCOUNT STANDING, not API access.** Measured 2026-09-02:
 `u/glitchExecutor` (the account the Mac's Devvit CLI is logged in as) was created 2026-05-02 with
 **total karma 1, comment karma 0**. Target subs enforce karma/age minimums via AutoModerator, so

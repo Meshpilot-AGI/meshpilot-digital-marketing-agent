@@ -128,6 +128,43 @@ and it keeps the account's activity sanctioned and attributable.
 `web_fetch`. **Posting** via Reddit's official OAuth API — no third party publishes to Reddit, which
 is why `_PUBLISH_PRIORITY` excludes it.
 
+### Zernio — tested live 2026-09-02, and it resolves the credential objection ✅
+
+`https://zernio.com/api/v1` (operator-supplied key). A full social-management platform — **419
+endpoints** — with **`reddit / glitchExecutor` already connected and active** via OAuth.
+
+Verified against the live API:
+
+| Call | Result |
+|---|---|
+| `GET /v1/accounts` | **200** — one account: `reddit / glitchExecutor`, `isActive: true` |
+| `GET /v1/accounts/{id}/reddit-subreddits/Daytrading/rules` | **200** — full structured rules: `kind`, `shortName`, `description`, `violationReason`, `priority` |
+| `GET /v1/accounts/{id}/reddit-subreddits/propfirm/rules` | **200** — `rules: []` plus site rules |
+| `GET /v1/reddit/search` | 200 but 0 items for our query (needs `accountId`); redditapis.com is the better search |
+
+Reddit surface it exposes: `reddit-subreddits`, **`/rules`**, `reddit-flairs` (many subs *require* a
+post flair), `reddit-vote`, `/v1/reddit/feed`, `/v1/tools/validate/subreddit`, and `POST /v1/posts`
+for publishing.
+
+**This resolves the objection I raised against third-party writes.** That objection was specifically
+to handing over a Reddit *username and password* (redditapis.com's auth route). Zernio is
+**OAuth-connected** — the same model as our existing Buffer integration, which already publishes to
+X, LinkedIn and TikTok. No credential sharing, activity attributable to an authorised app.
+
+**`/rules` is the guardrail primitive, and it already exists.** §3 specified "per-subreddit rules are
+fetched and stored on the `surface` row before we ever post there." That is now one API call
+returning machine-readable rules with `violationReason` — a real gate, not a manual audit.
+
+⚠️ **Unverified: commenting on arbitrary threads.** Zernio's comment endpoints sit under
+`/v1/inbox/comments/*`, which in these platforms usually manages engagement on *your own* posts, not
+replying into someone else's thread in `r/propfirm`. Since participation-by-comment is the whole
+Reddit thesis, **this must be verified before TARGET-4 is scoped.** If it is post-only, commenting
+still needs Reddit's own OAuth API.
+
+**Revised split:** discovery via redditapis.com (proven, ~$12/mo) · rules + flairs + posting +
+voting via Zernio (OAuth, no credential sharing) · commenting via Zernio if it supports arbitrary
+threads, otherwise Reddit's own API.
+
 ### ⚠️ The real blocker is ACCOUNT STANDING, not API access (measured 2026-09-02)
 
 The Mac is authenticated to Devvit as **`u/glitchExecutor`** (`~/.devvit/token`, `devvit whoami`).
