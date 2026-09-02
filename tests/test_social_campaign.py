@@ -263,3 +263,39 @@ async def test_fetch_image_returns_a_usable_image_on_success(monkeypatch):
     result = await campaign._fetch_image("https://cdn.example/good.png")
     assert result is not None
     assert result.size == (16, 16)
+
+
+async def test_conscience_reviews_run_concurrently(monkeypatch):
+    """Reviews are independent per draft. Run in series they were one model round-trip per platform
+    stacked on top of the captions, and that sequencing was the campaign's wall-clock, not the work."""
+    import asyncio
+
+    monkeypatch.setattr(campaign, "_social_on", lambda: True)
+    inflight = {"now": 0, "max": 0}
+
+    async def review(goal, output, *, facts="", positioning="", **k):
+        inflight["now"] += 1
+        inflight["max"] = max(inflight["max"], inflight["now"])
+        await asyncio.sleep(0.02)
+        inflight["now"] -= 1
+        return {"verdict": "pass"}
+
+    res = await campaign.run_campaign("ge", deps=_deps(review=review))
+    assert len(res.posts) == 5
+    assert inflight["max"] > 1, "reviews ran one at a time"
+
+
+async def test_a_review_failure_still_fails_closed_when_concurrent(monkeypatch):
+    """Concurrency must not weaken the gate: an exception is still not consent."""
+    monkeypatch.setattr(campaign, "_social_on", lambda: True)
+
+    async def review(goal, output, *, facts="", positioning="", **k):
+        raise RuntimeError("critic down")
+
+    async def fan_out(brand_id, cid, drafts, verdicts, **k):
+        return [PlatformResult(platform=d.platform,
+                               status="held" if verdicts[d.platform] != "pass" else "posted")
+                for d in drafts]
+
+    res = await campaign.run_campaign("ge", deps=_deps(review=review, fan_out=fan_out))
+    assert all(p.status == "held" for p in res.posts)
