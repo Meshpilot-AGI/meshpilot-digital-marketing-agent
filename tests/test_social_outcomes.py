@@ -4,6 +4,8 @@ Before this, `curator.py` distilled lessons from `kind='episode'` memories: the 
 of what it DID. Nothing read back what any post ACHIEVED, so a durable lesson could be learned from
 a post that flopped.
 """
+from datetime import UTC
+
 from glitch_signal.agent.social import outcomes
 
 
@@ -23,9 +25,9 @@ class _FakeStore:
         self.written.append((post_id, platform, bucket, m))
 
 
-def _post(i="p1", platform="facebook"):
+def _post(i="p1", platform="facebook", measured_from=None):
     return {"id": i, "platform": platform, "platform_post_id": "fb1", "media_kind": "image",
-            "brand_id": "ge", "idea": {}, "campaign_id": "c1"}
+            "brand_id": "ge", "idea": {}, "campaign_id": "c1", "measured_from": measured_from}
 
 
 async def test_records_a_reading_per_bucket():
@@ -37,6 +39,39 @@ async def test_records_a_reading_per_bucket():
     counts = await outcomes.collect(store_mod=st, fetch=fetch)
     assert counts["read"] == 1
     assert st.written[0][2] == "24h"
+
+
+async def test_a_reading_that_arrives_after_the_window_is_not_recorded():
+    """If the fetch is slow enough (backlog, rate limiting) that a post's real age drifts past the
+    bucket's window before the write happens, the reading must not be locked in — the unique
+    (post_id, age_bucket) constraint would otherwise permanently pair this bucket's label with a
+    value read at the wrong age, making it incomparable to every other post's same-named bucket."""
+    from datetime import datetime, timedelta
+
+    stale = datetime.now(UTC) - timedelta(hours=10)   # "1h" bucket's window is 1-6h
+    st = _FakeStore({"1h": [_post(measured_from=stale)]})
+
+    async def fetch(*a, **k):
+        return {"impressions": 1, "raw": {}}
+
+    counts = await outcomes.collect(store_mod=st, fetch=fetch)
+    assert st.written == []
+    assert counts["read"] == 0
+
+
+async def test_a_reading_taken_within_the_window_is_still_recorded():
+    """The freshness re-check must not reject a normal, on-time reading."""
+    from datetime import datetime, timedelta
+
+    fresh = datetime.now(UTC) - timedelta(hours=2)    # inside the "1h" bucket's 1-6h window
+    st = _FakeStore({"1h": [_post(measured_from=fresh)]})
+
+    async def fetch(*a, **k):
+        return {"impressions": 1, "raw": {}}
+
+    counts = await outcomes.collect(store_mod=st, fetch=fetch)
+    assert counts["read"] == 1
+    assert st.written[0][2] == "1h"
 
 
 async def test_unmeasurable_platform_is_never_recorded_as_zero():

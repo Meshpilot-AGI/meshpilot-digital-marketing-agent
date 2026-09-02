@@ -151,6 +151,24 @@ def _measure(text: str, font, max_w: int, leading: int) -> int:
     return len(_wrap(_SCRATCH, text, font, max_w)) * leading
 
 
+def _panel_h(logos: dict, label: str, body: str, w: int, content_w: int, body_f, body_leading: int) -> int:
+    """Height one `comparison` panel will actually render at — must mirror that render branch's
+    text width and label height exactly.
+
+    A logo-backed panel draws its body into a column narrower by the logo chip's width, so
+    measuring it at the FULL content width (as the no-logo branch does) undercounts wrapped lines
+    for long copy. The preflight and the render loop drifting apart is exactly how longer
+    comparison copy ends up overlapping the fixed footer lockup.
+    """
+    if _match_logo(logos, label) is not None:
+        chip = int(w * 0.095)
+        text_w = content_w - chip - int(w * 0.035)
+        label_h = int(chip * 0.06) + int(w * 0.026 * 1.9)
+        return max(label_h + _measure(body, body_f, text_w, body_leading), chip)
+    text_w = content_w - int(w * 0.035)
+    return int(w * 0.026 * 2.0) + _measure(body, body_f, text_w, body_leading)
+
+
 def _place(h: int, margin: int, footer: int, block_h: int) -> int:
     """Optically centre a measured block between the top margin and the footer band."""
     return margin + int(max(0, h - margin - footer - block_h) * 0.42)
@@ -218,8 +236,7 @@ def comparison(spec: Spec) -> bytes:
                                            start=int(w * 0.055))
         head_h = len(lines) * leading + int(h * 0.045)
     panels_h = sum(
-        int(w * 0.026 * 2.0)
-        + _measure(body, body_f, content_w - int(w * 0.035), body_leading) + panel_gap
+        _panel_h(spec.logos, label, body, w, content_w, body_f, body_leading) + panel_gap
         for label, body in ((c.left_label, c.left_body), (c.right_label, c.right_body))
         if (label or body))
 

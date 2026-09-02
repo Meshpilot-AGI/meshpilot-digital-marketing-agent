@@ -6,7 +6,7 @@ import time
 
 import requests
 
-G = "https://graph.facebook.com/v21.0"
+G = "https://graph.facebook.com/v26.0"
 PAGE = "1133702696499891"
 IG = "17841478592958190"
 HOST = "https://1c76c506.ai-empire-blueprint.pages.dev/jordan"

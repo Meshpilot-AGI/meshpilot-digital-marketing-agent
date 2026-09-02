@@ -92,6 +92,25 @@ def test_comparison_places_a_real_mark_when_one_matches():
     assert with_logo != without
 
 
+def test_comparison_panel_height_accounts_for_logo_width():
+    """The preflight height for a logo panel must be measured at the SAME (narrower) text column
+    the render loop actually draws into. Measuring against the full content width — what the
+    no-logo branch uses — undercounts wrapped lines for a logo panel, and that gap is exactly how
+    longer comparison copy ends up overlapping the fixed footer lockup."""
+    from glitch_signal.media.render import layouts
+
+    w, content_w = 1080, 1000
+    body_f = layouts._font(False, int(w * 0.032))
+    body_leading = int(w * 0.032 * 1.42)
+    long_body = "word " * 60
+    logos = {"FTMO": Image.new("RGBA", (128, 128), (10, 200, 10, 255))}
+
+    real_h = layouts._panel_h(logos, "FTMO", long_body, w, content_w, body_f, body_leading)
+    naive_full_width_h = int(w * 0.026 * 2.0) + layouts._measure(
+        long_body, body_f, content_w - int(w * 0.035), body_leading)
+    assert real_h > naive_full_width_h
+
+
 def test_comparison_falls_back_when_no_mark_matches():
     """A label we hold no mark for still renders — with the accent bar instead."""
     c = Content(headline="h", kicker="k", left_label="Unknown Firm", left_body="a", wordmark="x")
@@ -135,9 +154,16 @@ def test_backdrop_states_composition_as_a_proportion():
 
 
 def test_backdrop_is_text_free_and_figure_free():
-    """Type is composited afterwards — anything the model wrote would collide with it."""
+    """Type is composited afterwards — anything the model wrote would collide with it.
+
+    Two independent assertions, not one `and`/`or` expression: the prompt always contains the word
+    "figure" (via `_NO_INVENTED_FIGURES`), so a single disjunctive assertion could pass even with
+    the no-text directive removed. Each directive must be checked on its own so removing either one
+    fails this test.
+    """
     p = technique.backdrop_prompt(0, style="s", palette="p")
-    assert "Render NO text" in p and "no numbers" not in p.lower() or "figure" in p.lower()
+    assert technique._NO_TEXT in p
+    assert technique._NO_INVENTED_FIGURES in p
 
 
 def test_backdrop_rotates_subjects_but_is_deterministic():

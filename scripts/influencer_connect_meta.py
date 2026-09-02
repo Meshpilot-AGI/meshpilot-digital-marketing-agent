@@ -26,7 +26,7 @@ import asyncpg, httpx
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 from meshpilot_dashboard import secrets as mp_secrets  # noqa: E402
 
-V = os.environ.get("META_GRAPH_API_VERSION", "v21.0")
+V = os.environ.get("META_GRAPH_API_VERSION", "v26.0")
 G = "https://graph.facebook.com"
 APP_ID = os.environ.get("META_APP_ID", "")
 APP_SECRET = os.environ.get("META_APP_SECRET", "")
