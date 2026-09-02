@@ -1428,3 +1428,37 @@ subreddit NAMES (rooms are discovered, never listed), which is the property that
 
 **Remains:** TARGET-4 (write) is blocked on two things, neither of them capability — account standing
 (0 comment karma) and the fact that no high-value room has yet granted permission.
+
+
+## REDDIT-PROFILE — 2026-09-02
+
+**Changed:** `20260902120000_platform_profile_reddit.sql` seeds Reddit's audience/register/limits into
+`platform_profile` under the reserved `_default` brand (open-core: only public platform knowledge is
+committed; a tenant overrides with its own row). Guard tests added.
+
+**Why Reddit's row is written differently from the others.** Every other platform's row describes who
+is there and how to sound. Reddit's is written mostly as CONSTRAINTS, because it is the one platform
+whose audience is actively hostile to marketing and unusually good at spotting it — copy that would
+pass on LinkedIn is precisely what gets downvoted, removed and remembered. `avoid` therefore carries
+more weight here than `register`.
+
+Two constraints come from rule text captured live, not intuition: r/Forex *"Do not self promote
+here"*, and r/Daytrading *"No ChatGPT or AI-Generated Content"*. The second is why `avoid` names
+AI-tell phrasing explicitly ("delve", "in today's landscape", tidy three-part structures,
+over-hedging): on Reddit, **sounding generated is itself a rule violation in some rooms**, regardless
+of what is being said. That is a genuinely different failure mode from the other platforms, where bad
+copy merely underperforms.
+
+`max_chars` 10000 is the comment limit. `hashtags` is "None" — Reddit has no hashtag convention and
+using one marks the author as an outsider.
+
+**Verified:** migration applies and `platforms_kb.profile("glitch_executor", "reddit")` resolves it
+through the `_default` fallback. 836 pass / 1 skip.
+
+**Honest status:** the profile is seeded and resolvable, but **nothing writes Reddit captions yet** —
+Reddit has no publisher wired (`_PUBLISH_PRIORITY` excludes it) and TARGET-4 is blocked on account
+standing and room permission. This is the register being ready ahead of the writing, not a live path.
+
+⚠️ The migration was applied to prod during verification. It is idempotent (`on conflict do update`)
+and the file is unchanged since, so the Supabase<->GitHub integration re-applying it on merge is a
+no-op — no file/prod drift.

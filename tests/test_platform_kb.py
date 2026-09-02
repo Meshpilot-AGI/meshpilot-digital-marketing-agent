@@ -269,3 +269,37 @@ async def test_a_company_with_no_verified_handle_is_never_tagged(monkeypatch):
         return [{"slug": "apex", "name": "Apex Trader Funding", "handles": {}}]
     monkeypatch.setattr("glitch_signal.agent.assets.resolve_named", _resolve)
     assert await kb.handles_for("ge", ["Apex"], "x") == []
+
+
+# ── Reddit's register (TARGET-3) ──
+def _reddit_seed() -> str:
+    import pathlib
+
+    p = pathlib.Path("supabase/migrations/20260902120000_platform_profile_reddit.sql")
+    assert p.exists(), "reddit platform_profile seed migration is missing"
+    return p.read_text().lower()
+
+
+def test_reddit_profile_is_seeded_for_the_default_brand():
+    """Open-core: only public knowledge about the platform is committed, under '_default'. A tenant
+    overrides any field with its own row."""
+    sql = _reddit_seed()
+    assert "'_default', 'reddit'" in sql
+    assert "on conflict (brand_id, platform) do update" in sql   # re-runnable
+
+
+def test_reddit_profile_forbids_hashtags_and_marketing_register():
+    """Reddit is the one platform here whose audience is actively hostile to marketing. Copy that
+    would pass on LinkedIn is exactly what gets removed and remembered."""
+    sql = _reddit_seed()
+    assert "no hashtag convention" in sql
+    for banned in ("calls to action", "taglines", "benefits language"):
+        assert banned in sql, f"reddit `avoid` should name {banned!r}"
+
+
+def test_reddit_profile_warns_off_ai_tell_phrasing():
+    """r/Daytrading bans AI-generated posts outright, so on Reddit *sounding* generated is itself a
+    rule violation in some rooms — independent of what is being said."""
+    sql = _reddit_seed()
+    assert "ai-tell" in sql or "reads as generated" in sql
+    assert "delve" in sql          # a concrete tell, not just an abstract warning
