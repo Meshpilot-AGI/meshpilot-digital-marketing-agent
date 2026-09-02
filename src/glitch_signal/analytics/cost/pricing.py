@@ -153,23 +153,20 @@ def muapi_cost(model: str) -> float:
 
 # ── HeyGen (credit-based; ~1 credit per API video by default) ──
 def heygen_credit_usd() -> float:
-    """USD per HeyGen credit.
+    """USD per HeyGen credit — **$0.065**, derived from the actual plan (operator, 2026-09-02).
 
-    ⚠️ **The 0.30 default is almost certainly wrong for this account and needs the real plan price.**
-    It dates from a pay-as-you-go assumption. This account is on a subscription that grants 600
-    credits/month (+491 rollover), and at $0.30 those 600 credits would imply ~$180/month of value
-    on a plan that costs a fraction of that. Combined with the measured 26 credits/render it prices
-    a single 30s video at $7.80, which is not plausible.
+    The subscription costs **$39/month** and grants **600 credits/month**, so 39/600 = $0.065.
+    (Rollover carries unused credits forward but does not change the marginal rate.)
 
-    The correct figure is (monthly plan price) / (monthly credit grant) -- roughly $0.05/credit for
-    a ~$30 plan. Set `COST_HEYGEN_CREDIT_USD` from the actual invoice rather than leaving this
-    guess in place; until then every HeyGen cost in `usage_events` is inflated, and the
-    balance-delta reconcile will report it as drift.
+    This defaulted to 0.30, a pay-as-you-go assumption that priced a single 30s render at $7.80 and
+    implied ~$180/month of value in a $39 plan. At the corrected rate the measured 26 credits/render
+    comes to **~$1.69 per video** — which independently matches the v1 monorepo UGC lane's own
+    figure of "~$1-2 per ad" after 22 iterations.
     """
     try:
-        return float(os.environ.get("COST_HEYGEN_CREDIT_USD", "0.30"))
+        return float(os.environ.get("COST_HEYGEN_CREDIT_USD", "0.065"))
     except ValueError:
-        return 0.30
+        return 0.065
 
 
 def heygen_cost(model: str, *, credits: float | None = None) -> tuple[float, float]:

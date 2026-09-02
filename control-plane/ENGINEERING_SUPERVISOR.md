@@ -982,3 +982,20 @@ eliminated by direct experiment. Next step is a support ticket with the failed s
 **Remains:** ⚠️ `GET /v3/users/me` does NOT expose credits for this account (only the wallet), and no
 v3 endpoint does -- so the credit read depends on an endpoint HeyGen **removes 2026-10-31**. Re-check
 for a v3 equivalent before then or the preflight and reconcile both go blind.
+
+
+## HEYGEN-CREDIT-RATE — 2026-09-02
+
+**Changed:** `COST_HEYGEN_CREDIT_USD` default 0.30 -> **0.065**, derived from the real plan price
+(operator: **$39/month for 600 credits**; 39/600 = 0.065). Rollover carries unused credits but does
+not change the marginal rate.
+
+**Cross-check:** 26 credits/render x $0.065 = **$1.69/video**, which independently matches the v1
+monorepo UGC lane's own "~$1-2 per ad" figure after 22 iterations -- two unrelated sources agreeing.
+600 x 0.065 = $39 exactly. The old 0.30 priced a 30s render at $7.80 and implied ~$180/month of
+value inside a $39 plan.
+
+**Verified:** `heygen_cost('video-agent')` -> (26.0, 1.69). Suite 856 pass / 1 skip.
+
+**Effect:** HeyGen spend in `usage_events` is now right on BOTH axes -- it was 26x low on credits
+(default 1) and 4.6x high on the rate, so the two errors were partially masking each other.
