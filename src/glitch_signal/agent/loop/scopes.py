@@ -18,7 +18,7 @@ CAPABILITIES: dict[str, frozenset[str]] = {
     "knowledge": frozenset({"list_playbooks", "read_playbook"}),
     "quality": frozenset({"polish_copy"}),
     "media": frozenset({"list_recipes", "generate_media", "edit_image"}),
-    "discovery": frozenset({"discover_trending"}),
+    "discovery": frozenset({"discover_trending", "discover_conversations", "discover_communities"}),
     "web": frozenset({"web_search", "web_fetch"}),
     "schedule": frozenset({"schedule"}),
     "publish": frozenset({"publish", "send_email"}),

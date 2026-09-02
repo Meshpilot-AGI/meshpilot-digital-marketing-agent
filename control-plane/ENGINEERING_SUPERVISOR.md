@@ -1315,3 +1315,37 @@ them. Flagged rather than de-branded — refactoring dead code is waste, and aft
 `youtube.py` by deleting eagerly today, removal deserves its own lane.
 
 **Verified:** 794 pass / 1 skip; no GE literal remains on any live path.
+
+
+## TARGET-1 — Reddit sensing — 2026-09-02
+
+**Built:** `agent/discovery/reddit.py` (redditapis.com client: post search, community search, user
+standing), `agent/discovery/store.py` (+ migration `20260902090000_signal_item.sql`) and two loop
+tools — `discover_conversations` and `discover_communities` — both added to `policy.DISCOVERY_TOOLS`
+and the `discovery` scope, so they inherit the existing kill-switch (`agent_discovery_enabled`,
+default **false**) and per-run cap. Ships inert. `docs/vendors/redditapis.md` written.
+
+**Why it matters:** the agent's only sensing organ was CaptAPI — Instagram and TikTok — i.e. the two
+platforms the operator says this audience is not on. It now perceives the rooms that matter.
+
+**Verified live, not mocked:**
+- `search_communities("prop firm challenge")` → r/propfirmchallenge (429), r/PropFirmTester (28,258),
+  r/PropFirmHunter (1,303), r/propfirm (39,229), r/Forex (547,438) — with subscriber counts, the
+  first input to scoring a surface.
+- `search_posts("prop firm trailing drawdown rules", sort="relevance")` → "Stop giving your money to
+  prop firms" (93 up), "What's the WORST rule a futures prop firm can have?", "Which prop firm rule
+  has actually hurt your trading" — precisely the threads worth answering.
+
+**A real quality finding, encoded:** `sort` matters enormously. `top` returned r/apolloapp, r/nosleep
+and r/news (all-time global top posts, query nearly ignored); `new` returned r/CrusaderKings and an
+anime subreddit. Only `relevance` targets. The client defaults to it, the docstring carries the
+evidence, and the tool description warns the model off the others.
+
+**Multi-brand:** nothing in the sensing layer names a subreddit, industry or brand — queries come
+from the caller. Guarded by a test that strips docstrings **via the AST** (not line prefixes) and
+asserts no industry term survives in executable code.
+
+**Verified:** 808 pass / 1 skip (+14). New files carry zero ruff debt.
+
+**Remains:** TARGET-2 (surface + surface_score tables, scoring from outcome ingestion). The write
+side stays blocked on account standing, not on capability.
