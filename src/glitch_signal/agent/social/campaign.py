@@ -136,8 +136,9 @@ def _default_deps() -> RunDeps:
                                   prefix="social_card")
 
     async def generate_video(brand_id: str, idea) -> str:
-        return await video.generate_video(brand_id, video.build_video_prompt(idea),
-                                          video.reference_urls(brand_id),
+        # No `files`: HeyGen pastes attachments straight into the B-roll rather than treating
+        # them as style reference. Brand identity comes from the brand kit in `session_options`.
+        return await video.generate_video(brand_id, video.build_video_prompt(idea), [],
                                           options=video.session_options(brand_id))
 
     async def _remember(brand_id, content):
