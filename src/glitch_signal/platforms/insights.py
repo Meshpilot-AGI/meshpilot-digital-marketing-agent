@@ -47,6 +47,17 @@ def _base() -> str:
     return f"{_GRAPH}/{settings().meta_graph_api_version}"
 
 
+def _measured(fields: dict[str, Any]) -> bool:
+    """True if at least one metric carries a concrete value.
+
+    Meta returns an EMPTY insight dataset (not zeros) when data is unavailable — see the module
+    docstring. An all-None result is therefore not a measurement, and callers must return None
+    instead of a dict, or `outcomes.collect` would record it as one and permanently mark that age
+    bucket "done" for a post that was never actually read.
+    """
+    return any(v is not None for k, v in fields.items() if k != "raw")
+
+
 def _insight_map(payload: dict) -> dict[str, Any]:
     """Flatten Graph's [{name, values:[{value}]}] shape into {name: value}."""
     out: dict[str, Any] = {}
@@ -93,9 +104,12 @@ async def facebook_post(post_id: str, *, brand_id: str | None = None,
                           params={"metric": ",".join(_FB_METRICS), "access_token": token})
         ins.raise_for_status()
         m = _insight_map(ins.json())
-        # Reactions come back as a per-type dict; the loop wants one comparable number.
-        reactions = m.get("post_reactions_by_type_total") or {}
-        likes = sum(v for v in reactions.values() if isinstance(v, (int, float))) if isinstance(reactions, dict) else None
+        # Reactions come back as a per-type dict; the loop wants one comparable number. An empty
+        # dict means Graph returned no breakdown at all — that must stay None, not sum to a
+        # fabricated 0, or a genuinely unmeasured post would look identical to one nobody reacted to.
+        reactions = m.get("post_reactions_by_type_total")
+        likes = (sum(v for v in reactions.values() if isinstance(v, (int, float)))
+                if isinstance(reactions, dict) and reactions else None)
         eng = await c.get(f"{_base()}/{post_id}",
                           params={"fields": "comments.summary(true),shares,reactions.summary(true)",
                                   "access_token": token})
@@ -104,7 +118,7 @@ async def facebook_post(post_id: str, *, brand_id: str | None = None,
         # Reactions via the summary are more reliable than the insights breakdown, which comes back
         # as an empty dict on a post with none.
         summary_likes = ((e.get("reactions") or {}).get("summary") or {}).get("total_count")
-        return {
+        result = {
             # impressions / reach deliberately absent — see _FB_METRICS. Leaving them out entirely
             # keeps NULL meaning "not measured" rather than implying we looked and found none.
             "clicks": m.get("post_clicks"),
@@ -114,6 +128,9 @@ async def facebook_post(post_id: str, *, brand_id: str | None = None,
             "video_views": m.get("post_video_views"),
             "raw": {"insights": m, "engagement": e},
         }
+        # An empty Graph dataset flattens to an all-None dict here, not an exception — that must
+        # come back as "not measured", never as a measurement of zero. See _measured's docstring.
+        return result if _measured(result) else None
     except Exception as exc:  # noqa: BLE001 — a metrics read must never disturb anything else
         log.warning("insights.fb_failed", post_id=post_id, error=str(exc)[:200])
         return None
@@ -137,7 +154,7 @@ async def instagram_media(media_id: str, *, brand_id: str | None = None,
                         params={"metric": ",".join(_IG_METRICS), "access_token": token})
         r.raise_for_status()
         m = _insight_map(r.json())
-        return {
+        result = {
             "impressions": m.get("views"),      # IG retired `impressions`; `views` is the successor
             "reach": m.get("reach"),
             "likes": m.get("likes"),
@@ -147,6 +164,9 @@ async def instagram_media(media_id: str, *, brand_id: str | None = None,
             "video_views": m.get("views"),
             "raw": {"insights": m},
         }
+        # Meta documents unavailable IG insight data as an empty dataset, not zeros — an all-None
+        # result here means the read failed to produce anything usable, so it must not be recorded.
+        return result if _measured(result) else None
     except Exception as exc:  # noqa: BLE001
         log.warning("insights.ig_failed", media_id=media_id, error=str(exc)[:200])
         return None

@@ -209,3 +209,57 @@ async def test_dry_run_is_off_by_default(monkeypatch):
     monkeypatch.setattr(campaign, "_social_on", lambda: True)
     res = await campaign.run_campaign("ge", deps=_deps())
     assert len(res.posts) == 5
+
+
+class _FetchResp:
+    def __init__(self, content, status=200):
+        self.content = content
+        self.status_code = status
+
+    def raise_for_status(self):
+        pass
+
+
+class _FetchClient:
+    def __init__(self, content):
+        self._content = content
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, **k):
+        return _FetchResp(self._content)
+
+
+async def test_fetch_image_returns_none_for_corrupt_image_bytes(monkeypatch):
+    """Image.open() only reads the header — it does not decode pixels — so a download truncated
+    mid-file still opens successfully and must be caught HERE, inside the fail-soft fetch, not left
+    to raise later during layout rendering (which would abort the whole card instead of degrading
+    to no logo)."""
+    from io import BytesIO
+
+    from PIL import Image as _Image
+
+    buf = BytesIO()
+    _Image.new("RGB", (200, 200), (10, 20, 30)).save(buf, format="PNG")
+    truncated = buf.getvalue()[: len(buf.getvalue()) // 2]     # valid header, missing pixel data
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **k: _FetchClient(truncated))
+    result = await campaign._fetch_image("https://cdn.example/broken.png")
+    assert result is None
+
+
+async def test_fetch_image_returns_a_usable_image_on_success(monkeypatch):
+    from io import BytesIO
+
+    from PIL import Image as _Image
+
+    buf = BytesIO()
+    _Image.new("RGBA", (16, 16), (1, 2, 3, 255)).save(buf, format="PNG")
+    monkeypatch.setattr("httpx.AsyncClient", lambda **k: _FetchClient(buf.getvalue()))
+    result = await campaign._fetch_image("https://cdn.example/good.png")
+    assert result is not None
+    assert result.size == (16, 16)

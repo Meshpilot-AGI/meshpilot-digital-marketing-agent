@@ -165,7 +165,14 @@ async def _fetch_image(url: str):
         async with httpx.AsyncClient(timeout=60) as c:
             r = await c.get(url)
             r.raise_for_status()
-            return Image.open(BytesIO(r.content))
+            img = Image.open(BytesIO(r.content))
+            # Image.open() only reads the header — it does not decode pixel data, so a truncated or
+            # corrupt download would pass this fail-soft boundary and only raise later, inside
+            # layout rendering, aborting card generation instead of degrading to no logo. Force the
+            # full decode here, still inside the try, so a bad file falls back cleanly like any
+            # other fetch failure.
+            img.load()
+            return img
     except Exception as exc:  # noqa: BLE001
         log.warning("social.asset_fetch_failed", url=url[:120], error=str(exc)[:160])
         return None

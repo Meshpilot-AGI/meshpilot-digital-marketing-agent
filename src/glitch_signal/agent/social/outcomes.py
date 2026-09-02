@@ -12,6 +12,7 @@ buys API quota spend and noise.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -29,6 +30,24 @@ BUCKETS: tuple[tuple[str, int, int], ...] = (
 )
 BATCH_LIMIT = 25
 _running = asyncio.Lock()
+
+
+def _still_in_window(measured_from: Any, lo: int, hi: int) -> bool:
+    """True if `measured_from` is still within [lo, hi) as of right now.
+
+    `posts_due_for_metrics` bounds age as of the SELECT — but the network round trip to `fetch()`
+    (and, in a large or rate-limited batch, everything ahead of a given row) takes real time, so by
+    the time a row is about to be written its true age can have drifted past the bucket's window. A
+    bucket must only fill from a reading actually taken within its window: the `unique
+    (post_id, age_bucket)` constraint makes the first write permanent, so a late write would lock in
+    a value that does not represent what the bucket claims to measure.
+    """
+    if measured_from is None:
+        return True                     # no timestamp to check against — don't block on it
+    if measured_from.tzinfo is None:
+        measured_from = measured_from.replace(tzinfo=UTC)
+    age_s = (datetime.now(UTC) - measured_from).total_seconds()
+    return lo <= age_s < hi
 
 
 async def collect(*, store_mod: Any = None, fetch: Any = None,
@@ -59,6 +78,15 @@ async def collect(*, store_mod: Any = None, fetch: Any = None,
                     # NOT MEASURED — deliberately not recorded as zeros, which would be
                     # indistinguishable from genuine silence and would corrupt every comparison.
                     counts["unmeasured"] += 1
+                    continue
+                if not _still_in_window(row.get("measured_from"), lo, hi):
+                    # The read came back too late for this bucket: the post's real age drifted past
+                    # the window between the SELECT and this write. Skip rather than record — the
+                    # unique constraint would otherwise lock in a reading that isn't comparable to
+                    # every other post's "1h"/"24h"/"7d" value. Leaving it unwritten means the next
+                    # sweep will pick it up under whichever bucket now actually matches its age.
+                    log.warning("social.outcomes_stale_reading_skipped", post_id=str(row["id"]),
+                               bucket=bucket)
                     continue
                 try:
                     await store_mod.record_metrics(str(row["id"]), row["platform"], bucket, m,

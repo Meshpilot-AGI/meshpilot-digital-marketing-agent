@@ -10,7 +10,7 @@ All resolve via `config.brand_env` as `<PREFIX>_<KEY>` (GE's prefix is `GE`):
 - `GE_SYSTEM_USER_TOKEN` — a Meta **system-user** token with publish rights on
   the page/IG account (assigned in Meta Business settings).
 - `GE_META_PAGE_ID` = `1120765137796667`, `GE_META_IG_USER_ID` = `17841468194646846`.
-- Graph version is a global constant: `meta_graph_api_version` (currently `v21.0`).
+- Graph version is a global constant: `meta_graph_api_version` (currently `v26.0`).
 
 ## Token flow
 System-user token → **page access token** via
