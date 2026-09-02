@@ -222,14 +222,23 @@ async def create_post(
         # what ties an orphaned Buffer post back to the outbox row that reserved it.
         "source": f"glitch-social-media-agent:{idem_key}" if idem_key else "glitch-social-media-agent",
     }
+    # `assets` is `[AssetInput!]!` — a REQUIRED, NON-NULL LIST, confirmed by introspecting the live
+    # schema. The previous shape was a dict, `{"photos": [{"url": ...}]}`, which Buffer rejected with
+    # `Variable "$input" got invalid value` and which silently broke every image post to X, LinkedIn
+    # and TikTok. Each element carries exactly one of image / video / document, and `url` inside is
+    # itself required.
+    #
+    # It is also required when there is no media: a text-only post must send an EMPTY LIST, not omit
+    # the field.
+    inp["assets"] = []
     if media_url:
         from urllib.parse import urlsplit
-        # Match on the PATH, not the whole URL — a signed URL like
-        # /media/fetch?token=… or clip.mp4?sig=… has a query string that would
-        # otherwise defeat an endswith() check and mis-file a video as a photo.
+        # Match on the PATH, not the whole URL — a signed URL like /media/fetch?token=… or
+        # clip.mp4?sig=… has a query string that would otherwise defeat an endswith() check and
+        # mis-file a video as a photo.
         ext = urlsplit(media_url).path.lower()
-        key = "videos" if ext.endswith((".mp4", ".mov", ".webm", ".m4v")) else "photos"
-        inp["assets"] = {key: [{"url": media_url}]}
+        kind = "video" if ext.endswith((".mp4", ".mov", ".webm", ".m4v")) else "image"
+        inp["assets"] = [{kind: {"url": media_url}}]
     data = await _graphql(token, _CREATE_POST_QUERY, {"input": inp})
     payload = data.get("createPost") or {}
     if payload.get("__typename") != "PostActionSuccess":
@@ -321,7 +330,9 @@ async def publish(
             "schedulingType": "automatic",
             "mode": "shareNow",
             "text": caption or "",
-            "assets": {"videos": [{"url": video_url}]},
+            # Same `[AssetInput!]!` shape as create_post — this path carried an identical dict and
+            # would have failed the moment a video was published through it.
+            "assets": [{"video": {"url": video_url}}],
             "source": "glitch-social-media-agent",
         }
     }
