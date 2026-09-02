@@ -3,6 +3,51 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### TARGETING — sensing, surfaces, Reddit, SEO                                   [OPEN — designed]
+Owner: unassigned        Opened: 2026-09-02
+Reading: docs/plans/2026-09-02-targeting-and-distribution.md, and for the SEO half
+`~/dev/glitch-executor/glitch-trade-app/docs/marketing/ai-seo-program.md` (the operator's own 10-phase
+program — Phase 7 is the content engine) + `src/data/blog.ts` (the typed publishing target).
+Acceptance: per sub-lane in the design doc (TARGET-1..4, SEO-1..3). Everything ships GATED OFF.
+Write-back: ARCHITECTURE.md (new tables), docs/vendors/*, control-plane/ENGINEERING_SUPERVISOR.md
+
+**The gap, measured:** the agent broadcasts but cannot perceive. Its one sensing organ
+(`discover_trending` → CaptAPI) covers **Instagram + TikTok only** — the two platforms the operator
+says this audience is not on. `web_search`/`web_fetch` are built and hardened but gated off; the
+`orm` pipeline's "monitoring" is a static markdown playbook; SEO is a markdown checklist with no
+executing code; **Reddit has no reader and no publisher**. `APIFY_KEY`, `BRIGHTDATA_KEY` and
+`SCRAPEGRAPH_API_KEY` are all held and **completely unwired**.
+
+**Shape:** a targeting loop — listen → surface → score → decide → act → measure → learn — where a
+**Surface** (subreddit / X account / query / forum) is a first-class scored record. The brand
+declares its AUDIENCE; the agent DISCOVERS the surfaces. That is what keeps it brand-neutral.
+
+**Reddit — do we need a third party?** Not for posting; effectively yes for discovery, but not a
+Reddit tool. Reddit's free API tier is **non-commercial only** and names brand/social monitoring as
+commercial; commercial is **~$0.24/1k calls from ~$12k/month**, and self-service client registration
+**closed in late 2025**. So: discover threads through the **SERP** (Bright Data, already paid for),
+read them with the existing hardened `web_fetch`, and post through **Reddit's own OAuth API** — no
+third party offers Reddit publishing. The binding constraint is not the API but Reddit's hostility to
+promotional automation: per-subreddit rules capture, self-promo ratio budget, account-standing check
+and cadence caps are hard gates, not advice.
+
+**SEO — execute the operator's existing program, do not invent one.** `glitch-trade-app` already has
+a 10-phase AI-SEO program, 11 live posts, and a typed publishing target (`src/data/blog.ts`,
+`BlogBlock` union + FAQ, emitting FAQPage/Quotation JSON-LD). Its editorial contract and its
+verification gates (`schemas:validate`, `links:audit`, prerender, sitemap, Lighthouse ≥95) are
+**machine-checkable**, which is exactly what autonomous publishing needs.
+
+⚠️ **Operator decisions blocking build:** (1) `ai-seo-program.md` lists *"AI-generated thin content at
+scale; every page human-edited"* as explicitly OUT OF SCOPE, which contradicts the instruction to
+publish with no HITL — the doc is the operator's and can be amended, but deliberately, not silently.
+(2) Who files the Reddit OAuth approval ticket, under what declared use case. (3) Direct commits to
+`glitch-trade-app` or a fork it PRs from.
+
+**Autonomy graduation (operator: no HITL, "but only when we prepare him"):** S0 draft+human-merge →
+S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
+Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
+edits" is measured as the diff between proposed and merged.
+
 ## Recently closed
 
 - **DB-OPT — retire the legacy LangGraph pipeline + drop 14 dead tables** (2026-09-02, PRs #231/#232/#233) —
