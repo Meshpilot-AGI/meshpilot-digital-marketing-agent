@@ -1541,3 +1541,38 @@ would silently drop one.
 **Remains:** generation itself (an LLM writing a post that satisfies the contract) and SEO-3
 (measuring the zero-edit track record that promotes S0 -> S1). Nothing here generates content yet —
 this is the path a generated post travels.
+
+
+## SEO generation — 2026-09-02
+
+**Built:** `agent/seo/generate.py` — `author()` (write → check → repair), `unsupported_figures()`,
+`facts_for()`, `to_post()`.
+
+**The repair loop is the payoff from making the contract structural.** Violations go back to the
+model as specific, addressable instructions — *"too_few_faq: 4 Q&A pairs, need 5"* is a far better
+signal than "try again", and it exists only because the bar is mechanical rather than aesthetic.
+Bounded at 2 repairs: if precise feedback has not worked by the third attempt, the brief or the model
+is the problem and further attempts just spend tokens repeating the mistake. **`author()` never
+returns a post that fails the contract**, so a caller holding a `Post` can rely on it being
+structurally publishable.
+
+**Grounding is a SECOND, independent check, and it is the one that matters most here.** The contract
+verifies a claim is *sourced*; `unsupported_figures()` verifies it is *ours to make* — every
+percentage in the prose AND in the FAQ answers must appear in the verified `firm_rule` facts. A model
+that invents "8% trailing" for a real firm produces a post that looks perfectly cited and is false.
+That is the exact failure the rule table exists to prevent, in a vertical the program itself calls
+YMYL-adjacent. An invented figure blocks the post even when every structural clause passes.
+
+The prompt states the guard rather than implying it ("the ONLY figures you may cite", "Do NOT supply
+your own"), and when no facts are available it says so explicitly — silence would invite the model to
+fill the gap.
+
+`author_slug` comes from the caller, never the model: a byline is a real person's attribution.
+
+**Verified:** 882 pass / 1 skip (+16). `facts_for()` resolves live against `firm_rule` — returns real
+verified thresholds ("FundingPips Zero · max_drawdown: 5% (trailing, follows your equity peak), as of
+2026-09-01"), reusing the same grounding the social copy uses so a figure cannot be right in one
+channel and invented in another.
+
+**Remains:** SEO-3 (measuring the zero-edit track record that promotes S0 -> S1), and wiring
+generation + publish into a scheduled capability. No post has been authored against a live model yet.
