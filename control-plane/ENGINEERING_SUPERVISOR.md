@@ -1388,3 +1388,43 @@ external call and spends nothing; only the pulls are gated.
 
 **Remains:** TARGET-3 (Reddit read: rules capture into `surface.rules` via Zernio, thread ingestion).
 The write side stays blocked on account standing, not capability.
+
+
+## TARGET-3 — rules capture, the permission gate — 2026-09-02
+
+**Built:** `platforms/zernio.py` (OAuth social surface client), `surfaces.classify_rules()`,
+`surfaces.sync_rules()`, migration `20260902110000_surface_ai_content.sql`, and the `surfaces_sync`
+cron capability. `docs/vendors/zernio.md` written.
+
+**The finding that changed the lane.** Reading real rule text before building against assumptions
+turned up r/Daytrading's *"No ChatGPT or AI-Generated Content — Posts or comments created using AI
+tools like ChatGPT, Claude, or similar language models"*. That is a prohibition on what this agent
+PRODUCES, entirely independent of self-promotion: a room can welcome brand participation and still
+ban AI-written text. Hence `ai_content_allowed` as a **separate** column, and `postable_only` now
+requires BOTH permissions to be explicitly true.
+
+**The classifier can only say NO or DON'T KNOW — never YES.** It returns `False` on an explicit
+prohibition and `None` otherwise. Silence in a room's rules is not consent, and a keyword scan is
+nowhere near good enough to let a machine grant itself permission to post publicly under the brand's
+name. The asymmetry is the point: a false `False` costs one room, a false `True` costs the account.
+Granting `True` stays a deliberate human act.
+
+**Verified live** (not mocked, not from docs): r/Forex 11 rules → self_promo `False` → `read_only`;
+r/Daytrading 7 rules → self_promo `False` + ai_content `False` → `read_only`; r/propfirm 0 rules and
+r/PropFirmTester 5 rules → both unknown → **not permitted**. So of the four highest-value rooms,
+**none is currently postable** — which is the correct, honest answer rather than an obstacle.
+
+**Deterministic on purpose:** rules capture is a cron capability, not a model tool. Whether we are
+allowed to speak somewhere is a safety precondition, not a judgement to hand a language model
+mid-run, and it must not compete for the discovery budget. One unreachable room never aborts the
+sweep; only rooms with `rules_fetched_at IS NULL` are fetched, so it is idempotent.
+
+**Scope correction:** the surfaces neutrality test previously banned the term "reddit". That was
+wrong — the guarantee is multi-BRAND, not platform-agnostic, and the codebase is already
+platform-shaped (`platforms/buffer.py`, per-platform profiles). The test now bans industry, brand and
+subreddit NAMES (rooms are discovered, never listed), which is the property that actually matters.
+
+**Verified:** 833 pass / 1 skip (+8).
+
+**Remains:** TARGET-4 (write) is blocked on two things, neither of them capability — account standing
+(0 comment karma) and the fact that no high-value room has yet granted permission.

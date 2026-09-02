@@ -76,17 +76,35 @@ _WRITE_SCORE = text(
 
 _TOP = text(
     "SELECT kind, handle, display_name, status, reach, signal_count, fit_score, "
-    "       score_components, provisional, self_promo_allowed "
+    "       score_components, provisional, self_promo_allowed, ai_content_allowed "
     "FROM surface WHERE brand_id = :brand_id "
     "  AND (CAST(:kind AS text) IS NULL OR kind = :kind) "
-    "  AND (NOT :postable_only OR (status = 'active' AND self_promo_allowed IS TRUE)) "
+    "  AND (NOT :postable_only OR (status = 'active' AND self_promo_allowed IS TRUE "
+    "                               AND ai_content_allowed IS TRUE)) "
     "ORDER BY fit_score DESC NULLS LAST, signal_count DESC LIMIT :limit"
 )
 
 _SET_RULES = text(
     "UPDATE surface SET rules = CAST(:rules AS jsonb), rules_fetched_at = now(), "
-    "  self_promo_allowed = :allowed, status = :status, updated_at = now() "
+    "  self_promo_allowed = :allowed, ai_content_allowed = :ai_allowed, "
+    "  status = :status, updated_at = now() "
     "WHERE brand_id = :brand_id AND kind = :kind AND handle = :handle"
+)
+
+# Phrases that constitute an explicit PROHIBITION in a room's own rules. Drawn from real rule text,
+# not imagined: r/Forex "Do not self promote here", r/Daytrading "No spamming, selling or promoting
+# your product, service or community".
+_PROMO_BANS = (
+    "no self promo", "no self-promo", "do not self promote", "no promotional",
+    "no promotion", "no advertis", "no soliciting", "no referral", "no affiliate",
+    "selling products", "promoting your product",
+)
+
+# r/Daytrading: "No ChatGPT or AI-Generated Content — Posts or comments created using AI tools like
+# ChatGPT, Claude, or similar language models". A room can welcome brands and still ban AI text.
+_AI_BANS = (
+    "ai-generated", "ai generated", "chatgpt", "no ai content", "language model",
+    "generated using ai", "written by ai",
 )
 
 
@@ -194,23 +212,117 @@ async def top(brand_id: str, *, kind: str | None = None, limit: int = 10,
         return []
 
 
+def _rules_text(rules: Any) -> str:
+    """Flatten a rules payload to searchable lowercase text."""
+    if isinstance(rules, dict):
+        parts = []
+        for r in (rules.get("rules") or []):
+            if isinstance(r, dict):
+                parts += [str(r.get("shortName") or ""), str(r.get("description") or ""),
+                          str(r.get("violationReason") or "")]
+        parts += [str(x) for x in (rules.get("siteRules") or [])]
+        return " ".join(parts).lower()
+    return str(rules or "").lower()
+
+
+def classify_rules(rules: Any) -> tuple[bool | None, bool | None]:
+    """Read a room's rules into two permissions: `(self_promo_allowed, ai_content_allowed)`.
+
+    **This function can only ever say NO or DON'T KNOW.** It returns `False` on an explicit
+    prohibition and `None` otherwise — never `True`. Silence in a room's rules is not consent, and a
+    keyword scan is nowhere near good enough to grant a machine permission to post somewhere public
+    under the brand's name. Granting `True` stays a deliberate human act.
+
+    That asymmetry is the point: a false `False` costs us one room we could have used; a false `True`
+    costs the account. The gate in `top(postable_only=True)` already treats `NULL` as "not allowed",
+    so "don't know" and "no" fail the same way — safely — and only differ in what a human sees.
+
+    Phrases come from real rule text (r/Forex, r/Daytrading), not invented.
+    """
+    txt = _rules_text(rules)
+    if not txt:
+        return None, None          # no rules published — still not permission
+    promo = False if any(p in txt for p in _PROMO_BANS) else None
+    ai = False if any(p in txt for p in _AI_BANS) else None
+    return promo, ai
+
+
 async def record_rules(brand_id: str, kind: str, handle: str, rules: Any, *,
-                       self_promo_allowed: bool | None = None, engine: Any = None) -> bool:
+                       self_promo_allowed: bool | None = None,
+                       ai_content_allowed: bool | None = None, engine: Any = None) -> bool:
     """Store a room's rules, captured BEFORE we ever act in it.
 
-    A room that forbids self-promotion becomes `read_only` — still worth listening to, never posted
-    into. That is a decision made from the room's own stated rules rather than from our appetite.
+    A room that forbids self-promotion **or** AI-generated content becomes `read_only` — still worth
+    listening to, never posted into. Both are decided from the room's own stated rules rather than
+    from our appetite for the room.
     """
-    status = "read_only" if self_promo_allowed is False else "candidate"
+    status = "read_only" if (self_promo_allowed is False or ai_content_allowed is False) else "candidate"
     try:
         eng = _engine_or(engine)
         async with eng.begin() as conn:
             await conn.execute(_SET_RULES, {
                 "brand_id": brand_id, "kind": kind, "handle": handle,
                 "rules": json.dumps(rules if rules is not None else {}),
-                "allowed": self_promo_allowed, "status": status,
+                "allowed": self_promo_allowed, "ai_allowed": ai_content_allowed,
+                "status": status,
             })
         return True
     except Exception as exc:  # noqa: BLE001
         log.warning("surfaces.record_rules_failed", error=str(exc)[:200])
         return False
+
+
+_NEEDS_RULES = text(
+    "SELECT handle FROM surface WHERE brand_id = :brand_id AND kind = 'subreddit' "
+    "  AND rules_fetched_at IS NULL "
+    "ORDER BY fit_score DESC NULLS LAST, signal_count DESC LIMIT :limit"
+)
+
+
+async def sync_rules(brand_id: str, *, limit: int = 10, fetch: Any = None,
+                     engine: Any = None) -> dict:
+    """Capture rules for the highest-ranked rooms that have none yet, and classify them.
+
+    Deliberately a deterministic capability rather than a model tool: whether we are allowed to
+    speak somewhere is not a judgement to hand to a language model mid-run, and it must not compete
+    for the discovery budget. Runs on the rooms that matter first (highest fit), because those are
+    the ones we would otherwise act in soonest.
+
+    Idempotent by construction — only rooms with `rules_fetched_at IS NULL` are fetched.
+    """
+    fetch = fetch or _default_fetch_rules
+    out = {"checked": 0, "read_only": 0, "unknown": 0, "failed": 0, "rooms": []}
+    try:
+        eng = _engine_or(engine)
+        async with eng.connect() as conn:
+            handles = [r[0] for r in
+                       (await conn.execute(_NEEDS_RULES,
+                                           {"brand_id": brand_id,
+                                            "limit": max(1, min(limit, 50))})).all()]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("surfaces.sync_rules_query_failed", error=str(exc)[:200])
+        return out
+
+    for handle in handles:
+        out["checked"] += 1
+        try:
+            rules = await fetch(brand_id, handle)
+        except Exception as exc:  # noqa: BLE001 — one unreachable room must not stop the sweep
+            out["failed"] += 1
+            log.warning("surfaces.rules_fetch_failed", handle=handle, error=str(exc)[:160])
+            continue
+        promo, ai = classify_rules(rules)
+        await record_rules(brand_id, "subreddit", handle, rules,
+                           self_promo_allowed=promo, ai_content_allowed=ai, engine=engine)
+        blocked = promo is False or ai is False
+        out["read_only" if blocked else "unknown"] += 1
+        out["rooms"].append({"handle": handle, "self_promo_allowed": promo,
+                             "ai_content_allowed": ai, "read_only": blocked})
+        log.info("surfaces.rules_captured", handle=handle, self_promo=promo, ai_content=ai)
+    return out
+
+
+async def _default_fetch_rules(brand_id: str, handle: str) -> dict:
+    from glitch_signal.platforms import zernio
+
+    return await zernio.subreddit_rules(brand_id, handle)

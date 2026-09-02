@@ -83,6 +83,19 @@ async def _cap_learn_performance(brand_id: str, args: dict) -> dict:
     return await curate_performance(brand_id)
 
 
+async def _cap_surfaces_sync(brand_id: str, args: dict) -> dict:
+    """TARGET-3: re-score surfaces, then capture rules for the top rooms that have none.
+
+    Deterministic on purpose — whether a room permits participation is a safety precondition, not a
+    judgement to leave to a model mid-run.
+    """
+    from glitch_signal.agent.social import surfaces
+
+    ranked = await surfaces.rescore(brand_id)
+    synced = await surfaces.sync_rules(brand_id, limit=int(args.get("limit", 10)))
+    return {"scored": len(ranked), **synced}
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -91,6 +104,7 @@ _REGISTRY: dict[str, CapFn] = {
     "social_reconcile": _cap_social_reconcile,
     "social_outcomes": _cap_social_outcomes,
     "learn_performance": _cap_learn_performance,
+    "surfaces_sync": _cap_surfaces_sync,
 }
 
 
@@ -107,6 +121,8 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "social_reconcile": frozenset(),
     "social_outcomes": frozenset(),
     "learn_performance": frozenset({"memory"}),
+    # Reads our own rows + one vendor rules call; grants no publishing power.
+    "surfaces_sync": frozenset({"discovery"}),
 }
 
 
