@@ -122,10 +122,16 @@ def _default_deps() -> RunDeps:
             return await upload_bytes(data, brand_id, ext="jpg", content_type="image/jpeg",
                                       prefix="social_image")
 
+        # COMPOSITE: a model paints the atmosphere, code sets the type. Both halves are optional —
+        # a backdrop generation failure or a missing mark degrades to the flat card rather than
+        # failing the post, because a plainer post beats no post.
+        backdrop = await _backdrop_for(brand_id, p, voice, tokens)
+        logos, mark = await _marks_for(brand_id, idea)
         png = _layouts.render(p.layout, _layouts.Spec(
             content=_layouts.Content(**{k: v for k, v in p.fields.items()}),
             fmt=str(tokens.get("format") or _card.DEFAULT_FORMAT),
-            palette=_card.Palette.from_dict(tokens)))
+            palette=_card.Palette.from_dict(tokens),
+            backdrop=backdrop, logos=logos, wordmark_logo=mark))
         return await upload_bytes(png, brand_id, ext="png", content_type="image/png",
                                   prefix="social_card")
 
@@ -147,6 +153,80 @@ def _default_deps() -> RunDeps:
                    store_mod=store, remember=_remember,
                    have_constitution=lambda: bool(conscience.constitution()),
                    spend_now=_spend_now, positioning=_positioning.get)
+
+
+async def _fetch_image(url: str):
+    """Pull one stored asset. Returns None on any failure — imagery is additive, never required."""
+    import httpx
+    from io import BytesIO
+    from PIL import Image
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as c:
+            r = await c.get(url)
+            r.raise_for_status()
+            return Image.open(BytesIO(r.content))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("social.asset_fetch_failed", url=url[:120], error=str(exc)[:160])
+        return None
+
+
+async def _backdrop_for(brand_id: str, plan, voice, tokens):
+    """Generate the text-free backdrop this card sits on, or None to fall back to the flat card.
+
+    Text-free deliberately: the headline is drawn in code afterwards, so anything the model wrote
+    would collide with it. `technique.illustrative_prompt` carries the no-text directive.
+    """
+    from glitch_signal.agent.social import technique
+    from glitch_signal.media.render import composite as _composite
+    from glitch_signal.media.render.card import SIZES, DEFAULT_FORMAT
+
+    try:
+        from glitch_signal.media.generation.engines.muapi import MuapiEngine
+
+        subject = plan.fields.get("headline") or plan.fields.get("kicker") or ""
+        prompt = technique.illustrative_prompt(
+            f"A backdrop for headline typography. {subject}. The upper two thirds of the frame is "
+            f"empty unlit near-black space reserved for text; the subject sits low and small.",
+            style=voice.style, palette=voice.palette, banned=voice.banned_imagery)
+        fmt = str(tokens.get("format") or DEFAULT_FORMAT)
+        url = await MuapiEngine().generate(IMAGE_MODEL, prompt, params={"aspect_ratio": fmt})
+        img = await _fetch_image(url)
+        if img is None:
+            return None
+        w, h = SIZES.get(fmt, SIZES[DEFAULT_FORMAT])
+        from io import BytesIO
+        buf = BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=95)
+        return _composite.prepare(buf.getvalue(), w, h)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("social.backdrop_failed", error=str(exc)[:200])
+        return None
+
+
+async def _marks_for(brand_id: str, idea):
+    """(third-party marks keyed by name, our own mark) for this post. Missing marks are fine."""
+    from glitch_signal.agent import assets as _assets
+
+    logos: dict = {}
+    mark = None
+    try:
+        blob = f"{idea.angle} {idea.hook} {' '.join(idea.key_points or [])}"
+        named = await _assets.resolve_named(brand_id, blob.split(), kind="logo")
+        for a in named:
+            if a["slug"] == "glitch-executor":
+                mark = await _fetch_image(a["url"])
+            else:
+                img = await _fetch_image(a["url"])
+                if img is not None:
+                    logos[a["name"]] = img
+        if mark is None:
+            own = await _assets.resolve_named(brand_id, ["Glitch Executor"], kind="logo")
+            if own:
+                mark = await _fetch_image(own[0]["url"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("social.marks_failed", error=str(exc)[:200])
+    return logos, mark
 
 
 async def _pick_cell(brand_id: str, d: "RunDeps", engine: Any):

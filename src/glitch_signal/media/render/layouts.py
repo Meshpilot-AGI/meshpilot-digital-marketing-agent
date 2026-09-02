@@ -53,13 +53,25 @@ class Spec:
     content: Content
     fmt: str = DEFAULT_FORMAT
     palette: Palette = field(default_factory=Palette)
+    # Optional generated backdrop (already scrimmed by `composite.prepare`) and real brand marks
+    # keyed by the name the copy uses. Both are optional by design: a backdrop generation failure or
+    # a missing logo must degrade to the flat card, never fail the post.
+    backdrop: Any = None
+    logos: dict[str, Any] = field(default_factory=dict)
+    wordmark_logo: Any = None
 
 
 # ── shared chrome ───────────────────────────────────────────────────────────────────────────────
 
 def _canvas(spec: Spec) -> tuple[Image.Image, ImageDraw.ImageDraw, int, int, int]:
+    """The frame every layout draws onto: the generated backdrop when there is one, else flat brand
+    ground. Making this the shared entry point is what lets one change lift all five layouts."""
     w, h = SIZES.get(spec.fmt, SIZES[DEFAULT_FORMAT])
-    img = Image.new("RGB", (w, h), spec.palette.bg)
+    if spec.backdrop is not None:
+        img = spec.backdrop if spec.backdrop.size == (w, h) else spec.backdrop.resize((w, h))
+        img = img.convert("RGB")
+    else:
+        img = Image.new("RGB", (w, h), spec.palette.bg)
     return img, ImageDraw.Draw(img), w, h, int(w * 0.09)
 
 
@@ -76,11 +88,46 @@ def _kicker(draw, spec: Spec, w: int, margin: int, y: int) -> int:
     return y + rule_h
 
 
-def _wordmark(draw, spec: Spec, w: int, h: int, margin: int) -> None:
-    if spec.content.wordmark:
-        wf = _font(False, int(w * 0.019))
-        draw.text((margin, h - margin - int(w * 0.019)), spec.content.wordmark,
-                  font=wf, fill=spec.palette.muted)
+def _wordmark(draw, spec: Spec, w: int, h: int, margin: int, img: Image.Image | None = None) -> None:
+    """Footer lockup: the real mark beside the name when we have the file, else the name alone.
+
+    A generated approximation of our own logo would be worse than no logo, so this only ever places
+    a stored file."""
+    if not spec.content.wordmark and spec.wordmark_logo is None:
+        return
+    p = spec.palette
+    if spec.wordmark_logo is not None and img is not None:
+        size = int(w * 0.085)
+        y = h - margin - size
+        mark = spec.wordmark_logo.convert("RGBA").copy()
+        mark.thumbnail((size, size), Image.LANCZOS)
+        img.paste(mark, (margin, y + (size - mark.height) // 2), mark)
+        wf = _font(True, int(w * 0.030))
+        bbox = draw.textbbox((0, 0), spec.content.wordmark, font=wf)
+        draw.text((margin + mark.width + int(w * 0.022),
+                   y + (size - (bbox[3] - bbox[1])) // 2 - bbox[1]),
+                  spec.content.wordmark, font=wf, fill=p.fg)
+        return
+    wf = _font(False, int(w * 0.019))
+    draw.text((margin, h - margin - int(w * 0.019)), spec.content.wordmark, font=wf, fill=p.muted)
+
+
+def _match_logo(logos: dict, label: str) -> Any:
+    """Find the mark for a panel label. Matching is loose because the label is copy the LLM wrote
+    ("Apex"), not a slug — and an unmatched label simply renders without a logo."""
+    key = (label or "").strip().lower()
+    if not key or not logos:
+        return None
+    for name, im in logos.items():
+        n = (name or "").lower()
+        if key == n or key in n or n in key:
+            return im
+    return None
+
+
+def _logo_tile(logo: Any, size: int):
+    from glitch_signal.media.render.composite import logo_tile
+    return logo_tile(logo, size)
 
 
 def _png(img: Image.Image) -> bytes:
@@ -143,7 +190,7 @@ def statement(spec: Spec) -> bytes:
     if sub_lines:
         y += int(h * 0.028)
         _para(draw, c.subhead, sub_font, p.muted, margin, y, content_w, sub_leading)
-    _wordmark(draw, spec, w, h, margin)
+    _wordmark(draw, spec, w, h, margin, img)
     return _png(img)
 
 
@@ -187,21 +234,35 @@ def comparison(spec: Spec) -> bytes:
     for i, (label, body) in enumerate(((c.left_label, c.left_body), (c.right_label, c.right_body))):
         if not (label or body):
             continue
-        # A thin vertical accent bar marks the second panel as the contrast — the eye needs one
-        # asymmetry to know which side is the correction.
-        bar_x = margin
         colour = p.accent if i else p.muted
         top = y
+        # A real brand mark when the asset library has one. This is the case that forces the whole
+        # composite architecture: a model cannot render a third-party logo, so a post contrasting
+        # two firms is only possible by placing stored files.
+        logo = _match_logo(spec.logos, label)
+        if logo is not None:
+            chip = int(w * 0.095)
+            tile, mask = _logo_tile(logo, chip)
+            img.paste(tile, (margin, y), mask)
+            text_x = margin + chip + int(w * 0.035)
+            _draw_tracked(draw, (text_x, y + int(chip * 0.06)), label.upper(), label_f, colour,
+                          tracking=w * 0.0022)
+            yy = y + int(chip * 0.06) + int(w * 0.026 * 1.9)
+            yy = _para(draw, body, body_f, p.fg, text_x, yy, content_w - (text_x - margin),
+                       body_leading)
+            y = max(yy, top + chip) + panel_gap
+            continue
+        # No mark: fall back to the accent bar, which gives the eye the same asymmetry.
         _draw_tracked(draw, (margin + int(w * 0.035), y), label.upper(), label_f, colour,
                       tracking=w * 0.0022)
         y += int(w * 0.026 * 2.0)
         y = _para(draw, body, body_f, p.fg, margin + int(w * 0.035), y,
                   content_w - int(w * 0.035), body_leading)
-        draw.rectangle([bar_x, top, bar_x + max(3, int(w * 0.005)), y - int(body_leading * 0.25)],
-                       fill=colour)
+        draw.rectangle([margin, top, margin + max(3, int(w * 0.005)),
+                        y - int(body_leading * 0.25)], fill=colour)
         y += panel_gap
 
-    _wordmark(draw, spec, w, h, margin)
+    _wordmark(draw, spec, w, h, margin, img)
     return _png(img)
 
 
@@ -226,7 +287,7 @@ def definition(spec: Spec) -> bytes:
 
     y += int(h * 0.035)
     y = _para(draw, c.subhead or c.headline, body_f, p.fg, margin, y, content_w, body_leading)
-    _wordmark(draw, spec, w, h, margin)
+    _wordmark(draw, spec, w, h, margin, img)
     return _png(img)
 
 
@@ -264,7 +325,7 @@ def numbered(spec: Spec) -> bytes:
         end = _para(draw, item, item_f, p.fg, margin + indent, y, content_w - indent, leading_i)
         y = end + int(h * 0.026)
 
-    _wordmark(draw, spec, w, h, margin)
+    _wordmark(draw, spec, w, h, margin, img)
     return _png(img)
 
 
@@ -323,7 +384,7 @@ def mechanism(spec: Spec) -> bytes:
     if c.subhead:
         _para(draw, c.subhead, sub_f, p.muted, margin, bottom + int(h * 0.075), content_w,
               sub_leading)
-    _wordmark(draw, spec, w, h, margin)
+    _wordmark(draw, spec, w, h, margin, img)
     return _png(img)
 
 
