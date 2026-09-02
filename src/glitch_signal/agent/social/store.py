@@ -199,3 +199,58 @@ async def stranded_pending(*, older_than_s: int, limit: int = 25,
                  "ORDER BY p.created_at LIMIT :k"),
             {"age": older_than_s, "k": limit})).mappings().all()
     return [dict(r) for r in rows]
+
+
+# ── outcome ingestion ───────────────────────────────────────────────────────────────────────────
+
+async def posts_due_for_metrics(*, min_age_s: int, max_age_s: int, bucket: str,
+                                platforms: tuple[str, ...], limit: int = 25,
+                                engine: Any = None) -> list[dict]:
+    """Delivered posts old enough for this reading, that have not had it yet.
+
+    Bucketed rather than polled continuously: engagement accrues over days, so what the loop needs
+    is the same post read at comparable ages — not a stream of readings whose spacing depends on
+    how often the sweep happened to run. The `unique (post_id, age_bucket)` constraint plus this
+    NOT EXISTS makes each reading exactly-once and re-runnable.
+    """
+    eng = engine or _engine()
+    async with eng.connect() as conn:
+        rows = (await conn.execute(
+            text("SELECT p.id, p.platform, p.platform_post_id, p.media_kind, c.brand_id, "
+                 "       c.idea, c.id AS campaign_id "
+                 "FROM social_post p JOIN social_campaign c ON c.id = p.campaign_id "
+                 "WHERE p.status = 'posted' AND p.platform_post_id IS NOT NULL "
+                 "  AND p.platform = ANY(string_to_array(:plats, ',')) "
+                 "  AND coalesce(p.submitted_at, p.created_at) <= now() - make_interval(secs => :min_age) "
+                 "  AND coalesce(p.submitted_at, p.created_at) >  now() - make_interval(secs => :max_age) "
+                 "  AND NOT EXISTS (SELECT 1 FROM social_post_metric m "
+                 "                  WHERE m.post_id = p.id AND m.age_bucket = :bucket) "
+                 "ORDER BY coalesce(p.submitted_at, p.created_at) LIMIT :k"),
+            {"min_age": min_age_s, "max_age": max_age_s, "bucket": bucket,
+             "plats": ",".join(platforms), "k": limit})).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def record_metrics(post_id: str, platform: str, bucket: str, m: dict, *,
+                         engine: Any = None) -> None:
+    """Persist one reading. Absent metrics stay NULL — never coerced to 0.
+
+    A fabricated zero is worse than a gap: it makes "nobody engaged" indistinguishable from "we
+    could not measure", and the loop would learn from the difference.
+    """
+    import json as _json
+
+    eng = engine or _engine()
+    async with eng.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO social_post_metric (post_id, platform, age_bucket, impressions, "
+                 "reach, likes, comments, shares, saves, clicks, video_views, raw) "
+                 "VALUES (CAST(:pid AS uuid), :plat, :bucket, :impressions, :reach, :likes, "
+                 ":comments, :shares, :saves, :clicks, :video_views, CAST(:raw AS jsonb)) "
+                 "ON CONFLICT (post_id, age_bucket) DO NOTHING"),
+            {"pid": post_id, "plat": platform, "bucket": bucket,
+             "impressions": m.get("impressions"), "reach": m.get("reach"),
+             "likes": m.get("likes"), "comments": m.get("comments"),
+             "shares": m.get("shares"), "saves": m.get("saves"),
+             "clicks": m.get("clicks"), "video_views": m.get("video_views"),
+             "raw": _json.dumps(m.get("raw") or {})})
