@@ -32,6 +32,42 @@ def test_build_video_prompt_leads_with_script_and_tone_not_timestamps():
     assert "?" not in p
 
 
+def test_style_paragraph_has_all_six_parts_heygen_asks_for():
+    """HeyGen's prescribed anatomy: name, palette, art direction, motion, transitions, vibe.
+
+    Hyperframes authors every scene in code rather than picking a template, so describing the look
+    is the lever that actually moves the output — their guide says to spend the prompt here.
+    """
+    para = video.style_paragraph(None, {"bg": "#0a0d12", "fg": "#FFFFFF", "accent": "#93FF00"})
+    for part in ("STYLE", "Palette:", "Art direction:", "Motion:", "Transitions:", "Vibe:"):
+        assert part in para, f"style paragraph is missing {part!r}"
+
+
+def test_style_paragraph_uses_the_brands_own_tokens():
+    # Same bg/fg/accent the image cards render with, so a campaign's post and video agree.
+    para = video.style_paragraph(None, {"bg": "#111111", "fg": "#EEEEEE", "accent": "#FF0090"})
+    assert "#111111" in para and "#EEEEEE" in para and "#FF0090" in para
+
+
+def test_style_paragraph_falls_back_to_neutral_defaults():
+    # Open-core: an unconfigured brand must still get a usable look, with no brand baked in.
+    para = video.style_paragraph(None, None)
+    assert "Palette:" in para and "#" in para
+
+
+def test_style_paragraph_is_positively_framed():
+    """Restrictive instructions made HeyGen's own test renders visually flat, so a look is pinned
+    by describing what IS there."""
+    para = video.style_paragraph(None, None).lower()
+    for banned in ("do not", "don't", "avoid", "never use", " no ", "without any"):
+        assert banned not in para, f"style paragraph uses restrictive framing: {banned!r}"
+
+
+def test_build_video_prompt_carries_the_style_paragraph():
+    p = video.build_video_prompt(IDEA, tokens={"accent": "#93FF00"})
+    assert "STYLE" in p and "#93FF00" in p
+
+
 def test_build_video_prompt_pins_the_presenter():
     # Left open, the agent picks a narrator gender at random and the brand's presenter changes
     # between posts. Stated affirmatively so it doesn't trip the no-negations rule.
@@ -242,4 +278,4 @@ def test_campaign_attaches_no_files_to_a_render():
 
     src = inspect.getsource(campaign._default_deps)
     assert "reference_urls" not in src, "the video path must not attach reference files"
-    assert "video.build_video_prompt(idea), []" in src, "file_urls must be an empty list"
+    assert "video.generate_video(brand_id, prompt, []," in src, "file_urls must be an empty list"

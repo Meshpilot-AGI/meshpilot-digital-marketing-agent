@@ -199,6 +199,18 @@ edge kills a synchronous request at 100s anyway.
 HeyGen published the results of **14 controlled experiments** on this endpoint. Their findings, and
 ours, both encoded in `video.py::build_video_prompt`:
 
+**The style paragraph is the lever.** Video Agent composes with **Hyperframes** (HTML-to-video):
+every stat, caption treatment and transition is authored *in code*, not chosen from a template set,
+so the agent can render any look you can describe. HeyGen's prescribed anatomy — all six parts,
+which `video.style_paragraph()` builds:
+
+> a **name** for the style · the exact **palette** · **art direction** · how things **move** ·
+> what the **transitions** are · one closing line for the **vibe**
+
+Colours come from the brand's own visual tokens (`bg`/`fg`/`accent` — the same ones the image cards
+render with), so a campaign's post and its video agree on the look, and an unconfigured brand still
+gets neutral defaults.
+
 **Do**
 
 - **Write a great script.** The narration words matter more than any production instruction.
