@@ -1462,3 +1462,45 @@ standing and room permission. This is the register being ready ahead of the writ
 ⚠️ The migration was applied to prod during verification. It is idempotent (`on conflict do update`)
 and the file is unchanged since, so the Supabase<->GitHub integration re-applying it on merge is a
 no-op — no file/prod drift.
+
+
+## SEO-1 — post model + editorial contract as code — 2026-09-02
+
+**Built:** `agent/seo/post.py` (Python mirror of `blog.ts`'s `BlogBlock`/`BlogPost` union, plus
+`to_typescript()` and `validate_shape()`) and `agent/seo/contract.py` (every editorial clause as an
+executable check).
+
+**Why this is the piece that makes no-HITL publishing arguable at all.** The publishing target is not
+markdown — `glitch-trade-app/src/data/blog.ts` holds posts as TYPED STRUCTURED BLOCKS rendered by
+`BlogPost.tsx`, which emits FAQPage/Quotation JSON-LD from the structure. So every clause of the
+operator's contract is structural, and "is this publishable" becomes pass/fail rather than taste:
+lede ≤60 words, ≥4 H2, ≥1 StatCallout with a **primary** (external) source, a comparison table or
+ORDERED list, an anti-pattern callout, ≥5 FAQ pairs, ≥3 internal links **across clusters**.
+
+**Calibrated against the 11 posts already published to that contract**, not invented. A representative
+one carries 5 H2, 1 stat, 1 list, 1 table, 1 antiPattern, 1 cite, 6 FAQ. The first test asserts a post
+shaped like the real ones PASSES — a contract stricter than the humans already writing to it blocks
+everything and gets switched off.
+
+**Two deliberate design calls:**
+- **Shape is separate from contract.** `validate_shape` answers "will it typecheck in the target
+  repo"; `check` answers "is it good enough to publish". Conflating them makes a malformed block look
+  like an editorial failure.
+- **The unsourced-figures check is post-level, not sentence-level.** Real posts source their numbers
+  from an end-of-post `cite` block, so demanding an inline citation per sentence would flag every
+  correctly-written post. It catches the actual failure — prose asserting figures while the post
+  cites nothing at all, which in a YMYL-adjacent vertical is the one that matters.
+
+Internal links were found to live in `cite` sources as bare paths (`/tools/…`), rendered as anchors —
+discovered by reading the renderer rather than assuming a markdown convention.
+
+**What these checks are NOT:** they verify structure, not truth. Passing earns a post the right to be
+CONSIDERED for publication, not to be believed — the conscience critic and firm-rule grounding sit
+alongside them, not replaced by them.
+
+**Verified:** 854 pass / 1 skip (+18). Emission is JSON-shaped TypeScript: valid, prettier-formattable,
+and free of the `\'` hand-escaping the existing single-quoted file is full of.
+
+**Remains:** SEO-2 (generation + the commit/PR path into `glitch-trade-app`, running the program's own
+gates: typecheck, schemas:validate, links:audit, sitemap, Lighthouse). The autonomy conflict in
+`ai-seo-program.md` ("every page human-edited") is still unresolved and is an operator decision.
