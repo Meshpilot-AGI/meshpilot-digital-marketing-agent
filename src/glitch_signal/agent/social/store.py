@@ -105,8 +105,13 @@ async def mark_result(campaign_id: str, platform: str, status: str, *, platform_
     async with eng.begin() as conn:
         await conn.execute(
             text("UPDATE social_post SET status = :s, platform_post_id = :ppid, post_url = :url, "
-                 "error = :err, submitted_at = CASE WHEN :ppid IS NULL THEN submitted_at "
-                 "ELSE COALESCE(submitted_at, now()) END "
+                 # CAST is load-bearing: asyncpg infers parameter types from context, and a bare
+                 # `:ppid IS NULL` gives it nothing to infer from — it raises
+                 # AmbiguousParameterError and the whole UPDATE never runs. The FakeEngine used in
+                 # unit tests does not type-check parameters, so this passed every test and failed
+                 # on the first real publish.
+                 "error = :err, submitted_at = CASE WHEN CAST(:ppid AS text) IS NULL "
+                 "THEN submitted_at ELSE COALESCE(submitted_at, now()) END "
                  "WHERE campaign_id = CAST(:cid AS uuid) AND platform = :p"),
             {"s": status, "ppid": platform_post_id, "url": post_url, "err": error,
              "cid": campaign_id, "p": platform})

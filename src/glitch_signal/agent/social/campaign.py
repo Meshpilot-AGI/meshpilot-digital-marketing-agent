@@ -355,7 +355,10 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: b
 
     # Caption / fact failures after paid media must NOT abort without recording the paid campaign.
     try:
-        caps = await d.captions(brand_id, idea)
+        # Per-platform captions: the same idea, written for the room it lands in.
+        wanted = {**{p: "image" for p in (IMAGE_PLATFORMS if image_url else ())},
+                  **{p: "video" for p in (VIDEO_PLATFORMS if video_url else ())}}
+        caps = await d.captions(brand_id, idea, platforms=wanted)
         facts = await d.brand_facts(brand_id)
         # Voice + prohibitions for the critic. Fetched here (not inside review) so one campaign makes
         # one read, and so a positioning failure lands in the same fail-soft branch as the facts.
@@ -367,9 +370,11 @@ async def run_campaign(brand_id: str, *, deps: RunDeps | None = None, dry_run: b
 
     drafts: list[PostDraft] = []
     if image_url:
-        drafts += [PostDraft(p, "image", image_url, caps["image"]) for p in IMAGE_PLATFORMS]
+        drafts += [PostDraft(p, "image", image_url, caps.get(p) or caps["image"])
+                   for p in IMAGE_PLATFORMS]
     if video_url:
-        drafts += [PostDraft(p, "video", video_url, caps["video"]) for p in VIDEO_PLATFORMS]
+        drafts += [PostDraft(p, "video", video_url, caps.get(p) or caps["video"])
+                   for p in VIDEO_PLATFORMS]
     drafts = drafts[:settings().agent_social_max_posts_per_run]
 
     # conscience gate — fail CLOSED: with a constitution loaded, a critic error/empty/unparseable
