@@ -1182,3 +1182,29 @@ The real decision is whether to RETIRE THE LEGACY LANGGRAPH PIPELINE, which gate
 **Changed:** board lane unparked and rewritten with the survey; stale Alembic/"app-driven migration"
 acceptance criteria corrected to the Supabase-native flow. **No schema changes made** — dropping
 tables is destructive and Tier 2 needs an operator decision first.
+
+
+## DB-OPT-TIER1 — 2026-09-02
+
+**Changed:** `supabase/migrations/20260902070000_drop_dead_tables.sql` drops `orm_response`,
+`mention_event`, `comment_reply`, `strategic_reply`, `brand_document`, `alembic_version`. Removed the
+four now-dead SQLModel classes from `db/models.py` (308 -> 204 lines) plus the orphaned section
+banners and the stale ORM chain in the module docstring, and trimmed `MentionEvent`/`OrmResponse`
+from the brand_id assertion list in `tests/test_multi_brand_config.py`.
+
+**Verified before writing anything destructive:** no FOREIGN KEY from a surviving table points at
+any of the six; no views exist in `public`; all six hold 0 rows except `alembic_version` (1 row of
+dead bookkeeping); and critically **`create_all_tables()` is never called** — it exists in
+`db/session.py` and runs `SQLModel.metadata.create_all`, which would have recreated every dropped
+table at boot had anything invoked it. `orm_response` is dropped before `mention_event` because it
+carries the only FK among the six.
+
+Five of the six are created by `20260829054500_init_schema.sql` / `20260830180000_brand_document.sql`,
+so the from-scratch migration test in CI exercises create-then-drop; `alembic_version` is created by
+no migration (Alembic-era vestige), so its `drop if exists` is a no-op there and a real drop in prod.
+
+**Verified:** 867 pass / 1 skip. Schema change applies to prod through the Supabase<->GitHub
+integration on merge, independent of CI — NOT hand-applied, to avoid file/prod drift.
+
+**Remains:** Tier 2 (9 legacy LangGraph tables) still gated on the operator's call about retiring
+that pipeline. Noted in passing: `create_all_tables()` is itself dead code.

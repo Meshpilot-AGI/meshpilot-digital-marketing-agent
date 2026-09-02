@@ -158,9 +158,7 @@ class TestModelsCarryBrandId:
     def test_models_have_brand_id_field(self):
         from glitch_signal.db.models import (
             ContentScript,
-            MentionEvent,
             MetricsSnapshot,
-            OrmResponse,
             PublishedPost,
             ScheduledPost,
             ScoutCheckpoint,
@@ -178,8 +176,6 @@ class TestModelsCarryBrandId:
             PublishedPost,
             MetricsSnapshot,
             ScoutCheckpoint,
-            MentionEvent,
-            OrmResponse,
         ):
             assert "brand_id" in model.model_fields, (
                 f"{model.__name__} missing brand_id field"

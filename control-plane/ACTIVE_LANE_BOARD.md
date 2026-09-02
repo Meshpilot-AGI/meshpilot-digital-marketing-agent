@@ -13,7 +13,10 @@ Write-back: ARCHITECTURE.md (data model), control-plane/ENGINEERING_SUPERVISOR.m
 raw-SQL reference, ORM `__tablename__`, and whether the ORM class is used anywhere outside
 `db/models.py` — a model that is only *declared* is dead.
 
-**Tier 1 — dead by every measure. 0 rows, never queried. Safe to drop now (6):**
+**Tier 1 — DONE (2026-09-02, PR #232).** Dropped via `20260902070000_drop_dead_tables.sql`; the
+four dead ORM models removed from `db/models.py` too, so the schema cannot drift back.
+
+**Tier 1 — dead by every measure. 0 rows, never queried (6):**
 `comment_reply`, `mention_event`, `orm_response`, `strategic_reply` (the four the original lane
 named — confirmed declared-only), plus two the lane did NOT know about:
 - `brand_document` — **newly orphaned by PR #216**, which removed `read_brand_doc` and the three
