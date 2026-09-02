@@ -132,3 +132,35 @@ async def test_refresh_happens_outside_the_lock():
 def test_parse_servers_oauth_field():
     servers = parse_servers('[{"name":"heygen","url":"https://mcp.heygen.com/mcp","oauth":"heygen"}]')
     assert servers == [ServerSpec("heygen", "https://mcp.heygen.com/mcp", {}, "heygen")]
+
+
+# ── schema/write agreement (regression: both MCP servers silently died) ──
+def test_columns_the_refresh_nulls_are_nullable_in_the_migrations():
+    """`_UPDATE` NULLs the legacy plaintext columns; the schema must allow that.
+
+    It did not. `oauth_tokens.access_token` was NOT NULL, so every refresh raised
+    NotNullViolationError and rolled back — leaving the EXPIRED token in place, which meant a
+    lapsed token could never recover. heygen and higgsfield both fell to 0 tools this way.
+
+    The unit tests above did not catch it because the fake engine is a dict: it accepts a NULL
+    write that Postgres rejects. So this asserts the invariant against the MIGRATIONS instead —
+    the only place the real constraint is expressed.
+    """
+    import pathlib
+    import re
+
+    from glitch_signal.agent.mcp import oauth
+
+    sql = " ".join(p.read_text().lower()
+                   for p in sorted(pathlib.Path("supabase/migrations").glob("*.sql")))
+    nulled = set(re.findall(r"(\w+)\s*=\s*null", str(oauth._UPDATE).lower()))
+    assert "access_token" in nulled, "the refresh is expected to null the legacy plaintext column"
+
+    for col in nulled:
+        # A later migration must drop the NOT NULL that the original CREATE TABLE declared.
+        dropped = re.search(rf"alter\s+column\s+{col}\s+drop\s+not\s+null", sql)
+        declared_nn = re.search(rf"\b{col}\s+text\s+not\s+null", sql)
+        assert dropped or not declared_nn, (
+            f"oauth_tokens.{col} is written as NULL by the refresh but the migrations still "
+            f"leave it NOT NULL — the refresh will fail closed in production"
+        )
