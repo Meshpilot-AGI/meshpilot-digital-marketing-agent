@@ -1810,3 +1810,41 @@ independent path, which is the entire point of a fallback.
 **Remains:** the roster substitutes for the originally-chosen models; **widening the OpenRouter
 allowed-providers setting is the operator's alternative** and would restore them. Nothing yet alerts
 when a tier's model count of *reachable* models drops — the probe is a script someone must run.
+
+
+## ROUTER — the account setting was the real fix, and "probe twice" was not enough — 2026-09-02
+
+**Changed (operator account, with explicit approval):** added **Azure** to OpenRouter's *Allowed
+Providers*. **Changed (code):** restored `critical` and `moderate` to their original rosters; probe
+script now reports a flake rate instead of a verdict.
+
+**Adding one provider revived three models, not the two I predicted.** I told the operator Azure
+would unblock `gpt-5.6-sol` and `gpt-5.6-luna`, and that `deepseek-v4-pro` would stay dead because
+"it's only served by smaller providers". Wrong — it is Azure-served too, and it is back. The error
+message I based that on listed seventeen providers and I read the list without noticing Azure in it.
+
+**Two different settings block the two remaining models, and conflating them would waste a session:**
+`moonshotai/kimi-k3` has no allowed provider (allowlist). `anthropic/claude-fable-5` returns *"0
+endpoints matching your guardrails"* — the **Zero Data Retention** toggle for Anthropic disables
+first-party Anthropic endpoints, and Bedrock/Vertex do not serve that model. No provider addition can
+fix the second; only relaxing ZDR would, which is a privacy decision rather than a repair. Both are
+pinned by name in `UNREACHABLE_2026_09_02` with that distinction written down.
+
+### ⚠️ The correction that matters more than the roster
+
+`z-ai/glm-5.2` came back **DEAD on two consecutive probes** — then answered fine. Measured over six
+probes: **5 ok, 1 "Provider returned error"** — roughly a 1-in-6 failure rate on Cloudflare's
+endpoint. Two probes would retire that working model about 3% of the time; one probe, 17%.
+
+So the fix I shipped in #249 for exactly this mistake — "probe twice before calling a model dead" —
+was itself too weak, and it took a live run to show it. The script now probes three times and reports
+a **rate** (`LIVE 3/3`, `FLAKY 2/3`, `DEAD`), because a binary verdict on a stochastic signal is the
+error, not the number of retries. A flaky primary is fine when the tier behind it is real and
+alarming when it is the only live model, and only a rate lets anyone tell those apart.
+
+**Verified:** `scripts/probe_router_models.py` → **all 12 LIVE 3/3**, exit 0. Suite 937 pass / 1 skip.
+
+**Remains:** nothing alerts on reachability — the probe is still a script someone runs. And on the
+same settings page, unchanged and worth the operator's attention: *"Allow paid endpoints that train
+on request data"* and *"Allow 1% data discount in workspaces"* are both ON, which sits oddly beside
+ZDR toggles set to strict.
