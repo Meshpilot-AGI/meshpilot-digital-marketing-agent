@@ -2364,3 +2364,35 @@ channel in is not ours to guess.
 
 **Verified:** 1007 pass / 1 skip (+4); migration applied against the real Postgres in a rolled-back
 transaction. **Not yet run in prod** — that needs this merged and deployed first.
+
+
+## CI — the checks became a gate — 2026-09-03
+
+**Operator's call, and the right one.** CI ran only on push to `production`, so it validated code
+that had **already merged and already begun deploying**. A red run told you the trunk was broken; it
+could not stop it. The same checks now run on pull requests into `production`.
+
+**Two details beyond the trigger:**
+
+- **The PR run diffs against the PR BASE, not `HEAD~1`.** The question is what the change introduces
+  to production; on a branch with several commits `HEAD~1` answers a much narrower one and would skip
+  jobs that should run.
+- **The push run is kept.** A PR green against a stale base can still break the trunk once other PRs
+  land ahead of it. The PR run is the gate; the push run is the truth about what `production` is.
+  Merging still triggers the real deploys, and those failing is the signal something got through —
+  deploy is the second line, not the first.
+
+**Verified rather than assumed.** The CI PR's own first run skipped every job, correctly: it touched
+only `.github/` and `CLAUDE.md`, the documented fast pass. That left the case that matters unproven,
+so a throwaway commit touching `src/` was pushed — `api pass 55s`, db/web/gateway skipped — and then
+reverted.
+
+**Branch protection on `production`** now requires `changes, api, db, web, gateway`. Deliberate
+choices in it:
+
+- `strict: false` — not requiring a branch to be up to date. With this merge cadence it would force a
+  rebase on nearly every PR, and the push run already covers the stale-base case it protects against.
+- `enforce_admins: false` — an escape hatch stays. A gate that cannot be bypassed in an incident is a
+  gate that gets deleted in one.
+- **`Supabase Preview` is deliberately NOT required** — it is a third-party check outside our control,
+  and a required check we cannot fix is a merge queue nobody can clear.
