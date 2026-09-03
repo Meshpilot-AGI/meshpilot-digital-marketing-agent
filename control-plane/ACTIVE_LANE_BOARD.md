@@ -78,6 +78,17 @@ the PR path either way.
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **FIRST TWO POSTS LIVE 2026-09-03.** glitch-trade-app#558 and #565 (replacing #559, which could
+not rebase — both posts insert at the same anchor) are merged to `main`. Settled **honestly: 1 human
+edit each, streak 0**, because both needed a substantive correction before they were fit to publish.
+
+⚠️ **A defect found while settling would have falsified the very first entry.** The agent commits
+through the operator's own git identity — the repo requires commits authored as a real person — so
+its commit and a human correction share ONE GitHub login. Login-matching scored both posts
+`human_edits: 0`, which would have started a clean streak on the two posts that most needed
+correcting. Fixed: `publish` writes `AGENT_COMMIT_MARKER` and a commit without it counts as human.
+Pre-marker posts read as fully human-edited — under-crediting, the right direction to be wrong in.
+
 ✅ **SEO-5 GROUNDING 2026-09-03.** Reviewing the first two real posts found three holes, each now
 closed and each replayed against the actual posts: an invented **consensus** ("most challenges
 require a minimum number of trading days" — our data says 2 of 6 live firms), an unverified claim

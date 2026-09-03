@@ -2054,3 +2054,37 @@ firm's published rules".
 
 **Verified:** eight cases, all correct — four true claims pass (including both routing claims), four
 false ones flag (weekend, news, guaranteed pass, and an unrelated invention). 963 pass / 1 skip (+4).
+
+
+## SEO — the first two posts shipped, and the ladder nearly recorded a lie — 2026-09-03
+
+**Live:** glitch-trade-app **#558** (weekend holding) and **#565** (minimum trading days, replacing
+#559). Settled **1 human edit each, streak 0, stage S0** — both needed a substantive correction
+before they were fit to publish, and the record says so.
+
+**#559 could not be merged as-is.** It and #558 both insert a post at the top of `blog.ts`, so the
+same anchor conflicted and the rebase produced a multi-hunk mess. Rather than hand-resolve, the
+corrected post was re-applied onto current `main` through the publisher's **own `insert_post`** —
+deterministic, and it re-ran the duplicate-slug guard. ⚠️ **This will recur**: two posts authored
+before either merges always collide. Worth serialising the cycle against open PRs, or inserting at a
+stable anchor per post.
+
+### ⚠️ The defect that would have falsified the first entry
+
+Login-matching scored both posts `human_edits: 0`. **The agent commits through the operator's own
+git identity** — the repo requires commits authored as a real person — so the agent's commit and a
+human's correction are indistinguishable by author. The two posts that most needed correcting would
+have started a clean streak, and the ladder would have been measuring nothing.
+
+Fixed by making the AGENT prove authorship rather than inferring it: `publish` writes
+`AGENT_COMMIT_MARKER` as a commit trailer, and a commit without it counts as human. Identity-
+independent, so it holds even though both parties commit as the same person. A post authored before
+the marker existed reads as fully human-edited — under-crediting rather than over-crediting, which is
+the right direction to be wrong in when the reward is unsupervised publishing.
+
+**Also merged upstream while this ran:** `EXEC-ROUTING-ON-1` turned `TRADE_EXEC_BROKER_ROUTING_ENABLED`
+and `TRADE_EXEC_FEATURE_FLAG` **on** in prod, which independently confirms the operator's correction
+that routing was a held switch rather than a missing capability.
+
+**Verified:** both posts on `main`; CI green on #565 (7 checks) — waited for it rather than using
+`--admin`, since bypassing the repo's own gates is the failure this lane exists to prevent. 967 pass.
