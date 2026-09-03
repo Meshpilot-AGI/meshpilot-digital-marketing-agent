@@ -132,6 +132,28 @@ async def _cap_seo_heartbeat(brand_id: str, args: dict) -> dict:
                        max_gap_hours=float(args.get("max_gap_hours", DEFAULT_MAX_GAP_HOURS)))
 
 
+async def _cap_discord_provision_alerts(brand_id: str, args: dict) -> dict:
+    """SEO-11: create (or reuse) the Discord alerts channel and store its webhook.
+
+    Runs in the cloud because that is where `DISCORD_BOT_TOKEN` lives as a write-only secret — the
+    credential never has to leave the environment that already holds it. Idempotent, and the webhook
+    URL is stored encrypted and never returned to the caller.
+    """
+    import os
+
+    from glitch_signal.agent import secrets as agent_secrets
+    from glitch_signal.comms.discord import ALERT_WEBHOOK_SECRET, provision_alert_channel
+
+    token = os.environ.get("DISCORD_BOT_TOKEN", "")
+    if not token:
+        return {"ok": False, "error": "DISCORD_BOT_TOKEN is not set in this environment"}
+    res = await provision_alert_channel(
+        token=token, guild_id=str(args.get("guild_id", "")),
+        channel_name=str(args.get("channel", "alerts")))
+    stored = await agent_secrets.put(brand_id, ALERT_WEBHOOK_SECRET, res.pop("url"))
+    return {"ok": stored, **res, "stored": stored}
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -144,6 +166,7 @@ _REGISTRY: dict[str, CapFn] = {
     "seo_publish": _cap_seo_publish,
     "seo_settle": _cap_seo_settle,
     "seo_heartbeat": _cap_seo_heartbeat,
+    "discord_provision_alerts": _cap_discord_provision_alerts,
 }
 
 
@@ -172,6 +195,9 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     # Reads our own rows — but can SEND an alert email, and `send_email` lives under `publish` in the
     # capability vocabulary. Mapping it honestly rather than arguing that an ops alert is different.
     "seo_heartbeat": frozenset({"publish"}),
+    # Creates a channel in the operator's own Discord and mints a webhook. Outward-facing, so it
+    # demands `publish` rather than passing as read-only bookkeeping.
+    "discord_provision_alerts": frozenset({"publish"}),
 }
 
 
