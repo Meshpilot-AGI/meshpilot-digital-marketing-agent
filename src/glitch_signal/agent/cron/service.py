@@ -23,7 +23,9 @@ CAPABILITY_TIMEOUT_S = 600      # hard cap on a capability payload
 # `failed` and need nudging back (see agent/social/video.py); a real recovered render measured ~555s
 # for the video ALONE, before ideate/image/captions/fan-out. At the 600s default the cron could never
 # finish one and silently demoted to image-only every night.
-CAPABILITY_TIMEOUTS = {"social_campaign": 1800}
+# `seo_publish` runs the SITE's own gates (typecheck, lint, schema + link audits) on top of an
+# author-and-repair loop, so it needs the same headroom a video render does.
+CAPABILITY_TIMEOUTS = {"social_campaign": 1800, "seo_publish": 1800}
 
 
 def timeout_for(name: str) -> int:

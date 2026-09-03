@@ -340,6 +340,11 @@ class Settings(BaseSettings):
     enable_api_docs: bool = False
     # Self-cron kill-switch (AGENT-CRON): while False, the scheduler fires no jobs and the
     # agent's `schedule` tool is denied. Flip to True to enable self-scheduling.
+    # SEO kill-switch (SEO-4). While False the scheduled `seo_publish` capability refuses
+    # before authoring anything. Ships OFF: autonomous publishing into a site repo is
+    # opt-in per deployment, not a default.
+    agent_seo_enabled: bool = False
+
     agent_cron_enabled: bool = False
     # Max active agent-owned scheduled jobs per brand (self-scheduling creator-cap).
     agent_cron_max_jobs_per_brand: int = 20

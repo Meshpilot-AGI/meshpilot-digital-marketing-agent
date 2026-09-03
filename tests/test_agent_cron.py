@@ -152,7 +152,7 @@ def test_capability_registry():
     assert set(capabilities.names()) == {"curate", "reconcile", "routing_audit",
                                          "social_campaign", "social_reconcile",
                                          "social_outcomes", "learn_performance",
-                                         "surfaces_sync"}
+                                         "surfaces_sync", "seo_publish", "seo_settle"}
     assert capabilities.get("nope") is None
 
 

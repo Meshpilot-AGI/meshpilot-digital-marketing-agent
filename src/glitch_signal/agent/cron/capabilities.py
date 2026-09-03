@@ -96,6 +96,29 @@ async def _cap_surfaces_sync(brand_id: str, args: dict) -> dict:
     return {"scored": len(ranked), **synced}
 
 
+async def _cap_seo_publish(brand_id: str, args: dict) -> dict:
+    """SEO-4: author one post and open (or, once earned, merge) its PR.
+
+    ⚠️ Needs a git checkout of the SITE's repo plus its npm toolchain and a `gh` that can open a PR
+    — none of which the API's own runtime has. Scheduled there it refuses with `no_repo` rather than
+    failing halfway through a git operation.
+    """
+    from glitch_signal.agent.seo.run import run_publish
+
+    return await run_publish(brand_id, args)
+
+
+async def _cap_seo_settle(brand_id: str, args: dict) -> dict:
+    """SEO-4: record what happened to PRs opened earlier, so the autonomy ladder can move.
+
+    Without this every row stays `human_edits IS NULL`, the streak is permanently 0, and the agent
+    sits at S0 forever — safe, but inert.
+    """
+    from glitch_signal.agent.seo.run import run_settle
+
+    return await run_settle(brand_id, args)
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -105,6 +128,8 @@ _REGISTRY: dict[str, CapFn] = {
     "social_outcomes": _cap_social_outcomes,
     "learn_performance": _cap_learn_performance,
     "surfaces_sync": _cap_surfaces_sync,
+    "seo_publish": _cap_seo_publish,
+    "seo_settle": _cap_seo_settle,
 }
 
 
@@ -123,6 +148,13 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "learn_performance": frozenset({"memory"}),
     # Reads our own rows + one vendor rules call; grants no publishing power.
     "surfaces_sync": frozenset({"discovery"}),
+    # Writes a post into someone else's repo and can open — or, at S1+, merge — a PR. That is
+    # publishing by any honest reading, so it demands the publish capability.
+    "seo_publish": frozenset({"publish"}),
+    # Reads PR state and writes our own bookkeeping rows. Grants nothing new — but it is what moves
+    # the autonomy ladder, so it is deliberately NOT bundled into `seo_publish`: the run that
+    # publishes does not get to mark its own homework in the same breath.
+    "seo_settle": frozenset(),
 }
 
 
