@@ -2476,3 +2476,24 @@ do nothing: a step's own `env` is not available in its `if` (so `env.HOOK != ''`
 be `secrets.…`), and an indented heredoc terminator does not close the heredoc.
 
 **Verified:** 1009 pass / 1 skip (+3). Live behaviour proven after deploy, below.
+
+
+## SEO-13a — three bugs in one alert step, each caught at a different stage — 2026-09-03
+
+The watchdog's Discord step was wrong three times, and the sequence is the lesson:
+
+| attempt | expression | fails at | symptom |
+|---|---|---|---|
+| 1 | `env.HOOK` (step's OWN env) | never | parses and runs — and **silently never fires** |
+| 2 | `secrets.DISCORD_ALERT_WEBHOOK` in a step `if` | GitHub parse | **the whole workflow refuses to load** |
+| 3 | job-level `env`, tested as `env.HOOK` | — | correct |
+
+**`secrets` is not a valid context in an `if` at all**; job-level `env` is, and a step can read it.
+
+⚠️ **"It parses" was not verification.** `yaml.safe_load` accepted all three: YAML validity is not
+GitHub expression validity, and only asking GitHub itself (a dispatch, which 422'd with the exact
+line and column) settled it. The first version was the most dangerous of the three — it would have
+sat there looking wired, failing only on the day an alert actually mattered.
+
+Notably the workflow ran on push and failed in 0s both times, which is the parse error being *loud*.
+Version 1 would not even have done that.
