@@ -90,8 +90,13 @@ jobs:
           msg = ("\u26a0\ufe0f **MeshPilot watchdog**\n```\n" + reason +
                  "\n\nChecked from GitHub Actions, deliberately outside both the cloud and the Mac"
                  " \u2014 so this firing means the in-app heartbeat could not.\n" + url + "\n```")
+          # ⚠️ Discord 403s the default `Python-urllib/3.x` User-Agent — its edge treats it as a
+          # bot. The same webhook posts fine from the API (httpx sends its own UA), so this only
+          # ever showed up when the step ran for real from Actions: the first run with the secret
+          # set failed here, on a step that had looked correct through three earlier fixes.
           req = urllib.request.Request(os.environ["HOOK"],
               data=json.dumps({"username": "MeshPilot", "content": msg[:1900]}).encode(),
-              headers={"Content-Type": "application/json"})
+              headers={"Content-Type": "application/json",
+                       "User-Agent": "MeshPilot-Watchdog (https://meshpilot.app, 1.0)"})
           urllib.request.urlopen(req, timeout=20)
           '
