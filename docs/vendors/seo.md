@@ -111,3 +111,30 @@ because "0 minimum profitable days" reads as a threshold rather than an absence.
 question is *how common* a rule is, those zeros are the fact. `rules_for_distribution()` therefore
 reads past `publishable` and renders an absence as "no requirement". Counting only the publishable
 rows reports "2 of 2 firms have one" — grounding that is worse than silence.
+
+## GE's declared capabilities (2026-09-03)
+
+Derived from the code, not from the marketing site. Each was checked against what actually runs.
+
+```
+records each firm's published rules,dated source for every firm rule,compares firms side by side,calculates drawdown against a firm's rules,tracks account equity,daily-loss and drawdown evaluation,trade journal,replay,alerts,backtest,strategy builder,connects to cTrader,connects to DXtrade,connects to MetaApi
+```
+
+**Deliberately left out, with the reason — this half is the more useful half:**
+
+| Not claimable | Why |
+|---|---|
+| routes orders to your broker | `TRADE_EXEC_BROKER_ROUTING_ENABLED=false` in `infra/prod/ecs.tf`. The router persists the gate decision and returns `broker_routing_not_configured` — it never POSTs. `TRADE_EXEC_DEMO_ONLY=true` would restrict it to demo accounts even if switched on. |
+| blocks your order before it reaches the broker | Same reason. The gate evaluates and records, but nothing is armed in prod (`armed=0 evaluated=0 emitted=0 routed=0`), so no order is being stopped for anyone today. |
+| enforces a weekend cutoff | `hold_over_weekend` is catalogue data, never read as a condition. This is the claim that started all of this. |
+| enforces a news blackout | `block_minutes_around_news` is the **same trap**: stored per firm, served to the UI, never emitted as a gate rule. Found while writing this list — nobody had noticed. |
+| any pass/profit outcome | The program forbids outcome promises, and the vertical is YMYL-adjacent. |
+
+⚠️ **Two of the five were found by writing the allowlist, not by review.** Declaring what a product
+does forces someone to check, and checking turned up a second dormant field of exactly the shape of
+the first. Keep this table current: a capability that ships should be added here in the same change,
+and a capability that is switched off should be removed here in the same change.
+
+**When routing is armed, this list changes.** The first two rows become claimable and the note
+should move rather than being deleted, so a future reader can see the claim was gated on evidence
+rather than never considered.
