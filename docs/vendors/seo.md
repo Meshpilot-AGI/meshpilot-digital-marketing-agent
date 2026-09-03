@@ -128,6 +128,16 @@ in any sentence claiming routing. *"Glitch Executor routes your orders straight 
 broker"* is rejected — true of the code, false for the reader who matters most, the one with a funded
 account. **Drop the qualifier when demo-only is lifted, and not before.**
 
+Order *placement* is declared separately (`places orders on demo accounts`, `submits trades on demo
+accounts`) because the matcher needs every content word: "routes orders to your broker" does not
+match "places orders", so a real capability described in the words a writer would naturally use was
+being rejected. Declare the phrasings, not just the feature.
+
+⚠️ **Enabled is not the same as happening.** As of 2026-09-03 the execution runtime still logs
+`execution.runtime.tick armed=0 evaluated=0 emitted=0 routed=0` every cycle, and no order has been
+routed in 24h. The path is on and functional; nothing is armed on it yet. A post may say the product
+places orders on demo accounts — it may not imply anyone's orders are being placed today.
+
 ⚠️ Before this, the list read a disabled flag as an absent feature and refused the claim entirely —
 wrong, and the wrong direction to be wrong in, since it had the agent understate a real product.
 Between "it does not exist" and "it does everything the sentence implies" there is a third answer,
