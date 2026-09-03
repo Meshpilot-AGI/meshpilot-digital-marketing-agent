@@ -1576,3 +1576,52 @@ channel and invented in another.
 
 **Remains:** SEO-3 (measuring the zero-edit track record that promotes S0 -> S1), and wiring
 generation + publish into a scheduled capability. No post has been authored against a live model yet.
+
+
+## SEO — first real generation, and four defects it exposed — 2026-09-02
+
+Generated a real post against the live model. It worked, and reading the output critically found
+four things no unit test had caught.
+
+**1. `complete()` has no `max_tokens`, and hardcodes 2048.** The first live run died on
+`TypeError: unexpected keyword argument 'max_tokens'`. The unit tests used a fake accepting
+`**kwargs`, which cannot catch a signature mismatch — the same class as the asyncpg CAST and Buffer
+payload regressions. Worse, 2048 output tokens truncates a structured post mid-JSON. Switched to
+`complete_messages` at 8000, plus a guard test asserting the kwargs we pass exist on the real
+function.
+
+**2. Our own verified facts contained nonsense.** The first post published *"The5ers High Stakes
+lists payout cadence as every 0 days"* — and that row is real: `value_num=0` in `firm_rule`.
+**Grounding guarantees fidelity to our data, not the correctness of it.** `firms.rules_block` now
+omits non-positive `value_num` rows, for every channel: a missing figure makes a model write around
+the gap, a zero makes it publish nonsense. ⚠️ The underlying row still needs correcting by someone
+who knows The5ers' actual cadence.
+
+**3. Three of four internal links were invented.** Only `/prop-firms/ftmo` existed;
+`/tools/drawdown-calculator` was plausible-but-wrong (the real page is
+`/tools/firm-drawdown-calculator`), which reads as correct and is worse than obviously wrong. The
+contract required internal links to be PRESENT and spread across clusters, never to EXIST. Fixed by
+grounding links exactly like figures: the model gets the real route vocabulary and
+`unsupported_links()` checks against it. The site's `links:audit` would have caught these, but only
+after a PR was opened; catching them here lets the repair loop fix them.
+
+**4. The repair loop made posts WORSE.** Told "add a stat callout", the model rewrote wholesale,
+dropped the FAQ and internal links it had already got right, then invented block type names
+(`stat_callout`, `anti_pattern`) — because the repair prompt carried only the violations and the
+previous attempt, not the brief. It was repairing blind. **Violations are a diff, not a
+specification.** The repair prompt now carries the full original brief; the run then converged.
+
+Also tightened: a StatCallout citing a bare domain is rejected. The first post cited
+`https://apextraderfunding.com` — a homepage is where a claim might live, not where it does.
+
+**Result after the fixes:** converged on attempt 3. 19 blocks, 6 FAQ. All five internal links real.
+Stat cites `finra.org/investors/insights/proprietary-trading-firms` — a specific page. Grounding
+caught invented `1%` and `89%` on attempt 1. The anti-pattern block used the facts' `as_of` date
+responsibly, telling readers the numbers do not apply if a firm changed a threshold after
+2026-09-01.
+
+**Verified:** 886 pass / 1 skip.
+
+**Minor, not fixed:** the chosen stat (prop firms' regulatory status, via FINRA) is true and properly
+sourced but tangential to profit targets. The contract cannot judge relevance — that is what the
+conscience critic and a human reader are for.

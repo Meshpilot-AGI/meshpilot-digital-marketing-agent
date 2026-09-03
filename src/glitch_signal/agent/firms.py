@@ -55,6 +55,18 @@ async def rules_for_names(names: list[str], *, engine: Any = None) -> dict[str, 
 
 
 def rules_block(by_firm: dict[str, list[dict]]) -> str:
+    """Verified firm rules as a fact block for a model prompt.
+
+    ⚠️ Rules with a non-positive `value_num` are OMITTED. A published post said "The5ers High Stakes
+    lists payout cadence as every 0 days" (2026-09-02) — the grounding worked perfectly and
+    faithfully propagated our own bad row. Grounding guarantees fidelity to our data, not the
+    correctness of it, so a value we can see is not a fact must not be presented as one. A missing
+    figure makes a model write around the gap; a zero makes it publish nonsense.
+    """
+    by_firm = {f: [r for r in rules
+                   if not (r.get("value_num") is not None and float(r["value_num"]) <= 0)]
+               for f, rules in (by_firm or {}).items()}
+    by_firm = {f: r for f, r in by_firm.items() if r}
     """Render the rules as an authoritative prompt section, or '' when there are none — an empty
     header would invite the model to fill the gap from its own priors."""
     if not by_firm:

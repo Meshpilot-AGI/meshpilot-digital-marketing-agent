@@ -67,7 +67,7 @@ async def test_violations_are_fed_back_as_specific_instructions():
     post, problems = await generate.author("t", audience="a", complete=llm)
     assert post is not None and problems == []
     assert "too_few_faq" in llm.prompts[1]             # the exact rule, not a vague retry
-    assert "Fix EXACTLY these problems" in llm.prompts[1]
+    assert "Fix exactly these" in llm.prompts[1]
 
 
 async def test_it_gives_up_rather_than_looping_forever():
@@ -170,3 +170,44 @@ def test_author_slug_comes_from_the_caller_not_the_model():
     d["authorSlug"] = "someone-else"
     p = generate.to_post(d, author_slug="lena")
     assert p.author_slug == "lena"
+
+
+# ── the mock cannot lie about the real signature ──
+def test_default_complete_matches_the_real_llm_signature():
+    """The unit tests above use a fake accepting **kwargs, which cannot catch a signature mismatch —
+    and did not: the first live run failed with `complete() got an unexpected keyword argument
+    'max_tokens'`. This asserts the arguments we actually pass exist on the real function.
+    """
+    import inspect
+
+    from glitch_signal.agent.loop import llm as agent_llm
+
+    sig = inspect.signature(agent_llm.complete_messages)
+    for kw in ("tier", "max_tokens", "timeout_s"):
+        assert kw in sig.parameters, f"llm.complete_messages lost {kw!r}"
+
+
+def test_generation_asks_for_more_than_the_default_token_budget():
+    """`llm.complete()` hardcodes 2048 output tokens. A structured post is several thousand tokens of
+    JSON, so that budget truncates it mid-object and the response will not parse."""
+    assert generate._MAX_OUTPUT_TOKENS >= 4000
+
+
+def test_repair_carries_the_full_original_brief():
+    """A repair prompt of violations-only makes the model repair BLIND.
+
+    Observed live 2026-09-02: told "add a stat callout", it rewrote wholesale, dropped the FAQ and
+    internal links it had already got right, then invented block type names because the schema was no
+    longer in front of it. Each repair made the post worse. Violations are a diff, not a spec.
+    """
+    filled = generate._REPAIR.format(original="ORIGINAL-BRIEF-MARKER",
+                                     violations="- x", previous="{}")
+    assert "ORIGINAL-BRIEF-MARKER" in filled
+    assert "keep everything else that already" in filled
+
+
+async def test_the_repair_prompt_still_contains_the_json_schema():
+    llm = _LLM(json.dumps(_valid_dict(faq=[])), json.dumps(_valid_dict()))
+    await generate.author("t", audience="a", complete=llm)
+    assert "JSON SHAPE" in llm.prompts[1]        # the spec, not just the complaint
+    assert "REQUIRED STRUCTURE" in llm.prompts[1]

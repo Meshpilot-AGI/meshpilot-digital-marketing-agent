@@ -93,6 +93,13 @@ def check(post: Post, *, min_clusters: int = 2) -> list[Violation]:
             v.append(Violation("stat_source_not_primary",
                                f"stat {i} cites {url!r} — a StatCallout must cite an external "
                                f"primary source, not an internal page"))
+        elif len(url.split("/", 3)) < 4 or not url.split("/", 3)[3].strip("/"):
+            # The first generated post cited `https://apextraderfunding.com` — a homepage is where a
+            # claim might live, not where it does. A citation has to point at the page that supports
+            # the figure, or a reader cannot check it.
+            v.append(Violation("stat_source_is_bare_domain",
+                               f"stat {i} cites {url!r} — cite the specific page that supports the "
+                               f"figure, not the site root"))
 
     if not (post.blocks_of("table") or [b for b in post.blocks_of("list") if b.get("ordered")]):
         v.append(Violation("no_table_or_ordered_list",
