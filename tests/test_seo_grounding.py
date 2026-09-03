@@ -184,13 +184,32 @@ def test_the_shipped_list_rejects_the_claim_that_started_this():
     assert generate.unverified_product_claims(p, brand_terms=terms, capabilities=caps)
 
 
-def test_routing_is_claimable_only_with_the_demo_qualifier():
-    """Routing went LIVE 2026-09-03 (`ge-prod-trade-api:12`), but `TRADE_EXEC_DEMO_ONLY` is not set
-    and keeps its code default `true` — only `is_live=false` accounts route. So "routes your orders
-    to your broker" is still false for the reader who matters most, the one with a funded account.
+def test_the_weakest_entry_sets_the_bar():
+    """A bare "order routing" entry silently made "routes your orders straight through to your
+    broker" pass, despite the carefully qualified entries sitting beside it. One unqualified
+    capability voids every qualifier in the list — which is why the shipped list has none."""
+    _, caps = _shipped_caps()
+    assert not [c for c in caps
+                if generate._capability_matches(
+                    c, "glitch executor routes your orders straight through to your broker.")]
 
-    The qualifier does the work through the ordinary matcher: every content word of the capability
-    must appear, so "demo" must appear. Drop it when demo-only is lifted, and not before."""
+
+def test_live_routing_is_claimable_with_the_opt_in_stated():
+    """Live routing went on 2026-09-03 (`ge-prod-trade-api:14`, `TRADE_EXEC_DEMO_ONLY=false`), but
+    `router.py` guard (ii) still requires PER-ACCOUNT `exec_live_opt_in`. So the qualifier changed
+    rather than disappeared."""
+    terms, caps = _shipped_caps()
+    for true_claim in ("Glitch Executor can place orders on live accounts you opt in.",
+                       "Glitch Executor places orders on a live account once you have opted in."):
+        assert generate.unverified_product_claims(
+            _post(blocks=[{"type": "p", "text": true_claim}]),
+            brand_terms=terms, capabilities=caps) == [], true_claim
+
+
+def test_routing_is_claimable_only_with_the_demo_qualifier():
+    """Demo phrasings stay true after the live switch, and an UNQUALIFIED routing claim is still
+    false: a live account needs per-account opt-in, so "routes your orders to your broker" over-
+    claims for the reader who has neither opted in nor a demo account."""
     terms, caps = _shipped_caps()
     stated = _post(blocks=[{"type": "p", "text":
         "Glitch Executor routes orders to your broker on demo accounts today."}])
@@ -244,9 +263,15 @@ def test_a_partial_overlap_is_not_a_match():
         "glitch executor enforces a weekend cutoff tied to the firm rule.")
 
 
-def test_filler_words_do_not_have_to_appear():
+def test_inflection_does_not_reject_a_true_claim():
+    """Two earlier attempts got this wrong, both by rejecting TRUE claims. Exact matching failed on
+    inflection ("places orders" vs "can place orders"); symmetric stemming then failed on its own
+    inconsistency ("places"→"plac" while "place"→"place"). Reducing only the DECLARED word and
+    prefix-matching the sentence handles all of them."""
+    assert generate._capability_matches("places orders on demo accounts",
+                                        "it can place an order on a demo account")
     assert generate._capability_matches("tracks account equity",
-                                        "we track the equity on an account")  is False
+                                        "we track the equity on an account")
     assert generate._capability_matches("trade journal", "glitch executor has a trade journal.")
 
 

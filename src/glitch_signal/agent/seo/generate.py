@@ -297,11 +297,30 @@ def _capability_matches(capability: str, sentence: str) -> bool:
     "enforces a weekend cutoff tied to the firm rule" would slip past "records each firm's published
     rules" on the strength of sharing "firm".
     """
-    words = [w for w in re.findall(r"[a-z]+", capability.lower())
+    bases = [_base(w) for w in re.findall(r"[a-z]+", capability.lower())
              if w not in _FILLER and len(w) > 2]
-    if not words:
+    if not bases:
         return False
-    return all(w in sentence for w in words)
+    tokens = re.findall(r"[a-z]+", sentence)
+    return all(any(t.startswith(b) for t in tokens) for b in bases)
+
+
+def _base(word: str) -> str:
+    """The capability word reduced to a prefix its inflections all share.
+
+    ⚠️ Two attempts got this wrong before this one, both by rejecting TRUE claims. Exact matching
+    failed on inflection — "places orders" did not match "can place orders". Then symmetric stemming
+    failed on its own inconsistency: "places" trimmed to "plac" while "place" stayed "place", so the
+    two still did not meet. Reducing only the DECLARED word and prefix-matching the sentence sidesteps
+    both, because "place" is a prefix of "place", "places" and "placed" alike.
+
+    Declaring every inflection would have worked too, and would have grown a list nobody could
+    maintain — the same trap as declaring every phrasing.
+    """
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(word) - len(suffix) >= 3 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
 
 
 async def dead_sources(post: Post, fetch: Any = None) -> list[str]:
