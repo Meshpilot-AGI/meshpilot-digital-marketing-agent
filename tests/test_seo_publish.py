@@ -38,16 +38,27 @@ def _valid_post(slug="a-new-post") -> Post:
 
 
 class _Fake:
-    """Records commands; fails the ones named in `fail`."""
+    """Records commands; fails the ones named in `fail`, and the ones in `fail_once` exactly once."""
 
-    def __init__(self, fail: set[str] | None = None):
+    def __init__(self, fail: set[str] | None = None, fail_once: set[str] | None = None,
+                 fail_output: str = ""):
         self.cmds: list[str] = []
         self.fail = fail or set()
+        self.fail_once = set(fail_once or ())
+        self.fail_output = fail_output
+        self.outputs: dict[str, str] = {}
 
     async def __call__(self, cmd: str, cwd: str):
         self.cmds.append(cmd)
+        for f in list(self.fail_once):
+            if f in cmd:
+                self.fail_once.discard(f)
+                return 1, self.fail_output or f"boom: {cmd}"
         if any(f in cmd for f in self.fail):
-            return 1, f"boom: {cmd}"
+            return 1, self.fail_output or f"boom: {cmd}"
+        for prefix, out in self.outputs.items():
+            if cmd.startswith(prefix):
+                return 0, out
         if cmd.startswith("gh pr create"):
             return 0, "https://github.com/x/y/pull/1"
         return 0, "ok"
@@ -234,3 +245,57 @@ async def test_no_brand_id_defaults_to_supervised():
     runner = _Fake()
     res = await pub.publish(_valid_post(), repo="/repo", runner=runner, reader=reader, writer=writer)
     assert res.stage == "S0"
+
+
+# ── a failed publish must leave the repo as it found it (SEO-7) ──
+async def test_a_failed_git_step_restores_the_branch_and_the_file():
+    """Observed live: a cycle authored a post, passed all four gates, then died on a transient
+    `index.lock` — and left the repo DIRTY and parked on the lane branch. The next cycle would read
+    a `blog.ts` that already contains the post and refuse it as a duplicate slug. A publisher that
+    fails must leave no trace."""
+    store, reader, writer = _io()
+    runner = _Fake(fail={"git push"})
+    runner.outputs["git rev-parse"] = "main"
+    res = await pub.publish(_valid_post(), repo="/repo", stage="S0",
+                            runner=runner, reader=reader, writer=writer)
+    assert not res.ok
+    assert any("checkout -- src/data/blog.ts" in c for c in runner.cmds)
+    assert any(c.strip() == "git switch main" for c in runner.cmds)
+    assert any("branch -D agent/blog/" in c for c in runner.cmds)
+
+
+async def test_a_transient_index_lock_is_retried_once():
+    """`index.lock` means another git process held the repo for a moment — a pull in another shell,
+    an editor, a hook. That is a race, not a failure."""
+    store, reader, writer = _io()
+    runner = _Fake(fail_once={"git commit"}, fail_output="fatal: Unable to create index.lock")
+    res = await pub.publish(_valid_post(), repo="/repo", stage="S0",
+                            runner=runner, reader=reader, writer=writer)
+    assert res.ok, res.reason
+    assert len([c for c in runner.cmds if c.startswith("git commit")]) == 2
+
+
+async def test_a_failed_pr_keeps_the_pushed_branch_but_restores_the_checkout():
+    """The commit is good and pushed; only the PR is missing. Deleting the remote branch would throw
+    away work a human can still open a PR from."""
+    store, reader, writer = _io()
+    runner = _Fake(fail={"pr create"})
+    runner.outputs["git rev-parse"] = "main"
+    res = await pub.publish(_valid_post(), repo="/repo", stage="S0",
+                            runner=runner, reader=reader, writer=writer)
+    assert not res.ok and "is pushed" in res.reason
+    assert not any("branch -D" in c for c in runner.cmds)
+    assert any(c.strip() == "git switch main" for c in runner.cmds)
+
+
+async def test_a_successful_publish_also_returns_to_the_starting_branch():
+    """Observed live: a successful publish left the repo on the lane branch. Harmless that day, but
+    the NEXT cycle branches from wherever HEAD is — so today's post silently becomes the base of
+    tomorrow's, and nothing catches it until two posts are stacked in one PR."""
+    store, reader, writer = _io()
+    runner = _Fake()
+    runner.outputs["git rev-parse"] = "main"
+    res = await pub.publish(_valid_post(), repo="/repo", stage="S0",
+                            runner=runner, reader=reader, writer=writer)
+    assert res.ok
+    assert runner.cmds[-1].strip() == "git switch main"

@@ -2205,3 +2205,36 @@ a silence.
 back — 4 statements, 9 columns, prod untouched. 974 pass / 1 skip (+3).
 
 **Remains:** nothing yet *reads* `seo_cycle` on a schedule — the gap is queryable, not alarmed.
+
+
+## SEO-7 — one live run, three defects, and a real post — 2026-09-03
+
+Ran the cycle on demand through launchd (the real scheduled path). It authored on the first attempt,
+passed all four site gates — and then died on `git commit`: `fatal: Unable to create index.lock`.
+Three separate defects came out of that one run, none of which any test had caught because all three
+live on the failure path.
+
+**1. A failed publish left the repo dirty AND on the lane branch.** The post was staged, HEAD was on
+`agent/blog/…`, and the next cycle would have read a `blog.ts` that already contained the post and
+refused it as a duplicate slug — or committed onto the wrong branch. `publish()` now captures the
+starting branch up front and, on any git failure, restores the file, switches back and deletes the
+lane branch. **A publisher that fails must leave the repo exactly as it found it.**
+
+**2. A transient lock was treated as a hard failure.** `index.lock` means another git process held
+the repo for a moment — a `git pull` in another shell, an editor, a hook. It was gone seconds later.
+That is a race, not a failure, and it now gets exactly one retry.
+
+**3. The failure was recorded as `ok=True outcome=refused`** — indistinguishable from a quiet day, in
+the very table built so that a break would be distinguishable from a quiet day. A refusal is the
+cycle DECLINING (`skipped`); anything that got as far as trying and broke is `ok=False`,
+`publish_failed`.
+
+**A fourth, found by watching the SUCCESSFUL re-run:** publish left the repo on the lane branch even
+when it worked. Harmless that day, but the next cycle branches from wherever HEAD is — today's post
+would silently become the base of tomorrow's, and nothing catches that until two posts are stacked in
+one PR. It now returns to the starting branch on success too.
+
+**Verified live end to end after the fixes:** PR **#580** opened at S0 (`hedging-grid-martingale-bans-
+that-void-your-challenge`, 19 blocks, 6 FAQ, first attempt), all four gates green, the commit carries
+`X-Authored-By-Agent`, `seo_cycle` recorded `ok=True published`, one post in flight so the next cycle
+will correctly refuse, and the site repo is back on `main` with zero changes. 978 pass / 1 skip.

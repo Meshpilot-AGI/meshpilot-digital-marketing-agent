@@ -108,11 +108,20 @@ async def main() -> int:
         raise
 
     print("publish:", json.dumps(published, default=str))
-    outcome = ("published" if published.get("published")
-               else "author_failed" if published.get("authored") is False
-               else "refused")
+    # ⚠️ A git or PR failure is NOT a refusal. The first live run recorded `ok=True outcome=refused`
+    # for "git step failed … index.lock", which reads as a quiet day and hides a real break — the
+    # exact thing the row exists to prevent. A refusal is the cycle DECLINING (`skipped`); anything
+    # that got as far as trying and broke is a failure.
+    if published.get("published"):
+        outcome, ok = "published", True
+    elif published.get("skipped"):
+        outcome, ok = "refused", True
+    elif published.get("authored") is False:
+        outcome, ok = "author_failed", True          # the model could not satisfy the contract
+    else:
+        outcome, ok = "publish_failed", False        # gates, git or PR broke after authoring
     await track.record_cycle(
-        args.brand, ok=True, outcome=outcome,
+        args.brand, ok=ok, outcome=outcome,
         detail=str(published.get("skipped") or published.get("reason") or "")[:500],
         slug=str(published.get("slug") or ""), pr_url=str(published.get("pr_url") or ""),
         settled=settled)
