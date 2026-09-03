@@ -116,11 +116,22 @@ rows reports "2 of 2 firms have one" — grounding that is worse than silence.
 
 Derived from the code, then corrected by the operator. Kept current in `deploy/com.meshpilot.seo-cycle.plist`.
 
-**A held switch is not a missing capability.** Order routing and the pre-broker block are **built and
-working**; they sit behind a pre-launch off-switch (`TRADE_EXEC_BROKER_ROUTING_ENABLED`,
-`TRADE_EXEC_DEMO_ONLY`). An earlier version of this list read those flags as evidence the feature did
-not exist and refused the claim — wrong, and the wrong direction to be wrong in, since it would have
-had the agent understate a real product. **Do not retract these on rediscovering the flags.**
+**Routing went live 2026-09-03 — halfway.** Verified on the running revision
+(`ge-prod-trade-api:12`): `TRADE_EXEC_BROKER_ROUTING_ENABLED=true`, `TRADE_EXEC_FEATURE_FLAG=true`.
+But `TRADE_EXEC_DEMO_ONLY` is **not set**, so it keeps its code default `true` and only accounts with
+`is_live=false` route; a live account additionally needs `exec_live_opt_in`. Lifting demo-only is a
+separate, explicit change.
+
+So the declared capability is **"routes orders to your broker on demo accounts"**, and that qualifier
+is load-bearing rather than hedging: the matcher requires every content word, so "demo" must appear
+in any sentence claiming routing. *"Glitch Executor routes your orders straight through to your
+broker"* is rejected — true of the code, false for the reader who matters most, the one with a funded
+account. **Drop the qualifier when demo-only is lifted, and not before.**
+
+⚠️ Before this, the list read a disabled flag as an absent feature and refused the claim entirely —
+wrong, and the wrong direction to be wrong in, since it had the agent understate a real product.
+Between "it does not exist" and "it does everything the sentence implies" there is a third answer,
+and it is usually the true one. **Do not retract these on rediscovering the flags.**
 
 That makes the distinction the list actually encodes:
 

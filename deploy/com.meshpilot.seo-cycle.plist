@@ -58,13 +58,17 @@
     <!-- What a post may claim about US. Derived from the code on 2026-09-03, not from the
          marketing site — see docs/vendors/seo.md for what is left out and why. A sentence naming
          the brand that matches none of these is rejected before publish.
-         Order routing and the pre-broker block ARE built and working; they sit behind a pre-launch
-         off-switch (TRADE_EXEC_BROKER_ROUTING_ENABLED / TRADE_EXEC_DEMO_ONLY), which is a product
-         decision, not a missing capability. Do not retract them on rediscovering the flag. -->
+         Order routing and the pre-broker block are LIVE as of 2026-09-03 (ge-prod-trade-api:12,
+         TRADE_EXEC_BROKER_ROUTING_ENABLED=true, TRADE_EXEC_FEATURE_FLAG=true) — but
+         TRADE_EXEC_DEMO_ONLY is NOT set, so it keeps its code default (true) and only accounts with
+         is_live=false route. The "on demo accounts" qualifier is therefore load-bearing, not
+         hedging: it forces the word "demo" to appear in any sentence claiming routing, because the
+         matcher requires every content word. DROP the qualifier when demo-only is lifted (a live
+         account also needs exec_live_opt_in), and not before. -->
     <key>GE_SEO_BRAND_TERMS</key>
     <string>Glitch Executor,GlitchExecutor,our engine,our platform</string>
     <key>GE_SEO_CAPABILITIES</key>
-    <string>records each firm's published rules,dated source for every firm rule,compares firms side by side,calculates drawdown against a firm's rules,tracks account equity,daily-loss and drawdown evaluation,trade journal,replay,alerts,backtest,strategy builder,connects to cTrader,connects to DXtrade,connects to MetaApi,routes orders to your broker,blocks an order before it reaches the broker,pre-trade rule check,order routing</string>
+    <string>records each firm's published rules,dated source for every firm rule,compares firms side by side,calculates drawdown against a firm's rules,tracks account equity,daily-loss and drawdown evaluation,trade journal,replay,alerts,backtest,strategy builder,connects to cTrader,connects to DXtrade,connects to MetaApi,routes orders to your broker on demo accounts,blocks an order before it reaches the broker on demo accounts,pre-trade rule check,order routing</string>
   </dict>
 
   <!-- 06:40 local. After the site's own nightly audit, and well clear of the agent's 03:00-03:30

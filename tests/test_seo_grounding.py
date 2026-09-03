@@ -184,21 +184,23 @@ def test_the_shipped_list_rejects_the_claim_that_started_this():
     assert generate.unverified_product_claims(p, brand_terms=terms, capabilities=caps)
 
 
-def test_order_routing_is_claimable_because_it_is_built():
-    """Operator, 2026-09-03: routing and the pre-broker block ARE working — they sit behind a
-    PRE-LAUNCH off-switch (`TRADE_EXEC_BROKER_ROUTING_ENABLED`, `TRADE_EXEC_DEMO_ONLY`).
+def test_routing_is_claimable_only_with_the_demo_qualifier():
+    """Routing went LIVE 2026-09-03 (`ge-prod-trade-api:12`), but `TRADE_EXEC_DEMO_ONLY` is not set
+    and keeps its code default `true` — only `is_live=false` accounts route. So "routes your orders
+    to your broker" is still false for the reader who matters most, the one with a funded account.
 
-    A held switch is a product decision, not a missing capability, and the earlier version of this
-    test had it backwards: it read a disabled flag as an absent feature. That distinction is the
-    whole point of the next test — a switched-off capability and a capability with no code path are
-    different things, and only the second is a false claim."""
+    The qualifier does the work through the ordinary matcher: every content word of the capability
+    must appear, so "demo" must appear. Drop it when demo-only is lifted, and not before."""
     terms, caps = _shipped_caps()
-    for text in ("Glitch Executor routes your orders straight through to your broker.",
-                 "Glitch Executor blocks an order before it reaches the broker when a rule would "
-                 "be breached."):
+    stated = _post(blocks=[{"type": "p", "text":
+        "Glitch Executor routes orders to your broker on demo accounts today."}])
+    assert generate.unverified_product_claims(stated, brand_terms=terms, capabilities=caps) == []
+
+    for overreach in ("Glitch Executor routes your orders straight through to your broker.",
+                      "Glitch Executor routes orders from your live funded account to your broker."):
         assert generate.unverified_product_claims(
-            _post(blocks=[{"type": "p", "text": text}]),
-            brand_terms=terms, capabilities=caps) == [], text
+            _post(blocks=[{"type": "p", "text": overreach}]),
+            brand_terms=terms, capabilities=caps), overreach
 
 
 def test_the_shipped_list_rejects_the_news_blackout_claim():
