@@ -122,7 +122,11 @@ async def main() -> int:
         outcome, ok = "publish_failed", False        # gates, git or PR broke after authoring
     await track.record_cycle(
         args.brand, ok=ok, outcome=outcome,
-        detail=str(published.get("skipped") or published.get("reason") or "")[:500],
+        # `problems` is the diagnostic field when authoring fails, and it was being dropped: the
+        # 06:40 run of 2026-09-03 recorded `author_failed` with an EMPTY detail, so the row said
+        # something broke and nothing about what. The reason it failed was in the log only.
+        detail=str(published.get("skipped") or published.get("reason")
+                   or "; ".join(published.get("problems") or []) or "")[:500],
         slug=str(published.get("slug") or ""), pr_url=str(published.get("pr_url") or ""),
         settled=settled)
     # A refusal is a normal outcome here (disabled, no repo, nothing to say, a post already in

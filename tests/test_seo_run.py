@@ -202,3 +202,43 @@ async def test_a_dry_run_without_a_brand_does_not_query_for_open_prs(monkeypatch
     res = await run.run_publish("", {"repo": repo, "dry_run": True})
     assert res.get("skipped") != "post_in_flight"
     assert res.get("authored") is True
+
+
+# ── the checkout must not be stale (SEO-12) ──
+async def test_the_cycle_refreshes_the_checkout_before_reading_what_is_published(monkeypatch, repo):
+    """The duplicate guard reads `blog.ts`, so a stale `blog.ts` is a guard that cannot see the thing
+    it guards against. On 2026-09-03 the cycle proposed "Grid and martingale EAs…" hours after
+    `hedging-grid-martingale-bans-…` had merged upstream, because nothing pulled."""
+    from glitch_signal.agent.seo import track
+
+    ran = []
+
+    async def _runner(cmd, cwd):
+        ran.append(cmd)
+        return 0, "ok"
+
+    monkeypatch.setattr("glitch_signal.agent.seo.publish._run", _runner)
+    monkeypatch.setattr(track, "unsettled", lambda *a, **k: _wrap([]))
+    monkeypatch.setattr(run, "pick_topic", _dummy_topic)
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
+    await run.run_publish("b", {"repo": repo, "dry_run": True})
+    assert any("git fetch" in c for c in ran)
+    assert any("merge --ff-only" in c for c in ran)
+
+
+async def test_a_failed_refresh_does_not_stop_the_run(monkeypatch, repo):
+    """An offline run on a slightly stale tree beats no run at all, and `insert_post`'s duplicate
+    guard is the backstop."""
+    from glitch_signal.agent.seo import track
+
+    async def _runner(cmd, cwd):
+        return 1, "fatal: could not read from remote"
+
+    monkeypatch.setattr("glitch_signal.agent.seo.publish._run", _runner)
+    monkeypatch.setattr(track, "unsettled", lambda *a, **k: _wrap([]))
+    monkeypatch.setattr(run, "pick_topic", _dummy_topic)
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
+    res = await run.run_publish("b", {"repo": repo, "dry_run": True})
+    assert res.get("authored") is True

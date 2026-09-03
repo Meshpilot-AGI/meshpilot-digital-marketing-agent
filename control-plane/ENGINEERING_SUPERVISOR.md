@@ -2396,3 +2396,52 @@ choices in it:
   gate that gets deleted in one.
 - **`Supabase Preview` is deliberately NOT required** — it is a third-party check outside our control,
   and a required check we cannot fix is a merge queue nobody can clear.
+
+
+## SEO-12 — the alert fired, and finding out why took three defects with it — 2026-09-03
+
+**Deployed and proven end to end.** `discord_provision_alerts` ran in the cloud
+(`ok:true, stored:true`, guild `1543437005596262500`, channel `1543461327371108392`,
+`created_channel:false` — an `#alerts` channel already existed and was reused, which is the
+idempotency working). A heartbeat run with `max_gap_hours: 0` then returned **`alerted: true`**: cloud
+→ encrypted stored webhook → the channel, through the real path, with no credential on this machine.
+
+Getting there surfaced three defects, one of them serious.
+
+### ⚠️ 1. There was no scheduler loop. Nothing the agent scheduled had run since 2026-09-02 13:41.
+
+`cron.service.sweep()` documents itself as *"called from the per-worker scheduler loop"* — and no
+such loop existed in the app. `_on_startup` launched only the OAuth keepalive. Every job due that
+morning was overdue and unrun: `nightly-curate`, `nightly-reconcile`, `nightly-surfaces-sync`. The
+last execution in `scheduled_runs` was a manual trigger the day before.
+
+**It was invisible because a job that never fires produces no error — only absence.** And the
+heartbeat built yesterday to alarm on exactly that kind of silence is itself scheduled on this cron,
+so it would never have fired to report it. A watcher hosted on the thing it watches: the same mistake
+as putting it on the Mac, made again in the other direction, one day later.
+
+Added in `_on_startup`. Safe per worker without leader election, because `store.claim_due` claims with
+`SKIP LOCKED` — N workers sweeping concurrently still execute each job exactly once, which is what
+makes a per-worker loop the right shape here. The loop never exits on a bad tick: a scheduler that
+dies on one error is a scheduler that stops silently.
+
+### 2. The cycle never refreshed the site checkout.
+
+It answered "what is already published?" from whatever the local clone happened to hold. At 06:43 it
+proposed *"Grid and martingale EAs: which prop firms ban them outright"* — hours after
+`hedging-grid-martingale-bans-that-void-your-challenge` had merged upstream. **The duplicate guard
+reads `blog.ts`, so a stale `blog.ts` is a guard that cannot see the thing it guards against.** Now
+fetches and fast-forwards first; a failed refresh is non-fatal, since an offline run on a slightly
+stale tree beats no run, and `insert_post`'s slug guard is the backstop.
+
+### 3. `author_failed` recorded an empty `detail`.
+
+The `problems` list is the whole diagnosis and it was being dropped — the row said something broke
+and nothing about what, with the reason in a log file on one machine. Now recorded.
+
+**The 06:40 run itself was a success for the checks, not a failure of them:** it refused three drafts
+over three attempts because their citations 404'd (`apextraderfunding.com/` → 403 bare domain,
+`ftmo.com/en/trading-objectives-and-conditions/` → 404). The dead-source check declined to publish a
+post with a broken citation, which is exactly its job.
+
+**Verified:** 1007 pass / 1 skip.
