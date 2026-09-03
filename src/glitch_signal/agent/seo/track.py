@@ -189,13 +189,34 @@ async def unsettled(brand_id: str, *, engine: Any = None) -> list[dict]:
 def human_edits_from_commits(commits: list[dict], agent_logins: tuple[str, ...] = ()) -> int:
     """Count commits on the PR branch that were not the agent's.
 
-    Mechanical on purpose: a human who touched the post at all left a commit, and both a rewrite and
-    a typo fix count as "not shipped as proposed". That is the conservative reading, and the right
-    one when the reward is unsupervised publishing.
+    ⚠️ **Identity cannot answer this, and assuming it could would have falsified the first entry.**
+    The agent commits through the operator's own git identity, because the repo requires commits
+    authored as a real person — so its commit and a human's correction share one GitHub login. The
+    first two posts each needed a substantive human fix, and login-matching scored them
+    `human_edits: 0`: a clean streak started on the two posts that most needed correcting.
+
+    So the AGENT proves authorship instead, with a trailer the publishing path writes and a human
+    editor does not (`publish.AGENT_COMMIT_MARKER`). A commit without it is human. That means a post
+    authored before the marker existed reads as fully human-edited — under-crediting rather than
+    over-crediting, which is the right direction to be wrong in when the reward is unsupervised
+    publishing.
+
+    `agent_logins` is still honoured as a fallback for commits carrying no message body at all.
+
+    Mechanical on purpose otherwise: a rewrite and a typo fix both count as "not shipped as
+    proposed".
     """
+    from glitch_signal.agent.seo.publish import AGENT_COMMIT_MARKER
+
     logins = {a.lower() for a in agent_logins if a}
     n = 0
     for c in commits or []:
+        body = f"{c.get('messageHeadline', '')}\n{c.get('messageBody', '')}"
+        if AGENT_COMMIT_MARKER in body:
+            continue
+        if body.strip():
+            n += 1                      # a real commit message, and it is not the agent's
+            continue
         author = ((c.get("authors") or [{}])[0] if isinstance(c.get("authors"), list)
                   else c.get("author") or {})
         login = str((author or {}).get("login") or (author or {}).get("name") or "").lower()

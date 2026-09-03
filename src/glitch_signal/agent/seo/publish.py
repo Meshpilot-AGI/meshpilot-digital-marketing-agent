@@ -44,6 +44,21 @@ DEFAULT_GATES: tuple[tuple[str, str], ...] = (
 # Where the post object is inserted: immediately after the array opens, so newest reads first.
 _ARRAY_OPEN = "export const blog: BlogPost[] = ["
 
+# ⚠️ The marker that makes the autonomy ladder measurable at all.
+#
+# `track.human_edits_from_commits` counted a commit as the agent's by GitHub LOGIN — and the agent
+# commits through the operator's own git identity, because the repo requires commits authored as a
+# real person. So the agent's commit and a human's correction are INDISTINGUISHABLE by author. Both
+# of the first two posts needed a substantive human fix, and login-matching would have scored them
+# `human_edits: 0` and started a clean streak on the two posts that most needed correcting. The
+# ladder would have been measuring nothing.
+#
+# A trailer the publishing code writes and a human editor does not is identity-independent, so it
+# holds even though both parties commit as the same person. Commits WITHOUT it count as human — a
+# post authored before the marker existed reads as fully human-edited, which under-credits rather
+# than over-credits, and that is the right direction to be wrong in.
+AGENT_COMMIT_MARKER = "X-Authored-By-Agent: glitch_signal.seo"
+
 
 @dataclass
 class PublishResult:
@@ -156,7 +171,8 @@ async def publish(
     res.branch = branch
     for cmd in (f"git switch -c {branch}",
                 f"git add {blog_file}",
-                f"git commit -m {shlex.quote(f'content: {post.title}')}",
+                f"git commit -m {shlex.quote(f'content: {post.title}')} "
+                f"-m {shlex.quote(AGENT_COMMIT_MARKER)}",
                 f"git push -u origin {branch}"):
         code, out = await runner(cmd, repo)
         if code != 0:

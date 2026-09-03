@@ -119,21 +119,48 @@ def test_there_is_no_way_to_set_the_stage():
 
 
 # ── edit counting ──
+from glitch_signal.agent.seo.publish import AGENT_COMMIT_MARKER
+
+_AGENT = {"messageHeadline": "content: A post", "messageBody": AGENT_COMMIT_MARKER,
+          "authors": [{"login": "tejas"}]}
+_HUMAN = {"messageHeadline": "content: fix a false claim", "messageBody": "The post said …",
+          "authors": [{"login": "tejas"}]}
+
+
+def test_identity_cannot_answer_this_and_the_marker_can():
+    """The defect this pins, found on the FIRST two posts. The agent commits through the operator's
+    own git identity — the repo requires commits authored as a real person — so its commit and a
+    human correction share one GitHub login. Both posts needed a substantive human fix, and
+    login-matching scored them `human_edits: 0`, starting a clean streak on the two posts that most
+    needed correcting."""
+    assert track.human_edits_from_commits([_AGENT, _HUMAN], agent_logins=("tejas",)) == 1
+
+
 def test_agent_only_commits_count_as_zero_edits():
-    commits = [{"authors": [{"login": "agent-bot"}]}, {"authors": [{"login": "agent-bot"}]}]
-    assert track.human_edits_from_commits(commits, agent_logins=("agent-bot",)) == 0
-
-
-def test_a_single_human_commit_counts():
-    commits = [{"authors": [{"login": "agent-bot"}]}, {"authors": [{"login": "tejas"}]}]
-    assert track.human_edits_from_commits(commits, agent_logins=("agent-bot",)) == 1
+    assert track.human_edits_from_commits([_AGENT, _AGENT], agent_logins=("tejas",)) == 0
 
 
 def test_a_typo_fix_counts_the_same_as_a_rewrite():
     """Mechanical on purpose. When the reward is unsupervised publishing, "someone had to touch it"
     is the honest bar, not "how much did they change"."""
-    commits = [{"authors": [{"login": "tejas"}]}]
+    commits = [{"messageHeadline": "typo", "messageBody": "", "authors": [{"login": "tejas"}]}]
     assert track.human_edits_from_commits(commits, agent_logins=("agent-bot",)) == 1
+
+
+def test_a_post_predating_the_marker_reads_as_human_edited():
+    """The agent's OWN pre-marker commit counts as human, because nothing distinguishes it. That
+    under-credits rather than over-credits, which is the right direction to be wrong in when the
+    reward is unsupervised publishing — the first two posts settle at streak 0 either way."""
+    old = {"messageHeadline": "content: An older post", "messageBody": "",
+           "authors": [{"login": "tejas"}]}
+    assert track.human_edits_from_commits([old], agent_logins=("tejas",)) == 1
+
+
+def test_the_login_fallback_still_covers_a_commit_with_no_message_at_all():
+    """Rare, but the only case where identity is all there is."""
+    bare = {"messageHeadline": "", "messageBody": "", "authors": [{"login": "agent-bot"}]}
+    assert track.human_edits_from_commits([bare], agent_logins=("agent-bot",)) == 0
+    assert track.human_edits_from_commits([bare], agent_logins=("someone-else",)) == 1
 
 
 def test_unknown_author_is_treated_as_human():
