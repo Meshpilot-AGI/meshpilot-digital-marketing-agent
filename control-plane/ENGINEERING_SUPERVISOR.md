@@ -2445,3 +2445,34 @@ over three attempts because their citations 404'd (`apextraderfunding.com/` → 
 post with a broken citation, which is exactly its job.
 
 **Verified:** 1007 pass / 1 skip.
+
+
+## SEO-13 — an external watchdog, on neither of the two things it watches — 2026-09-03
+
+**Built:** scheduler lag on public `/healthz`, an authenticated `/internal/scheduler/status` for
+detail, and `.github/workflows/watchdog.yml` — every 30 minutes, plus `workflow_dispatch`.
+
+**Where it runs is the whole point.** The in-app heartbeat is scheduled on the very cron it watches:
+when the scheduler stopped on 2026-09-02 it stayed silent for 21 hours. The same argument had already
+ruled out hosting it on the operator's Mac. GitHub Actions is the third place — independent of
+FastAPI Cloud AND of the Mac, so whatever kills either does not kill this.
+
+**It needs no secret, and that is a design decision rather than a shortcut.** Setting an Actions
+secret 403'd on the available token, which was a useful nudge: **an alerting path of last resort must
+not depend on anything it might be alerting about**, and a token that expires or gets rotated turns
+the watchdog silent in exactly the way the thing it watches went silent. So the probe reads public
+`/healthz`, and a failing run notifies through GitHub itself — no extra service either. Discord is
+additional, when `DISCORD_ALERT_WEBHOOK` exists.
+
+**The endpoint reports facts, not a verdict.** `last_run_age_s` and `worst_overdue_s`; the threshold
+lives in the workflow, so tightening it never needs a deploy. The worst offender is the signal — one
+job overdue by seconds is a sweep in flight, one overdue by an hour is a scheduler that stopped. The
+scheduler block is unauthenticated, so it carries two integers about background lag and nothing about
+what is scheduled, for whom, or with what credentials — a test pins that surface. And a database blip
+must not make liveness look down: the lag lookup is best-effort inside an `ok` response.
+
+**Two bugs caught before it ever ran**, both of which would have made the alert step *look* wired and
+do nothing: a step's own `env` is not available in its `if` (so `env.HOOK != ''` never fires — it must
+be `secrets.…`), and an indented heredoc terminator does not close the heredoc.
+
+**Verified:** 1009 pass / 1 skip (+3). Live behaviour proven after deploy, below.

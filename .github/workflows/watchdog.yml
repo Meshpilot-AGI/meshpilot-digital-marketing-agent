@@ -1,0 +1,84 @@
+name: watchdog
+# An EXTERNAL check that the agent's cron scheduler is still sweeping.
+#
+# ⚠️ Why it lives here and not in the agent: the in-app heartbeat is SCHEDULED ON THE VERY CRON IT
+# WATCHES. When the scheduler stopped on 2026-09-02 it stayed silent for 21 hours — a watcher hosted
+# on the thing it watches cannot report that thing being dead. The same argument had already ruled
+# out putting it on the operator's Mac. GitHub Actions is the third place: independent of FastAPI
+# Cloud AND of the Mac, so whatever kills either of them does not kill this.
+#
+# It probes PUBLIC `/healthz` and needs NO SECRET. That is deliberate, not a shortcut: the alerting
+# path of last resort must not depend on anything it might be alerting about, and a token that
+# expires or gets rotated turns the watchdog silent in exactly the way the thing it watches went
+# silent. A failing run notifies through GitHub itself, needing no extra service either. Discord is
+# additional, when the `DISCORD_ALERT_WEBHOOK` secret exists.
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes
+  workflow_dispatch:          # so it can be proven on demand rather than waited for
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+jobs:
+  scheduler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the API whether cron is still sweeping
+        id: probe
+        env:
+          # How stale is too stale. Held HERE rather than in the API on purpose: the endpoint reports
+          # facts, so tightening this never needs a deploy.
+          MAX_OVERDUE_S: "3600"
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 30 \
+            -H 'user-agent: meshpilot-watchdog/1.0' \
+            https://api.meshpilot.app/healthz || echo 000)
+          body=$(cat /tmp/body 2>/dev/null || echo '{}')
+          echo "http=$code"; echo "$body"
+          if [ "$code" != "200" ]; then
+            echo "reason=API unreachable or refused the probe (HTTP $code)" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          worst=$(printf '%s' "$body" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scheduler',{}).get('worst_overdue_s') or 0)")
+          enabled=$(printf '%s' "$body" | python3 -c "import json,sys; print(json.load(sys.stdin).get('scheduler',{}).get('cron_enabled'))")
+          echo "worst_overdue_s=$worst cron_enabled=$enabled"
+          if [ "$enabled" != "True" ]; then
+            echo "reason=agent_cron_enabled is off — nothing is scheduled to run" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          # A job overdue by seconds is a sweep in flight; one overdue by an hour is a stopped
+          # scheduler. Only the WORST offender matters — a healthy tick clears the rest with it.
+          if [ "$worst" -gt "$MAX_OVERDUE_S" ]; then
+            echo "reason=the cron scheduler looks stopped: worst job overdue by ${worst}s" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "scheduler healthy"
+
+      # `secrets` is available in a step `if`; a step's OWN `env` is not, so testing `env.HOOK`
+      # here would silently never fire — the alert step would look wired and do nothing.
+      - name: Say so in Discord
+        if: failure() && secrets.DISCORD_ALERT_WEBHOOK != ''
+        env:
+          HOOK: ${{ secrets.DISCORD_ALERT_WEBHOOK }}
+          REASON: ${{ steps.probe.outputs.reason }}
+        run: |
+          python3 -c '
+          import json, os, urllib.request
+          reason = os.environ.get("REASON") or "probe failed"
+          url = "{}/{}/actions/runs/{}".format(os.environ["GITHUB_SERVER_URL"],
+                                               os.environ["GITHUB_REPOSITORY"],
+                                               os.environ["GITHUB_RUN_ID"])
+          msg = ("\u26a0\ufe0f **MeshPilot watchdog**\n```\n" + reason +
+                 "\n\nChecked from GitHub Actions, deliberately outside both the cloud and the Mac"
+                 " \u2014 so this firing means the in-app heartbeat could not.\n" + url + "\n```")
+          req = urllib.request.Request(os.environ["HOOK"],
+              data=json.dumps({"username": "MeshPilot", "content": msg[:1900]}).encode(),
+              headers={"Content-Type": "application/json"})
+          urllib.request.urlopen(req, timeout=20)
+          '

@@ -170,11 +170,52 @@ async def _on_shutdown() -> None:
 
 @app.get("/healthz")
 async def healthz() -> dict:
-    return {
+    """Liveness, plus whether the cron scheduler is still sweeping.
+
+    ⚠️ The scheduler figures are UNAUTHENTICATED on purpose. An external watchdog is the alerting
+    path of last resort, and it must not depend on anything it might be alerting about — a token is
+    exactly such a dependency, and one that expires or gets rotated turns the watchdog silent in the
+    same way the thing it watches went silent. Two integers about background-job lag disclose nothing
+    about content, brands or credentials.
+
+    Reports FACTS, not a verdict: the caller owns the threshold, so tightening it never needs a
+    deploy. Scheduler fields are best-effort — a database blip must not make liveness look down.
+    """
+    out = {
         "status": "ok",
         "service": "glitch-signal",
         "version": __version__,
         "dispatch_mode": settings().dispatch_mode,
+        "scheduler": {"cron_enabled": bool(getattr(settings(), "agent_cron_enabled", False))},
+    }
+    try:
+        out["scheduler"].update(await _scheduler_lag())
+    except Exception as exc:  # noqa: BLE001
+        out["scheduler"]["error"] = str(exc)[:120]
+    return out
+
+
+async def _scheduler_lag() -> dict:
+    """Seconds since the last sweep, and how far behind the WORST overdue job is.
+
+    The worst offender is the signal: one job overdue by seconds is a sweep in flight, one overdue by
+    an hour is a scheduler that stopped.
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text as _text
+
+    from glitch_signal.db.session import _engine as _eng
+
+    now = datetime.now(UTC)
+    async with _eng().connect() as conn:
+        last = (await conn.execute(_text("SELECT max(started_at) FROM scheduled_runs"))).scalar()
+        worst = (await conn.execute(_text(
+            "SELECT min(next_run_at) FROM scheduled_jobs WHERE enabled AND next_run_at < now()"
+        ))).scalar()
+    return {
+        "last_run_age_s": int((now - last).total_seconds()) if last else None,
+        "worst_overdue_s": int((now - worst).total_seconds()) if worst else 0,
     }
 
 
@@ -529,6 +570,44 @@ async def internal_agent_run(request: Request) -> dict:
     await run_store.create_run(run_id, brand, goal)  # row exists before we return
     asyncio.create_task(_run_agent_bg(run_id, brand, goal, int(body.get("max_steps", 5)), scope))
     return {"ok": True, "run_id": run_id, "status": "running", "scope": scope}
+
+
+@app.get("/internal/scheduler/status", dependencies=[Depends(_require_jobs_auth)])
+async def scheduler_status() -> dict:
+    """Is the cron scheduler actually sweeping? For an EXTERNAL watchdog.
+
+    Exists because the in-app heartbeat is scheduled on the very cron it watches: when the scheduler
+    stopped on 2026-09-02 it stayed silent for 21 hours, because a watcher hosted on the thing it
+    watches cannot report that thing being dead. This endpoint lets something outside both the cloud
+    and the operator's Mac ask the question.
+
+    Reports FACTS, not a verdict — `overdue` and the age of the last run. The caller decides what is
+    too old, so tightening the threshold never needs a deploy.
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text as _text
+
+    from glitch_signal.db.session import _engine as _eng
+
+    now = datetime.now(UTC)
+    async with _eng().connect() as conn:
+        last = (await conn.execute(_text(
+            "SELECT max(started_at) FROM scheduled_runs"))).scalar()
+        overdue = (await conn.execute(_text(
+            "SELECT count(*) FROM scheduled_jobs WHERE enabled AND next_run_at < now()"))).scalar()
+        worst = (await conn.execute(_text(
+            "SELECT min(next_run_at) FROM scheduled_jobs WHERE enabled AND next_run_at < now()"
+        ))).scalar()
+    return {
+        "cron_enabled": bool(getattr(settings(), "agent_cron_enabled", False)),
+        "last_run_at": last.isoformat() if last else None,
+        "last_run_age_s": int((now - last).total_seconds()) if last else None,
+        "overdue_jobs": int(overdue or 0),
+        # How far behind the WORST job is. A single job overdue by seconds is a sweep in flight; one
+        # overdue by hours is a scheduler that stopped.
+        "worst_overdue_s": int((now - worst).total_seconds()) if worst else 0,
+    }
 
 
 @app.get("/internal/agent/routing/metrics", dependencies=[Depends(_require_jobs_auth)])
