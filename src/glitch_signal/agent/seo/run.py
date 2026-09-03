@@ -52,6 +52,19 @@ def _cfg(brand_id: str, name: str, default: str = "") -> str:
     return brand_env(f"SEO_{name}", brand_id, default) or default
 
 
+async def _refresh_repo(repo: str) -> bool:
+    """Fast-forward the site checkout. Failure is non-fatal — an offline run on a slightly stale
+    tree still beats no run at all, and the duplicate-slug guard in `insert_post` is the backstop."""
+    from glitch_signal.agent.seo import publish as _publish
+
+    for cmd in ("git fetch --quiet origin", "git merge --ff-only --quiet origin/HEAD"):
+        code, out = await _publish._run(cmd, repo)
+        if code != 0:
+            log.warning("seo.repo_refresh_failed", cmd=cmd, out=out[:200])
+            return False
+    return True
+
+
 def _csv(brand_id: str, name: str) -> list[str]:
     """A brand's declared list, e.g. the capabilities a post is allowed to claim.
 
@@ -183,6 +196,13 @@ async def run_publish(brand_id: str, args: dict | None = None) -> dict:
                           f"anchor would conflict",
                 "waiting_on": [r.get("pr_url") or r.get("slug") for r in open_prs][:5]}
 
+    # ⚠️ Refresh the checkout before reading what is published. Without this the cycle answers "what
+    # already exists?" from a snapshot that may be days old — and on 2026-09-03 it did exactly that,
+    # proposing "Grid and martingale EAs: which prop firms ban them outright" hours after
+    # `hedging-grid-martingale-bans-that-void-your-challenge` had merged upstream. The duplicate
+    # guard reads `blog.ts`, so a stale `blog.ts` is a guard that cannot see the thing it guards
+    # against.
+    await _refresh_repo(repo)
     slugs, titles = existing_posts(repo, blog_file)
     audience = _cfg(brand_id, "AUDIENCE") or args.get("audience", "")
     positioning = await _positioning.get(brand_id)

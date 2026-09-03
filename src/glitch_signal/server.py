@@ -127,8 +127,37 @@ async def _on_startup() -> None:
     # so the agent's MCP client always resolves a fresh Bearer even when idle.
     asyncio.create_task(_oauth_keepalive())
 
+    # ⚠️ THE SCHEDULER LOOP. `cron.service.sweep()` documents itself as "called from the per-worker
+    # scheduler loop" — and no such loop existed, so NOTHING the agent scheduled ever ran on its own.
+    # Found 2026-09-03: every cron job was overdue and unrun (curate, reconcile, surfaces-sync), the
+    # last execution having been a manual trigger the day before. Silent, because a job that never
+    # fires produces no error — only absence.
+    #
+    # Safe per worker: `store.claim_due` claims with SKIP LOCKED, so N workers sweeping concurrently
+    # still execute each job exactly once. That is what makes a per-worker loop the right shape on a
+    # multi-worker host rather than a leader-election problem.
+    asyncio.create_task(_scheduler_loop())
 
     log.info("glitch_signal.started", version=__version__, port=3111)
+
+
+async def _scheduler_loop() -> None:
+    """Sweep due cron jobs forever. Never exits: a scheduler that dies on one bad tick is a
+    scheduler that stops silently, which is the failure this loop was added to end."""
+    from glitch_signal.agent.cron import service as cron_service
+
+    tick_s = max(5.0, int(getattr(settings(), "scheduler_tick_ms", 30_000)) / 1000.0)
+    log.info("scheduler.loop_started", tick_s=tick_s)
+    while True:
+        try:
+            n = await cron_service.sweep()
+            if n:
+                log.info("scheduler.swept", jobs=n)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.warning("scheduler.tick_failed", error=str(exc)[:200])
+        await asyncio.sleep(tick_s)
 
 
 async def _on_shutdown() -> None:
