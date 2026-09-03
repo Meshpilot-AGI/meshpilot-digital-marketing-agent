@@ -220,10 +220,22 @@ channel, so a half-finished setup degrades to "logged only" instead of failing e
 
 ### Setting up the Discord alerts channel
 
-1. In the MeshPilot control-plane server, create a private channel — e.g. `#alerts`.
-2. Channel settings → **Integrations → Webhooks → New Webhook**, name it `MeshPilot`, copy the URL.
-3. Set `GE_SEO_ALERT_WEBHOOK` to that URL in the **FastAPI Cloud** env (the heartbeat runs in the
-   cloud, not on the Mac). `env set` is create-only — delete and recreate to change it.
+**The agent provisions it itself.** Run the `discord_provision_alerts` capability — it creates (or
+reuses) an `#alerts` text channel, mints a webhook, and stores the URL **encrypted** in
+`agent_secret`. The heartbeat reads the env override first, then that stored value.
+
+⚠️ **It only runs in the cloud, and that is deliberate.** `DISCORD_BOT_TOKEN` is a write-only secret
+in the FastAPI Cloud env — unreadable from a laptop by design — so provisioning happens where the
+credential already lives and the token never has to travel. Pasting a bot token into a shell to run
+this locally would defeat the arrangement.
+
+It is idempotent at both steps: an existing `#alerts` **text** channel is reused (a voice channel of
+the same name is not mistaken for it), and an existing `MeshPilot` webhook on it is reused — a
+duplicate channel litters the server, and a second webhook would silently double every alert. If the
+bot is in more than one guild it refuses and asks for `guild_id`, because guessing which server to
+create a channel in is not ours to guess.
+
+`<PREFIX>_SEO_ALERT_WEBHOOK` in the env still overrides, for a channel someone made by hand.
 
 The gateway in `gateway/` is deliberately **not** involved: it is the inbound direction (chat →
 agent), and an alert must not depend on the thing it might be alerting about.

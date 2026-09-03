@@ -2336,3 +2336,31 @@ rather than raising.
 **Remains:** the channel and webhook do not exist yet — creating them is three steps in the Discord
 UI (documented), and `GE_SEO_ALERT_WEBHOOK` then goes in the CLOUD env, since the heartbeat runs
 there rather than on the Mac.
+
+
+## SEO-11 — the agent provisions its own alerts channel — 2026-09-03
+
+**Built:** `agent_secret` (encrypted store for values the agent MINTS), `agent/secrets.py`,
+`discord.provision_alert_channel`, the `discord_provision_alerts` capability, and a heartbeat
+fallback that reads the stored webhook when the env has none.
+
+**Why it exists at all: the credential is unreachable from here, and should be.** `DISCORD_BOT_TOKEN`
+lives in the FastAPI Cloud env as a **write-only secret** — `env list` shows `[secret]`, never a
+value. (The `RAILWAY_TOKEN` in `.env` is a stale project token; both header forms 403.) So rather
+than move a bot token onto a laptop to run a one-off script, the agent provisions the channel **in
+the environment that already holds the token**. The credential never travels.
+
+**A new table rather than `oauth_tokens`.** That table carries refresh semantics and NOT NULL
+client/endpoint columns; a webhook shoehorned into it would read as an OAuth grant to every later
+reader. `agent_secret` is for the other kind of value: one a human cannot put in the env because it
+does not exist until the agent creates it. Fernet-encrypted with the same key, never logged.
+
+**Idempotent at both steps, for two different reasons.** A duplicate channel litters the operator's
+server; a second webhook would **silently double every alert**, which is worse because it looks like
+it is working. An existing `#alerts` **text** channel is reused — a voice channel of the same name is
+explicitly not mistaken for it, since posting a webhook there fails in a way nobody would connect
+back to this. More than one guild refuses and asks for `guild_id`: guessing which server to create a
+channel in is not ours to guess.
+
+**Verified:** 1007 pass / 1 skip (+4); migration applied against the real Postgres in a rolled-back
+transaction. **Not yet run in prod** — that needs this merged and deployed first.

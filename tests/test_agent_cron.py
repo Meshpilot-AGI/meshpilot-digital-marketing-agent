@@ -153,7 +153,8 @@ def test_capability_registry():
                                          "social_campaign", "social_reconcile",
                                          "social_outcomes", "learn_performance",
                                          "surfaces_sync", "seo_publish", "seo_settle",
-                                         "seo_heartbeat"}
+                                         "seo_heartbeat",
+                                         "discord_provision_alerts"}
     assert capabilities.get("nope") is None
 
 

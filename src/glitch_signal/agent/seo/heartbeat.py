@@ -86,7 +86,8 @@ async def _raise_alarm(brand_id: str, *, reason: str, age_hours: float | None,
            "age_hours": round(age_hours, 1) if age_hours is not None else None,
            "last_outcome": (last or {}).get("outcome")}
 
-    webhook = _cfg(brand_id, "ALERT_WEBHOOK")
+    # Env first (a human-set override), then the webhook the agent provisioned for itself.
+    webhook = _cfg(brand_id, "ALERT_WEBHOOK") or await _stored_webhook(brand_id)
     to = _cfg(brand_id, "ALERT_EMAIL")
     if not (webhook or to):
         out["detail"] = ("no <PREFIX>_SEO_ALERT_WEBHOOK or <PREFIX>_SEO_ALERT_EMAIL configured "
@@ -116,6 +117,16 @@ async def _raise_alarm(brand_id: str, *, reason: str, age_hours: float | None,
         log.warning("seo.heartbeat_alert_failed", error=str(exc)[:200])
         out["detail"] = f"alert delivery failed: {str(exc)[:120]}"
     return out
+
+
+async def _stored_webhook(brand_id: str) -> str:
+    try:
+        from glitch_signal.agent import secrets as agent_secrets
+        from glitch_signal.comms.discord import ALERT_WEBHOOK_SECRET
+
+        return await agent_secrets.get(brand_id, ALERT_WEBHOOK_SECRET)
+    except Exception:  # noqa: BLE001 — no stored webhook is a normal state, not an error
+        return ""
 
 
 async def _may_alert(brand_id: str) -> bool:
