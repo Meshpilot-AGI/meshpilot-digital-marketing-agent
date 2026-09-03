@@ -78,10 +78,50 @@ the PR path either way.
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **WIRED 2026-09-02 (SEO-4).** Two cron capabilities: `seo_publish` (requires `publish`) and
+`seo_settle` (requires nothing — deliberately NOT bundled, so the run that publishes does not mark
+its own homework). Ships behind `AGENT_SEO_ENABLED=false`. ⚠️ `seo_publish` needs a git checkout, the
+site's npm toolchain and a `gh` that can open a PR — **the API's own runtime has none of those**, so
+scheduled there it refuses with `no_repo`. It runs where a checkout exists. Live dry run authored a
+real post first-try (17 blocks, 6 FAQ) against the site's 85 real paths and 10 existing titles.
+
 ✅ **BUILT 2026-09-02 (SEO-3).** `seo_publication` records the claim and the outcome separately;
 `track.standing()` derives the stage from that history and **there is no setter** — nobody can grant
 autonomy by flipping a flag, the streak has to exist. `publish()` reads the earned stage rather than
 accepting one. GE stands at **S0, streak 0** — correct, because no post has settled yet.
+
+### ROUTER — the fallback chain is fiction, and one tier was silently dead   [OPEN — measured]
+Owner: unassigned        Opened: 2026-09-02
+Reading: `src/glitch_signal/agent/loop/routing.py`, `llm.complete_messages`
+Acceptance: every tier has at least one reachable fallback; an empty completion is an error.
+Write-back: docs/plans (new), control-plane/ENGINEERING_SUPERVISOR.md
+
+Found while wiring SEO-4, by probing all 12 slugs in `TIERS` against the live account:
+
+| tier | reachable | dead |
+|---|---|---|
+| critical | `anthropic/claude-opus-5` | `claude-fable-5`, `openai/gpt-5.6-sol` |
+| complex | `anthropic/claude-sonnet-5` | `z-ai/glm-5.3`, `moonshotai/kimi-k3` |
+| moderate | `z-ai/glm-5.2` | `openai/gpt-5.6-luna`, `deepseek/deepseek-v4-pro` |
+| simple | all three | — |
+
+**7 of 12 are unreachable** — the OpenRouter account's *allowed-providers* privacy setting permits
+only `google-vertex, cloudflare, amazon-bedrock, google-ai-studio`, and those models are served by
+nobody on that list. So **critical, complex and moderate each run on a single model with nothing
+behind it**, while `routing.py` documents "native fallback" and the roster is annotated *"Verified
+live on OpenRouter 2026-08-30"*. That verification checked that the slugs exist, not that this
+account can reach them.
+
+**Separately: an empty completion is treated as a successful one.** `moderate`'s live model is a
+REASONING model; asked for a one-line answer inside a 50-token budget it spends the whole budget
+thinking and returns `content: null` / `finish_reason: "length"`. Our adapter turns that into `""`
+and returns it as an answer. Measured: 50 tokens → `''`; 400 tokens → `'ok'` after 267 reasoning
+tokens. This is very likely the root of the known *"deliberation returns empty"* symptom — which was
+recorded as cloud-only and is **not**: it reproduces locally. SEO-4 worked around it with a budget
+that covers the thinking (`_TOPIC_MAX_TOKENS = 1200`); the adapter defect is untouched.
+
+**Two fixes, both real decisions:** repoint the dead slugs at models this account can actually reach,
+and make a `finish_reason: "length"` with empty content fail over instead of returning `""`.
 
 ### DEVVIT — a Reddit-native app for GE                                          [OPEN — scoping]
 Owner: unassigned        Opened: 2026-09-02

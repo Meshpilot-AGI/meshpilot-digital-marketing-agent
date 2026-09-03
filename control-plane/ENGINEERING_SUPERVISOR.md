@@ -1709,3 +1709,61 @@ correct answer, and the one that proves the gate is closed by default.
 **Remains:** nothing calls `settle_open()` on a schedule yet — SEO-3 built the measurement, wiring
 generation + publish + settle into a cron capability is the next lane. No post has been published
 through `publish()` against the live repo, so the first real streak entry does not exist.
+
+
+## SEO-4 — the scheduled loop, and a dead model tier it uncovered — 2026-09-02
+
+**Built:** `agent/seo/run.py` (`run_publish`, `run_settle`, `site_links`, `existing_posts`,
+`pick_topic`), two entries in the cron capability registry, `agent_seo_enabled`, and a 1800s
+timeout for `seo_publish`.
+
+**This capability refuses far more often than it runs, and every refusal is named.** Publishing is a
+code change in someone else's repo: it needs a checkout, that site's npm toolchain, and a `gh` that
+can open a PR. ⚠️ **The API's own runtime (FastAPI Cloud) has none of those.** Scheduled there,
+`seo_publish` returns `no_repo` before touching anything rather than dying halfway through a git
+operation. `no_sitemap` is the other deliberate refusal: with no URL vocabulary the model invents
+plausible internal paths — that is exactly how the first live generation produced
+`/tools/drawdown-calculator` when the real page is `/tools/firm-drawdown-calculator`.
+
+**The site's own committed sitemap is the link vocabulary, and its own `blog.ts` is the
+already-published list.** Both read from the repo, neither guessed, neither hardcoded. The
+slug↔title parse is anchored on the slug and takes the title that follows it: `title:` also appears
+on nested blocks and on the type declaration, and the file mixes hand-written single-quoted TS with
+our own JSON-shaped output, so neither the key nor the indentation discriminates. Two tests read the
+**real** `glitch-trade-app` files rather than only a fixture — 10 posts, 10 titles, 85 paths, and an
+explicit assertion that the invented path is absent while the real one is present.
+
+**`seo_settle` is deliberately NOT bundled into `seo_publish`.** It requires no capability because it
+grants no new power — but it is what moves the autonomy ladder, and the run that publishes should not
+get to mark its own homework in the same breath.
+
+**Verified live, end to end:** a dry run picked a topic against the 10 existing titles and 85 real
+paths ("The minimum trade duration rule: which prop firms ban scalping and how they enforce it"),
+authored it **on the first attempt** — no repairs — at 17 blocks and 6 FAQ pairs, and left the repo
+untouched. Suite **926 pass / 1 skip** (+15).
+
+### ⚠️ What this lane found on the way: the `moderate` tier was silently dead
+
+The first live dry run returned `no_topic`. The cause was not the topic prompt.
+
+Probing all 12 slugs in `routing.py`'s `TIERS` against the live account: **7 of 12 are
+unreachable.** The OpenRouter account's *allowed-providers* setting permits only
+`google-vertex, cloudflare, amazon-bedrock, google-ai-studio`; the dead models are served by nobody
+on that list. **critical, complex and moderate each have exactly one reachable model with nothing
+behind it**, while the module documents "native fallback" and the roster is annotated *"Verified live
+on OpenRouter 2026-08-30"* — that check confirmed the slugs exist, not that we can reach them.
+
+Worse, **an empty completion is returned as a successful one.** `moderate`'s live model is a
+reasoning model: given a 50-token budget for a one-line answer it spends the entire budget thinking
+and returns `content: null` with `finish_reason: "length"`, which our adapter turns into `""`.
+Measured: 50 → `''`, 400 → `'ok'` after 267 reasoning tokens. That is very likely the root of the
+recorded *"deliberation returns empty on cloud"* symptom, which is **not** cloud-specific — it
+reproduces locally.
+
+SEO-4 worked around it where it bit (`_TOPIC_MAX_TOKENS = 1200`, sized for the thinking rather than
+the answer). **The adapter defect and the dead roster are untouched** — both are real decisions, and
+they are on the board as their own lane.
+
+**Remains:** no schedule is created — the capabilities are schedulable but nothing schedules them;
+`seo_publish` has never run non-dry against the live repo, so `seo_publication` still holds no rows
+and GE is still S0 with an empty streak.
