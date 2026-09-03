@@ -179,6 +179,22 @@ def _to_openai_tools(tools: list[dict] | None) -> list[dict]:
 _FINISH_MAP = {"tool_calls": "tool_use", "stop": "end_turn", "length": "max_tokens",
                "content_filter": "refusal"}
 
+# _RETRY_ON_LENGTH — why an empty completion is an ERROR, and why ONE case of it is retried.
+#
+# A reasoning model spends output tokens thinking before it writes. Given a budget sized for the
+# ANSWER, it can consume the whole budget on reasoning and return `content: null` with
+# `finish_reason: "length"` — measured on `z-ai/glm-5.2`: 50 tokens -> nothing, 400 -> "ok" after 267
+# reasoning tokens. We used to translate that into `""` and hand it back as an answer, so every
+# caller on that tier silently received an empty string and carried on. That is how a whole tier
+# stayed broken without anyone noticing (SEO-4 found it, and the long-standing "deliberation returns
+# empty" symptom is very likely the same thing).
+#
+# Budget exhaustion is mechanically identifiable and mechanically fixable, so it earns exactly one
+# retry at a larger budget. An empty response for ANY OTHER reason is unexplained, and an unexplained
+# empty answer is a failure — it raises rather than pretending.
+_EMPTY_RETRY_FLOOR = 1500
+_EMPTY_RETRY_CEILING = 8000
+
 
 def _from_openai_response(body: dict) -> dict:
     """OpenAI response → Anthropic-shaped {content:[blocks], stop_reason, usage, _id, _citations}."""
@@ -273,7 +289,29 @@ async def _chat(messages: list[dict], *, system: str | None, tools: list[dict] |
     used = body.get("model") or models[0]                 # the model OpenRouter actually served
     routing.record(used, latency_ms=(_time.monotonic() - t0) * 1000, ok=ok)
     await _meter(used, resp["usage"], resp.get("_id"))
-    return resp
+
+    if resp["content"]:
+        return resp
+
+    # An empty response is NOT an answer, and returning it as one is how a dead tier stayed invisible:
+    # callers got `""` and carried on. See `_RETRY_ON_LENGTH`.
+    if resp["stop_reason"] == "max_tokens" and max_tokens < _EMPTY_RETRY_CEILING:
+        raised = min(max(max_tokens * 4, _EMPTY_RETRY_FLOOR), _EMPTY_RETRY_CEILING)
+        log.warning("llm.empty_completion_retry", model=used, max_tokens=max_tokens, retry_with=raised,
+                    reasoning_tokens=resp["usage"].get("output_tokens", 0))
+        payload["max_tokens"] = raised
+        body = await _send(payload, timeout_s=timeout_s, client=client)
+        resp = _from_openai_response(body)
+        used = body.get("model") or models[0]
+        await _meter(used, resp["usage"], resp.get("_id"))
+        if resp["content"]:
+            return resp
+
+    routing.record(used, latency_ms=(_time.monotonic() - t0) * 1000, ok=False)
+    raise RuntimeError(
+        f"empty completion from {used} (stop_reason={resp['stop_reason']}, "
+        f"max_tokens={payload['max_tokens']}, output_tokens="
+        f"{resp['usage'].get('output_tokens', 0)}) — no text and no tool call")
 
 
 def _text(resp: dict) -> str:
