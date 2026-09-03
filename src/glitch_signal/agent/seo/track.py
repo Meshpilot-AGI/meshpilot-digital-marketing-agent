@@ -17,6 +17,7 @@ merges and then quietly fixes it elsewhere would look like a clean record here.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import shlex
 from collections.abc import Callable
@@ -98,6 +99,26 @@ async def record(brand_id: str, *, slug: str, title: str = "", stage: str = "S0"
         return False
 
 
+def _as_datetime(value: Any) -> Any:
+    """Coerce a timestamp to something asyncpg accepts.
+
+    ⚠️ `gh pr view --json mergedAt` returns an ISO **string**, and asyncpg refuses it:
+    *"invalid input for query argument $1 … expected a datetime.date or datetime.datetime"*. The very
+    first real settle therefore wrote nothing — while `settle_open` still reported `merged=1`, so the
+    ladder would have sat at S0 forever with the summary saying it was working. Same shape as the
+    asyncpg CAST defect this repo hit before: the driver is stricter than the string looks.
+    """
+    if value is None or isinstance(value, dt.datetime):
+        return value
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        log.warning("seo.unparsable_merged_at", value=str(value)[:60])
+        return None
+
+
 async def settle(brand_id: str, *, slug: str, merged_at: Any = None,
                  closed_unmerged: bool = False, human_edits: int | None = None,
                  notes: str = "", engine: Any = None) -> bool:
@@ -106,7 +127,7 @@ async def settle(brand_id: str, *, slug: str, merged_at: Any = None,
         eng = _engine_or(engine)
         async with eng.begin() as conn:
             await conn.execute(_SETTLE, {
-                "brand_id": brand_id, "slug": slug, "merged_at": merged_at,
+                "brand_id": brand_id, "slug": slug, "merged_at": _as_datetime(merged_at),
                 "closed_unmerged": closed_unmerged, "human_edits": human_edits, "notes": notes,
             })
         log.info("seo.track_settled", slug=slug, merged=bool(merged_at), edits=human_edits)
@@ -247,7 +268,8 @@ async def settle_open(brand_id: str, *, repo: str, agent_logins: tuple[str, ...]
 
     runner = runner or _publish._run
     rows = await unsettled(brand_id, engine=engine)
-    out = {"checked": len(rows), "merged": 0, "rejected": 0, "still_open": 0, "unreadable": 0}
+    out = {"checked": len(rows), "merged": 0, "rejected": 0, "still_open": 0, "unreadable": 0,
+           "write_failed": 0}
 
     for row in rows:
         ref = row.get("pr_url") or row.get("branch") or ""
@@ -273,9 +295,15 @@ async def settle_open(brand_id: str, *, repo: str, agent_logins: tuple[str, ...]
         merged = state == "MERGED" or bool(data.get("mergedAt"))
         edits = (human_edits_from_commits(data.get("commits") or [], agent_logins)
                  if merged else None)
-        await settle(brand_id, slug=row["slug"], merged_at=data.get("mergedAt"),
-                     closed_unmerged=not merged, human_edits=edits,
-                     notes=f"settled from gh: {state}", engine=engine)
+        wrote = await settle(brand_id, slug=row["slug"], merged_at=data.get("mergedAt"),
+                             closed_unmerged=not merged, human_edits=edits,
+                             notes=f"settled from gh: {state}", engine=engine)
+        if not wrote:
+            # ⚠️ Counting an outcome we FAILED to record is worse than failing loudly: the first real
+            # settle reported `merged=1` while writing nothing, so the ladder would have sat at S0
+            # forever and the summary would have said it was working.
+            out["write_failed"] += 1
+            continue
         out["merged" if merged else "rejected"] += 1
 
     log.info("seo.settled_batch", brand_id=brand_id, **out)
