@@ -250,3 +250,19 @@ def test_filler_words_do_not_have_to_appear():
 
 def test_an_empty_capability_matches_nothing():
     assert not generate._capability_matches("the and of", "anything at all")
+
+
+def test_your_platform_is_not_our_platform():
+    """The declared term "our platform" matched inside "y-our platform", so a sentence about the
+    READER's trading platform was read as a claim about ours. A check that fires on sentences it has
+    no business reading gets switched off."""
+    p = _post(blocks=[{"type": "p", "text":
+        "The count is invisible from inside your platform."}])
+    assert generate.unverified_product_claims(
+        p, brand_terms=["our platform", "Glitch Executor"], capabilities=["trade journal"]) == []
+
+
+def test_the_brand_is_still_matched_when_it_is_actually_named():
+    p = _post(blocks=[{"type": "p", "text": "Our platform files your taxes."}])
+    assert generate.unverified_product_claims(
+        p, brand_terms=["our platform"], capabilities=["trade journal"])

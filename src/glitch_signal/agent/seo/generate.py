@@ -261,12 +261,22 @@ def unverified_product_claims(post: Post, *, brand_terms: list[str],
     flagged: list[str] = []
     for sentence in re.split(r"(?<=[.!?])\s+", prose):
         low = sentence.lower()
-        if not any(t.lower() in low for t in brand_terms):
+        if not any(_mentions(t, low) for t in brand_terms):
             continue
         if any(_capability_matches(c, low) for c in capabilities):
             continue
         flagged.append(sentence.strip()[:220])
     return flagged
+
+
+def _mentions(term: str, sentence: str) -> bool:
+    """Does this sentence name the brand?
+
+    ⚠️ Word boundaries, not a substring test. The declared term "our platform" matched inside
+    "y-our platform", so a sentence about the READER's trading platform was read as a claim about
+    ours and flagged. A check that fires on sentences it has no business reading gets switched off.
+    """
+    return re.search(rf"(?<![\w-]){re.escape(term.lower())}(?![\w-])", sentence) is not None
 
 
 # Words that carry no meaning for matching a capability to a sentence.
