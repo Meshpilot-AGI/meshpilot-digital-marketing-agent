@@ -16,6 +16,14 @@ on:
   schedule:
     - cron: "*/30 * * * *"   # every 30 minutes
   workflow_dispatch:          # so it can be proven on demand rather than waited for
+    inputs:
+      max_overdue_s:
+        description: >-
+          Staleness threshold in seconds. Pass -1 to force a failure and prove the ALARM still
+          works — an alarm nobody ever tests is an alarm nobody can trust, and the healthy path
+          passing tells you nothing about whether the unhealthy one fires.
+        required: false
+        default: "3600"
 
 permissions:
   contents: read
@@ -40,8 +48,8 @@ jobs:
         id: probe
         env:
           # How stale is too stale. Held HERE rather than in the API on purpose: the endpoint reports
-          # facts, so tightening this never needs a deploy.
-          MAX_OVERDUE_S: "3600"
+          # facts, so tightening this never needs a deploy — or, on a manual run, no commit at all.
+          MAX_OVERDUE_S: ${{ github.event.inputs.max_overdue_s || '3600' }}
         run: |
           set -uo pipefail
           code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 30 \
