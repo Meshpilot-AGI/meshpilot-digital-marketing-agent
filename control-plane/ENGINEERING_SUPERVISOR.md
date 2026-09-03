@@ -1659,3 +1659,53 @@ on-demand payouts (no fixed cadence)"*, alongside FTMO's "every 14 days". 888 pa
 **Note:** no extractor exists in code — `firm_rule` rows were seeded at runtime, so this fix is
 durable rather than something a re-run would revert. If an extractor is written later it must render
 `payoutCadenceDays: 0` as on-demand, not as a cycle.
+
+
+## SEO-3 — autonomy, derived from evidence rather than configured — 2026-09-02
+
+**Built:** `supabase/migrations/20260902140000_seo_publication.sql`, `agent/seo/track.py`
+(`record`, `settle`, `settle_open`, `standing`, `stage_for`, `unsettled`,
+`human_edits_from_commits`), and the wiring in `publish()` that reads the earned stage.
+
+**The design decision this lane turns on: there is no setter.** The operator's amended program grants
+self-merge after five consecutive zero-edit posts. A `stage` column, an env var, or a `set_stage()`
+would have satisfied the letter of that and voided its substance — the ladder would be decorative,
+and the first impatient session would flip it. So the stage is a **query over history**:
+`standing()` reads the settled record and returns the stage the evidence supports.
+`publish(stage=...)` still exists for tests and dry runs, but in normal operation `stage is None` and
+the track record answers. A test asserts no `set_stage`/`promote`/`grant` symbol exists — the
+property is enforced, not just documented.
+
+**The table records the claim and the outcome separately**, because they happen at different times
+and only one of them is ours. At publish time we know what was proposed; what happened to it exists
+only after a human closes the PR. `human_edits IS NULL` therefore means *not yet checked*, and it
+**breaks the streak** — we cannot claim a clean record for something nobody looked at. Failing that
+way round is the whole point: an unreadable track record returns S0, not "assume fine".
+
+**Consecutive, not cumulative.** One edited post resets the streak. The claim being tested is "this
+reliably ships as proposed"; a run interrupted by a rewrite has not demonstrated that. Likewise S2
+requires the ten clean merges to have been authored **while already at S1** — otherwise S0's own
+evidence would promote straight past the stage it was meant to earn.
+
+**"Zero human edits" is measured mechanically**: commits on the PR branch that were not the agent's.
+A typo fix counts the same as a rewrite. That is the conservative reading and the right one when the
+reward is unsupervised publishing. ⚠️ **Stated limit, not hidden:** an edit made in a *separate* PR
+after the merge is not counted.
+
+**`settle_open()` is the half that makes the ladder move.** `record()` writes claims; without
+something writing outcomes every row stays `human_edits IS NULL`, the streak is permanently 0, and
+the agent sits at S0 forever — safe, but inert. It asks `gh pr view` what happened to each open PR
+and writes it down, and it settles **only closed PRs**: an open one has no outcome, and guessing
+would either invent a clean record or destroy a real streak. An unreadable PR stays unsettled rather
+than being guessed at.
+
+**Verified:** 911 pass / 1 skip (+29). The migration was applied against the **real Supabase
+Postgres** inside a transaction and rolled back — 5 statements, all 14 columns with the intended
+nullability (prod untouched; the Supabase↔GitHub integration owns the actual apply). Not a mock: the
+same class of check that has caught an asyncpg CAST, a Buffer payload and a `max_tokens` signature in
+this repo. `standing("glitch_executor")` returns **S0, streak 0, "no settled posts yet"** — the
+correct answer, and the one that proves the gate is closed by default.
+
+**Remains:** nothing calls `settle_open()` on a schedule yet — SEO-3 built the measurement, wiring
+generation + publish + settle into a cron capability is the next lane. No post has been published
+through `publish()` against the live repo, so the first real streak entry does not exist.

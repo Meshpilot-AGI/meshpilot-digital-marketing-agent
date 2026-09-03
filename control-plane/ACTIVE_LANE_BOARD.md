@@ -67,16 +67,21 @@ a 10-phase AI-SEO program, 11 live posts, and a typed publishing target (`src/da
 verification gates (`schemas:validate`, `links:audit`, prerender, sitemap, Lighthouse ≥95) are
 **machine-checkable**, which is exactly what autonomous publishing needs.
 
-⚠️ **Operator decisions blocking build:** (1) `ai-seo-program.md` lists *"AI-generated thin content at
-scale; every page human-edited"* as explicitly OUT OF SCOPE, which contradicts the instruction to
-publish with no HITL — the doc is the operator's and can be amended, but deliberately, not silently.
-(2) Who files the Reddit OAuth approval ticket, under what declared use case. (3) Direct commits to
-`glitch-trade-app` or a fork it PRs from.
+⚠️ **Operator decisions:** (1) ✅ **RESOLVED 2026-09-02** — `ai-seo-program.md`'s *"every page
+human-edited"* guardrail amended in the operator's own repo (PR #543) to permit autonomous publishing
+under the earned-stage ladder, deliberately rather than silently. (2) ✅ **MOOT** — Zernio's OAuth
+connection covers Reddit rules/flairs/posting/replies, so no separate OAuth approval ticket is
+needed. (3) Direct commits to `glitch-trade-app` or a fork it PRs from — **still open**; SEO-2/3 build
+the PR path either way.
 
 **Autonomy graduation (operator: no HITL, "but only when we prepare him"):** S0 draft+human-merge →
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **BUILT 2026-09-02 (SEO-3).** `seo_publication` records the claim and the outcome separately;
+`track.standing()` derives the stage from that history and **there is no setter** — nobody can grant
+autonomy by flipping a flag, the streak has to exist. `publish()` reads the earned stage rather than
+accepting one. GE stands at **S0, streak 0** — correct, because no post has settled yet.
 
 ### DEVVIT — a Reddit-native app for GE                                          [OPEN — scoping]
 Owner: unassigned        Opened: 2026-09-02
