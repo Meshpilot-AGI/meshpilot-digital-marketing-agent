@@ -160,3 +160,5 @@ async def _default_notify(*, brand_id: str, webhook: str = "", to: str = "",
         await send_email(brand_id=brand_id, to=to, subject=subject, text=text)
         delivered = True
     return delivered
+
+# CI gate probe — reverted in the next commit.
