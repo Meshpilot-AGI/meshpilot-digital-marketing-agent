@@ -77,13 +77,19 @@ Flow:
 1. **Lane branches** (`lane/*`, `agent/*`) branch off **`production`** and PR
    **into `production`**. ⚠️ Never name a lane `*-production` — the `~/dev`
    commit-guard treats any `*production` branch as a protected deploy branch.
-2. **CI runs ON PUSH to `production`** (not on PRs/feature branches) —
-   `.github/workflows/ci.yml` diffs the push and runs only what drifted: **pytest**
-   on API drift, a **from-scratch migration test** on DB drift (`supabase/migrations/**`,
-   `src/glitch_signal/db/**`), the **Next build** on `web/` drift, a **`docker build`
-   + `py_compile`** on `gateway/` drift, and **nothing** (fast pass) for docs/logs.
-   It runs alongside the FastAPI Cloud auto-deploy, so **run `uv run pytest -q`
-   locally before merging** — the push CI is validation, not a pre-merge gate.
+2. **CI is a PR GATE on pull requests into `production`** (and still runs on push to
+   `production` as a backstop) — `.github/workflows/ci.yml` diffs the PR against its
+   base and runs only what drifted: **pytest** on API drift, a **from-scratch migration
+   test** on DB drift (`supabase/migrations/**`, `src/glitch_signal/db/**`), the **Next
+   build** on `web/` drift, a **`docker build` + `py_compile`** on `gateway/` drift, and
+   **nothing** (fast pass) for docs/logs.
+
+   ⚠️ It used to run ONLY on push to `production`, which validated code that had already
+   merged and already begun deploying: a red run told you the trunk was broken, it could
+   not stop it. Catching drift before the merge is the point. The push run is kept because
+   a PR that was green against a stale base can still break the trunk once other PRs land
+   ahead of it — the PR run is the gate, the push run is the truth about `production`.
+   Still run `uv run pytest -q` locally; the gate is a backstop, not a substitute.
 3. Merging the PR **auto-deploys production** — the API (FastAPI Cloud) and, when
    the change touched `gateway/**`, the gateway (Railway, via watch paths). No
    fast-forward needed for the gateway anymore. To ship the **web**, fast-forward
