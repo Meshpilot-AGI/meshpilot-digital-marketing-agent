@@ -268,3 +268,26 @@ def test_the_brand_is_still_matched_when_it_is_actually_named():
     p = _post(blocks=[{"type": "p", "text": "Our platform files your taxes."}])
     assert generate.unverified_product_claims(
         p, brand_terms=["our platform"], capabilities=["trade journal"])
+
+
+def test_placing_an_order_is_its_own_phrasing():
+    """"Routes orders to your broker" did not match "places orders" — every content word must
+    appear, so a real capability described in different words was rejected. The phrasings a writer
+    would naturally reach for have to be declared, or the check punishes true sentences."""
+    terms, caps = _shipped_caps()
+    for true_claim in ("Glitch Executor places orders on demo accounts from an armed strategy.",
+                       "Glitch Executor submits trades on demo accounts."):
+        assert generate.unverified_product_claims(
+            _post(blocks=[{"type": "p", "text": true_claim}]),
+            brand_terms=terms, capabilities=caps) == [], true_claim
+
+
+def test_placing_an_order_still_needs_the_demo_qualifier():
+    """`TRADE_EXEC_DEMO_ONLY` keeps its code default `true` on the running revision, so a live
+    funded account cannot be routed to. Verified on `ge-prod-trade-api:12`, not on terraform."""
+    terms, caps = _shipped_caps()
+    for overreach in ("Glitch Executor places orders for you automatically.",
+                      "Glitch Executor places orders on your live funded account."):
+        assert generate.unverified_product_claims(
+            _post(blocks=[{"type": "p", "text": overreach}]),
+            brand_terms=terms, capabilities=caps), overreach

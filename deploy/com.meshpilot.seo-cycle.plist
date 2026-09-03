@@ -68,7 +68,7 @@
     <key>GE_SEO_BRAND_TERMS</key>
     <string>Glitch Executor,GlitchExecutor,our engine,our platform</string>
     <key>GE_SEO_CAPABILITIES</key>
-    <string>records each firm's published rules,dated source for every firm rule,compares firms side by side,calculates drawdown against a firm's rules,tracks account equity,daily-loss and drawdown evaluation,trade journal,replay,alerts,backtest,strategy builder,connects to cTrader,connects to DXtrade,connects to MetaApi,routes orders to your broker on demo accounts,blocks an order before it reaches the broker on demo accounts,pre-trade rule check,order routing</string>
+    <string>records each firm's published rules,dated source for every firm rule,compares firms side by side,calculates drawdown against a firm's rules,tracks account equity,daily-loss and drawdown evaluation,trade journal,replay,alerts,backtest,strategy builder,connects to cTrader,connects to DXtrade,connects to MetaApi,routes orders to your broker on demo accounts,places orders on demo accounts,submits trades on demo accounts,blocks an order before it reaches the broker on demo accounts,pre-trade rule check,order routing</string>
   </dict>
 
   <!-- 06:40 local. After the site's own nightly audit, and well clear of the agent's 03:00-03:30

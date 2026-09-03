@@ -2118,3 +2118,28 @@ definition gives the third.
 
 **Verified:** six cases — routing and the block pass **with** "demo" stated, and both the unqualified
 claim and an explicit live-funded-account claim are rejected. 967 pass / 1 skip.
+
+
+## SEO — order placement declared; enabled is not the same as happening — 2026-09-03
+
+**Added** `places orders on demo accounts` and `submits trades on demo accounts` to GE's capability
+list. The matcher requires every content word, so `routes orders to your broker` did **not** match
+"places orders" — a real capability described in the words a writer would naturally reach for was
+being rejected. Declare the phrasings, not just the feature.
+
+**Re-verified rather than taken on the flag flip**, on the running revision:
+
+| | Evidence |
+|---|---|
+| routing + feature flag | `true` on `ge-prod-trade-api:12` |
+| `TRADE_EXEC_DEMO_ONLY` | **not set** → code default `true` → live accounts still refused |
+| armed strategies | `execution.runtime.tick armed=0 evaluated=0 emitted=0 routed=0`, every cycle |
+| orders routed in 24h | **none** |
+
+So the demo qualifier stays, and it is not pedantry: the running config refuses live accounts, and
+that is a config read, not a judgement. ⚠️ **Enabled is not the same as happening** — the path is on
+and functional, and nothing is armed on it. A post may say the product places orders on demo
+accounts; it may not imply anyone's orders are being placed today.
+
+**Verified:** six cases — three true phrasings pass with "demo" stated, and the unqualified claim,
+the live-funded claim and the weekend claim are all rejected. 969 pass / 1 skip.
