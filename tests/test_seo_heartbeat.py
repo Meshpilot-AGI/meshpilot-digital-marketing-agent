@@ -11,17 +11,18 @@ from glitch_signal.agent.cron import capabilities as caps
 from glitch_signal.agent.seo import heartbeat, track
 
 NOW = dt.datetime(2026, 9, 3, 12, 0, tzinfo=dt.UTC)
+_HOOK = "https://discord.com/api/webhooks/1/abc"
 
 
 class _Sent:
-    def __init__(self, boom: bool = False):
-        self.calls, self.boom = [], boom
+    def __init__(self, boom: bool = False, delivered: bool = True):
+        self.calls, self.boom, self.delivered = [], boom, delivered
 
     async def __call__(self, **kw):
         if self.boom:
-            raise RuntimeError("resend down")
+            raise RuntimeError("channel down")
         self.calls.append(kw)
-        return "msg_1"
+        return self.delivered
 
 
 def _rows(monkeypatch, rows):
@@ -36,7 +37,9 @@ def _allow(monkeypatch, allowed=True):
         return allowed
 
     monkeypatch.setattr(heartbeat, "_may_alert", _may)
-    monkeypatch.setattr(heartbeat, "_cfg", lambda b, n, d="": "ops@example.test" if n == "ALERT_EMAIL" else d)
+    monkeypatch.setattr(heartbeat, "_cfg",
+                        lambda b, n, d="": {"ALERT_EMAIL": "ops@example.test",
+                                            "ALERT_WEBHOOK": _HOOK}.get(n, d))
 
 
 # ── healthy ──
@@ -96,11 +99,12 @@ async def test_it_alerts_once_per_window_not_every_run(monkeypatch):
     assert "already alerted" in res["detail"]
 
 
-async def test_no_recipient_means_logged_only(monkeypatch):
+async def test_no_channel_at_all_means_logged_only(monkeypatch):
     _rows(monkeypatch, [{"ran_at": NOW - dt.timedelta(hours=40), "outcome": "published"}])
     monkeypatch.setattr(heartbeat, "_cfg", lambda b, n, d="": d)
     res = await heartbeat.check("b", now=NOW, notify=_Sent())
-    assert res["stale"] and not res["alerted"] and "no <PREFIX>_SEO_ALERT_EMAIL" in res["detail"]
+    assert res["stale"] and not res["alerted"]
+    assert "ALERT_WEBHOOK" in res["detail"] and "ALERT_EMAIL" in res["detail"]
 
 
 async def test_a_failed_delivery_does_not_kill_the_monitor(monkeypatch):
@@ -138,3 +142,56 @@ def test_sending_an_alert_demands_the_publish_capability():
     """`send_email` lives under `publish` in the capability vocabulary. Mapped honestly rather than
     arguing that an ops alert is a different kind of send."""
     assert caps.required_capabilities("seo_heartbeat") == frozenset({"publish"})
+
+
+# ── the Discord channel (SEO-10) ──
+async def test_discord_is_preferred_and_email_is_not_also_sent(monkeypatch):
+    """Both are configured; a delivered Discord post should not also generate an email. An alert
+    that arrives twice trains the reader to ignore one of them."""
+    from glitch_signal.comms import discord as dc
+
+    posted, mailed = [], []
+
+    async def _post(text, *, webhook_url, **kw):
+        posted.append((text, webhook_url))
+        return True
+
+    async def _mail(**kw):
+        mailed.append(kw)
+        return "m1"
+
+    monkeypatch.setattr(dc, "post_alert", _post)
+    monkeypatch.setattr("glitch_signal.comms.email.send_email", _mail)
+    ok = await heartbeat._default_notify(brand_id="b", webhook=_HOOK, to="ops@example.test",
+                                         subject="S", text="body")
+    assert ok and len(posted) == 1 and mailed == []
+
+
+async def test_email_catches_the_alert_when_discord_fails(monkeypatch):
+    """A second channel, not an alternative: the point is that the message arrives, so one channel
+    failing must not consume the alert."""
+    from glitch_signal.comms import discord as dc
+
+    mailed = []
+
+    async def _post(text, *, webhook_url, **kw):
+        return False
+
+    async def _mail(**kw):
+        mailed.append(kw)
+        return "m1"
+
+    monkeypatch.setattr(dc, "post_alert", _post)
+    monkeypatch.setattr("glitch_signal.comms.email.send_email", _mail)
+    ok = await heartbeat._default_notify(brand_id="b", webhook=_HOOK, to="ops@example.test",
+                                         subject="S", text="body")
+    assert ok and len(mailed) == 1
+
+
+def test_a_non_webhook_string_is_not_treated_as_configured():
+    from glitch_signal.comms.discord import is_configured
+
+    assert is_configured(_HOOK)
+    assert not is_configured("")
+    assert not is_configured("set-me")
+    assert not is_configured("https://example.com/hook")

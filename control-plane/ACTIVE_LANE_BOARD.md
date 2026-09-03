@@ -81,9 +81,9 @@ edits" is measured as the diff between proposed and merged.
 ✅ **SEO-9 HEARTBEAT 2026-09-03.** `seo_heartbeat` capability + `daily-seo-heartbeat` cron (12:00 ET)
 alarms on the GAP between `seo_cycle` rows. Hosted in the CLOUD deliberately — a watcher on the Mac
 it watches dies with it. Never writes to `seo_cycle` (that would mask the gap it measures); alerts
-once per 12h; a refusal still counts as a heartbeat. ⚠️ Email delivery needs
-`GE_SEO_ALERT_EMAIL` + `RESEND_FROM` + `RESEND_API_KEY` in the cloud env — until then it logs and
-reports `stale: true` on its `scheduled_runs` row.
+once per 12h; a refusal still counts as a heartbeat. Delivery is **Discord webhook first** (`GE_SEO_ALERT_WEBHOOK`), email second
+(`GE_SEO_ALERT_EMAIL`). ⚠️ Neither is set in the cloud env yet — until one is, the check logs and
+reports `stale: true` on its `scheduled_runs` row. Setup steps in docs/vendors/seo.md.
 
 ✅ **SEO-6 CYCLE HARDENING 2026-09-03.** Closed the two failure modes the schedule shipped with.
 (1) **One post in flight** — every post inserts at the same anchor, so two open PRs always conflict;

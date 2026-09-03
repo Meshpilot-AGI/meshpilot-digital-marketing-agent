@@ -86,9 +86,11 @@ async def _raise_alarm(brand_id: str, *, reason: str, age_hours: float | None,
            "age_hours": round(age_hours, 1) if age_hours is not None else None,
            "last_outcome": (last or {}).get("outcome")}
 
+    webhook = _cfg(brand_id, "ALERT_WEBHOOK")
     to = _cfg(brand_id, "ALERT_EMAIL")
-    if not to:
-        out["detail"] = "no <PREFIX>_SEO_ALERT_EMAIL configured — logged only"
+    if not (webhook or to):
+        out["detail"] = ("no <PREFIX>_SEO_ALERT_WEBHOOK or <PREFIX>_SEO_ALERT_EMAIL configured "
+                         "— logged only")
         return out
 
     if not await _may_alert(brand_id):
@@ -103,11 +105,13 @@ async def _raise_alarm(brand_id: str, *, reason: str, age_hours: float | None,
             f"being asleep or off, or the job being unloaded. Check with:\n"
             f"  launchctl list | grep meshpilot\n"
             f"  tail /tmp/meshpilot-seo-cycle.log\n")
+    subject = f"[MeshPilot] SEO cycle stalled — {brand_id}"
     try:
         send = notify or _default_notify
-        await send(brand_id=brand_id, to=to, subject=f"[MeshPilot] SEO cycle stalled — {brand_id}",
-                   text=body)
-        out["alerted"] = True
+        out["alerted"] = bool(await send(brand_id=brand_id, webhook=webhook, to=to,
+                                         subject=subject, text=body))
+        if not out["alerted"]:
+            out["detail"] = "no channel accepted the alert"
     except Exception as exc:  # noqa: BLE001 — a monitor must not die on its own delivery
         log.warning("seo.heartbeat_alert_failed", error=str(exc)[:200])
         out["detail"] = f"alert delivery failed: {str(exc)[:120]}"
@@ -125,7 +129,23 @@ async def _may_alert(brand_id: str) -> bool:
         return True
 
 
-async def _default_notify(**kw: Any) -> str:
-    from glitch_signal.comms.email import send_email
+async def _default_notify(*, brand_id: str, webhook: str = "", to: str = "",
+                          subject: str = "", text: str = "") -> bool:
+    """Discord first, email as the fallback — and both are tried.
 
-    return await send_email(**kw)
+    Discord is preferred because a webhook needs no bot, no gateway and no inbound plumbing, and
+    because an ops alert belongs where the operator already watches. Email stays as a second channel
+    rather than an alternative: the whole point is that the message arrives, so a failure in one
+    should not consume the alert.
+    """
+    from glitch_signal.comms.discord import is_configured, post_alert
+
+    delivered = False
+    if is_configured(webhook):
+        delivered = await post_alert(f"⚠️ **{subject}**\n```\n{text}\n```", webhook_url=webhook)
+    if not delivered and to:
+        from glitch_signal.comms.email import send_email
+
+        await send_email(brand_id=brand_id, to=to, subject=subject, text=text)
+        delivered = True
+    return delivered
