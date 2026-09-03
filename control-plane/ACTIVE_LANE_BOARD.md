@@ -90,23 +90,33 @@ real post first-try (17 blocks, 6 FAQ) against the site's 85 real paths and 10 e
 autonomy by flipping a flag, the streak has to exist. `publish()` reads the earned stage rather than
 accepting one. GE stands at **S0, streak 0** — correct, because no post has settled yet.
 
-### ROUTER — dead slugs repointed, empty completions now fail   [CLOSED 2026-09-02 — PR #249]
-Result: all 12 slugs in `TIERS` return real text on a live call; an empty completion raises instead
-of being handed back as an answer.
+### ROUTER — roster live, empty completions fail, original picks restored   [CLOSED 2026-09-02 — PRs #249, #250]
+Result: all 12 slugs in `TIERS` answer on a live call; an empty completion raises instead of being
+handed back as an answer; the operator widened OpenRouter's Allowed Providers so the originally
+chosen models are back.
 
-⚠️ **Correcting the SEO-4 report on the way in: it said 7 of 12 models were unreachable. The real
-number is 4.** That first pass probed each model ONCE and read every failure as an access denial.
-`z-ai/glm-5.3` had returned "Provider returned error" — transient; it answers fine on a second call.
-A transient provider error and an access denial are different things, and conflating them
-overstated the damage and would have retired a working model. `scripts/probe_router_models.py`
-probes twice before calling anything dead.
+**The account setting was the real fix.** Adding **Azure** to Allowed Providers (Google Vertex,
+Cloudflare, Amazon Bedrock, Google AI Studio + Azure) revived `openai/gpt-5.6-sol`,
+`openai/gpt-5.6-luna` AND `deepseek/deepseek-v4-pro` — all three Azure-served. `critical` and
+`moderate` now run their original rosters.
 
-Genuinely unreachable (no allowed provider serves them for this account, which permits only
-`google-vertex, cloudflare, amazon-bedrock, google-ai-studio`): `claude-fable-5`, `openai/gpt-5.6-sol`,
-`openai/gpt-5.6-luna`, `deepseek/deepseek-v4-pro`. Pinned in `UNREACHABLE_2026_09_02` so they are not
-re-added from memory. **The alternative fix is the operator's, not the code's:** widening the
-allowed-providers setting at https://openrouter.ai/settings/privacy would restore the original
-choices instead of substituting for them.
+Still blocked, and by TWO DIFFERENT settings — worth keeping straight:
+- `moonshotai/kimi-k3` — no allowed provider serves it. An allowlist problem.
+- `anthropic/claude-fable-5` — *"0 endpoints matching your guardrails"*: the **Zero Data Retention**
+  toggle for Anthropic disables first-party Anthropic endpoints and Bedrock/Vertex don't serve it.
+  Adding a provider cannot help; only relaxing ZDR would, which is a privacy decision, not a fix.
+
+⚠️ **"Probe twice" was not enough, and the correction matters more than the roster.** `z-ai/glm-5.2`
+on Cloudflare fails roughly **1 call in 6** (measured: 6 probes → 5 ok, 1 "Provider returned error").
+Two probes would retire that working model ~3% of the time; one probe, 17%. The script now probes
+three times and reports a **rate**, not a verdict — a flaky primary is fine when the tier behind it
+is real, and alarming when it is the only live model. This is the same mistake as the SEO-4 report
+that called 7 models dead when 4 were, just one step further out.
+
+Also observed on that settings page, not changed: **"Allow paid endpoints that train on request
+data" is ON** and **"Allow 1% data discount in workspaces" is ON**. Both permit provider/OpenRouter
+use of prompts and completions. That sits oddly beside ZDR toggles set to strict, and is the
+operator's call.
 
 ### DEVVIT — a Reddit-native app for GE                                          [OPEN — scoping]
 Owner: unassigned        Opened: 2026-09-02

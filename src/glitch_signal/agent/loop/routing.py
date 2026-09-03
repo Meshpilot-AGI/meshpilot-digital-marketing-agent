@@ -33,19 +33,24 @@ import os
 # `scripts/probe_router_models.py` rather than trusting this comment.
 TIERS: dict[str, list[str]] = {
     # Third entry is deliberately NOT Anthropic: every Anthropic slug here is served by
-    # amazon-bedrock, so an all-Anthropic tier fails as one unit. `gemini-2.5-pro` comes from
-    # google-ai-studio — a genuinely independent path, which is what a fallback is for.
-    "critical": ["anthropic/claude-opus-5", "anthropic/claude-opus-4.8", "google/gemini-2.5-pro"],
+    # amazon-bedrock, so an all-Anthropic tier fails as one unit.
+    "critical": ["anthropic/claude-opus-5", "anthropic/claude-opus-4.8", "openai/gpt-5.6-sol"],
     "complex":  ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "anthropic/claude-sonnet-4.6"],
-    "moderate": ["z-ai/glm-5.2", "google/gemini-2.5-flash", "z-ai/glm-5.3-flash"],
+    "moderate": ["z-ai/glm-5.2", "openai/gpt-5.6-luna", "deepseek/deepseek-v4-pro"],
     "simple":   ["anthropic/claude-haiku-4.5", "z-ai/glm-5.3-flash", "google/gemini-2.5-flash"],
 }
 
-# Removed 2026-09-02 because no allowed provider serves them for this account. Kept by name so a
-# future session sees they were dropped deliberately rather than re-adding them from memory.
+# Still unreachable for this account, kept by name so a future session sees they were dropped
+# deliberately rather than re-adding them from memory.
+#
+# The two blocks are DIFFERENT settings and need different fixes:
+#   - `kimi-k3` is served by nobody on the Allowed Providers list (Google Vertex, Cloudflare, Amazon
+#     Bedrock, Google AI Studio, Azure) — an allowlist problem.
+#   - `claude-fable-5` fails with "0 endpoints … matching your guardrails": the Zero Data Retention
+#     toggle for Anthropic disables first-party Anthropic endpoints, and Bedrock/Vertex do not serve
+#     it. Adding a provider would not help; only relaxing ZDR would, which is a privacy decision.
 UNREACHABLE_2026_09_02 = ("anthropic/claude-fable-5", "anthropic/claude-fable-5-1",
-                          "openai/gpt-5.6-sol", "openai/gpt-5.6-luna", "moonshotai/kimi-k3",
-                          "deepseek/deepseek-v4-pro")
+                          "moonshotai/kimi-k3")
 DEFAULT_TIER = "complex"          # the main reasoning loop's default
 
 _CRITICAL_KW = ("final review", "architecture", "launch decision", "legal", "compliance", "crisis",

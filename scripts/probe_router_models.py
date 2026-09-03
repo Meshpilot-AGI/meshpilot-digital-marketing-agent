@@ -5,8 +5,12 @@ the check had confirmed the slugs EXIST on OpenRouter, not that this account can
 listed in the catalogue, and even one whose `/endpoints` names an allowed provider, can still 404 on
 every actual call — only a completion settles it.
 
-Probes twice before reporting a model dead: a one-off "Provider returned error" is transient and is
-not the same thing as an access denial.
+Probes each model THREE times and reports the success rate rather than a verdict, because "does it
+work" turned out to be the wrong question. `z-ai/glm-5.2` on Cloudflare fails roughly one call in
+six — measured, 6 consecutive probes: 5 ok, 1 "Provider returned error". Two probes would call that
+dead about 3% of the time and retire a working model; one probe would call it dead 17% of the time.
+A flake rate is the honest output, and it is also the more useful one: a flaky primary is fine when
+the tier behind it is real, and alarming when it is the only live model.
 
     uv run python scripts/probe_router_models.py
 """
@@ -25,8 +29,12 @@ _PROMPT = [{"role": "user", "content": "Reply with the single word: ok"}]
 _MAX_TOKENS = 1200
 
 
+_ATTEMPTS = 3
+
+
 async def probe(client: httpx.AsyncClient, model: str) -> tuple[str, str, str]:
-    for attempt in (1, 2):
+    ok, last = 0, ""
+    for _ in range(_ATTEMPTS):
         try:
             r = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
@@ -34,19 +42,22 @@ async def probe(client: httpx.AsyncClient, model: str) -> tuple[str, str, str]:
                 json={"model": model, "messages": _PROMPT, "max_tokens": _MAX_TOKENS})
             body = r.json()
             if body.get("error"):
-                if attempt == 1:
-                    continue
-                return model, "DEAD", (body["error"].get("message") or "")[:70]
+                last = (body["error"].get("message") or "")[:70]
+                continue
             choice = (body.get("choices") or [{}])[0]
             msg = choice.get("message") or {}
             if (msg.get("content") or "").strip():
-                return model, "LIVE", f"finish={choice.get('finish_reason')}"
-            return model, "EMPTY", (f"finish={choice.get('finish_reason')} "
-                                    f"reasoning={len(msg.get('reasoning') or '')}")
+                ok += 1
+            else:
+                last = (f"empty: finish={choice.get('finish_reason')} "
+                        f"reasoning={len(msg.get('reasoning') or '')}")
         except Exception as exc:  # noqa: BLE001
-            if attempt == 2:
-                return model, "ERROR", str(exc)[:70]
-    return model, "ERROR", "unreachable"
+            last = str(exc)[:70]
+    if ok == _ATTEMPTS:
+        return model, "LIVE", f"{ok}/{_ATTEMPTS}"
+    if ok:
+        return model, "FLAKY", f"{ok}/{_ATTEMPTS} — {last}"
+    return model, "DEAD", last or "no successful call"
 
 
 async def main() -> int:
@@ -57,9 +68,9 @@ async def main() -> int:
             for model, status, detail in await asyncio.gather(
                     *[probe(client, m) for m in models]):
                 print(f"   {status:<6} {model:<34} {detail}")
-                bad += status != "LIVE"
+                bad += status == "DEAD"
     if bad:
-        print(f"\n{bad} model(s) are not usable — a tier with one live model has no fallback.")
+        print(f"\n{bad} model(s) never answered — a tier whose fallbacks are dead has none.")
     return 1 if bad else 0
 
 
