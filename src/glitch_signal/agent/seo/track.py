@@ -280,3 +280,49 @@ async def settle_open(brand_id: str, *, repo: str, agent_logins: tuple[str, ...]
 
     log.info("seo.settled_batch", brand_id=brand_id, **out)
     return out
+
+
+# ── cycle visibility (SEO-6) ────────────────────────────────────────────────────────────────────
+#
+# The scheduled cycle's only output was a log file on one machine that nothing reads, so a silent
+# failure looked exactly like a quiet day — both produce no PR. Every run now leaves a row, refusals
+# included, and the alarm is the GAP between rows rather than any single bad one.
+
+_CYCLE = text(
+    "INSERT INTO seo_cycle (brand_id, ok, outcome, detail, slug, pr_url, settled) "
+    "VALUES (:brand_id, :ok, :outcome, :detail, :slug, :pr_url, CAST(:settled AS jsonb))"
+)
+
+_LAST_CYCLES = text(
+    "SELECT ran_at, ok, outcome, detail, slug, pr_url FROM seo_cycle "
+    "WHERE brand_id = :brand_id ORDER BY ran_at DESC LIMIT :limit"
+)
+
+
+async def record_cycle(brand_id: str, *, ok: bool, outcome: str, detail: str = "",
+                       slug: str = "", pr_url: str = "", settled: dict | None = None,
+                       engine: Any = None) -> bool:
+    """Record what one cycle did. Never raises into the cycle — bookkeeping must not break the job."""
+    try:
+        eng = _engine_or(engine)
+        async with eng.begin() as conn:
+            await conn.execute(_CYCLE, {
+                "brand_id": brand_id, "ok": ok, "outcome": outcome, "detail": detail[:2000],
+                "slug": slug, "pr_url": pr_url, "settled": json.dumps(settled or {}),
+            })
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.warning("seo.cycle_record_failed", outcome=outcome, error=str(exc)[:200])
+        return False
+
+
+async def recent_cycles(brand_id: str, *, limit: int = 10, engine: Any = None) -> list[dict]:
+    """The last few cycles, newest first. What someone checks when asking "is it still running?"."""
+    try:
+        eng = _engine_or(engine)
+        async with eng.connect() as conn:
+            return [dict(r) for r in (await conn.execute(
+                _LAST_CYCLES, {"brand_id": brand_id, "limit": limit})).mappings().all()]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("seo.recent_cycles_failed", error=str(exc)[:200])
+        return []

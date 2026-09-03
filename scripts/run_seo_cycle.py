@@ -88,16 +88,36 @@ async def main() -> int:
     ap.add_argument("--settle-only", action="store_true")
     args = ap.parse_args()
 
+    from glitch_signal.agent.seo import track
+
     settled = await run.run_settle(args.brand)
     print("settle:", json.dumps(settled, default=str))
     if args.settle_only:
+        await track.record_cycle(args.brand, ok=True, outcome="settle_only", settled=settled)
         return 0
 
-    published = await run.run_publish(args.brand, {"dry_run": args.dry_run,
-                                                   **({"topic": args.topic} if args.topic else {})})
+    try:
+        published = await run.run_publish(args.brand, {"dry_run": args.dry_run,
+                                                       **({"topic": args.topic} if args.topic else {})})
+    except Exception as exc:  # noqa: BLE001
+        # The cycle itself broke. Recorded as `ok=False` so it is distinguishable from a refusal —
+        # the whole point of the row is that silence and failure used to look identical.
+        print("publish: FAILED", exc)
+        await track.record_cycle(args.brand, ok=False, outcome="error", detail=str(exc),
+                                 settled=settled)
+        raise
+
     print("publish:", json.dumps(published, default=str))
-    # A refusal is a normal outcome here (disabled, no repo, no topic, duplicate slug) — it is not an
-    # error, and exiting non-zero would make a scheduler mail about routine quiet days.
+    outcome = ("published" if published.get("published")
+               else "author_failed" if published.get("authored") is False
+               else "refused")
+    await track.record_cycle(
+        args.brand, ok=True, outcome=outcome,
+        detail=str(published.get("skipped") or published.get("reason") or "")[:500],
+        slug=str(published.get("slug") or ""), pr_url=str(published.get("pr_url") or ""),
+        settled=settled)
+    # A refusal is a normal outcome here (disabled, no repo, nothing to say, a post already in
+    # flight) — not an error, and exiting non-zero would make a scheduler mail about quiet days.
     return 0
 
 

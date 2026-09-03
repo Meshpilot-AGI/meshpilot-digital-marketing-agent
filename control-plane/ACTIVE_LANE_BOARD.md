@@ -78,6 +78,13 @@ the PR path either way.
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **SEO-6 CYCLE HARDENING 2026-09-03.** Closed the two failure modes the schedule shipped with.
+(1) **One post in flight** — every post inserts at the same anchor, so two open PRs always conflict;
+#559 could not be rebased and had to be re-applied by hand. `run_publish` now refuses with
+`post_in_flight` while anything is unsettled. (2) **Every cycle leaves a row** (`seo_cycle`,
+refusals included) — the only output was a log file nothing read, so a silent 06:40 failure and a
+quiet day were indistinguishable. The alarm is the gap between rows.
+
 ✅ **FIRST TWO POSTS LIVE 2026-09-03.** glitch-trade-app#558 and #565 (replacing #559, which could
 not rebase — both posts insert at the same anchor) are merged to `main`. Settled **honestly: 1 human
 edit each, streak 0**, because both needed a substantive correction before they were fit to publish.

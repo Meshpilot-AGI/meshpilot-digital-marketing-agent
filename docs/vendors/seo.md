@@ -154,3 +154,26 @@ Requiring **all** content words rather than a fraction is deliberate: a partial 
 "enforces a weekend cutoff tied to the firm rule" through on the strength of sharing "firm" with
 "records each firm's published rules". Declaring every inflection would also have worked, and would
 have grown a list nobody could maintain.
+
+## Two failure modes the schedule had, and how they are closed
+
+**One post in flight.** Every post is inserted at the same anchor — the top of the `blog` array — so
+two open PRs always conflict with each other. #558 and #559 both landed on it, and #559 could not be
+rebased at all; its content had to be re-applied onto `main` by hand. `run_publish` now refuses with
+`post_in_flight` while any post is unsettled. That removes the conflict class rather than teaching
+the publisher to resolve it, and costs nothing real: waiting on review is the normal state at S0, and
+the cadence is one post a day against a review loop measured in days.
+
+**Every cycle leaves a row.** `seo_cycle` records each run — refusals included — so a failure is a
+query rather than a log grep:
+
+```sql
+select ran_at, ok, outcome, detail from seo_cycle
+where brand_id = 'glitch_executor' order by ran_at desc limit 10;
+```
+
+or `track.recent_cycles(brand_id)`. **The alarm is the GAP between rows**, not any single bad one: a
+refusal is normal and `ok=false` means the cycle itself broke. Before this, the only output was a log
+file on one machine that nothing read, so a silent failure at 06:40 and a quiet day were
+indistinguishable — both produce no PR. That is the same "looks healthy, does nothing" shape the
+cloud schedule was rejected for, and it had been reintroduced on the Mac.

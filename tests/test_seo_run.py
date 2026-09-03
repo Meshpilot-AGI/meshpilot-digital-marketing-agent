@@ -162,3 +162,43 @@ def test_the_real_sitemap_yields_the_real_url_vocabulary():
     assert len(links) > 50
     assert "/tools/firm-drawdown-calculator" in links      # the path the model once invented
     assert "/tools/drawdown-calculator" not in links       # what it invented instead
+
+
+# ── one post in flight (SEO-6) ──
+async def test_a_post_awaiting_review_blocks_the_next_one(monkeypatch, repo):
+    """Every post inserts at the same anchor — the top of the array — so two open PRs always
+    conflict. #558 and #559 both landed on it and #559 could not be rebased at all. Serialising
+    removes the conflict class instead of teaching the publisher to resolve it."""
+    from glitch_signal.agent.seo import track
+
+    async def _open(brand_id, **kw):
+        return [{"slug": "already-open", "pr_url": "https://example.test/pr/1"}]
+
+    monkeypatch.setattr(track, "unsettled", _open)
+    res = await run.run_publish("b", {"repo": repo})
+    assert res["skipped"] == "post_in_flight"
+    assert res["waiting_on"] == ["https://example.test/pr/1"]
+
+
+async def test_nothing_in_flight_lets_the_cycle_proceed(monkeypatch, repo):
+    from glitch_signal.agent.seo import track
+
+    async def _none(brand_id, **kw):
+        return []
+
+    monkeypatch.setattr(track, "unsettled", _none)
+    monkeypatch.setattr(run, "pick_topic", _dummy_topic)
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
+    res = await run.run_publish("b", {"repo": repo, "dry_run": True})
+    assert res.get("authored") is True
+
+
+async def test_a_dry_run_without_a_brand_does_not_query_for_open_prs(monkeypatch, repo):
+    """No brand means no track record to consult — a harness run should not need a database."""
+    monkeypatch.setattr(run, "pick_topic", _dummy_topic)
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
+    res = await run.run_publish("", {"repo": repo, "dry_run": True})
+    assert res.get("skipped") != "post_in_flight"
+    assert res.get("authored") is True

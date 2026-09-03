@@ -169,6 +169,20 @@ async def run_publish(brand_id: str, args: dict | None = None) -> dict:
         return {"skipped": "no_sitemap",
                 "detail": "cannot read the site's URL vocabulary — would invent internal links"}
 
+    # ⚠️ ONE POST IN FLIGHT. Every post is inserted at the same anchor — the top of the array — so
+    # two open PRs always conflict with each other: #558 and #559 both landed on it, and #559 could
+    # not be rebased at all. Serialising removes the conflict class rather than teaching the
+    # publisher to resolve it, and it costs nothing real: a post waiting on review is the normal
+    # state at S0, and the cadence is one post a day against a review loop measured in days.
+    from glitch_signal.agent.seo import track
+
+    open_prs = await track.unsettled(brand_id) if brand_id else []
+    if open_prs:
+        return {"skipped": "post_in_flight",
+                "detail": f"{len(open_prs)} post(s) awaiting review; a second insert at the same "
+                          f"anchor would conflict",
+                "waiting_on": [r.get("pr_url") or r.get("slug") for r in open_prs][:5]}
+
     slugs, titles = existing_posts(repo, blog_file)
     audience = _cfg(brand_id, "AUDIENCE") or args.get("audience", "")
     positioning = await _positioning.get(brand_id)
