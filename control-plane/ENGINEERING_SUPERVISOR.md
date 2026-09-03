@@ -2541,3 +2541,35 @@ scheduler loop that did not exist, and three consecutive versions of one alert c
 
 The recurring correction is narrow and worth stating plainly: **"it parses", "it deploys" and "the
 tests pass" are not evidence about the path in question.** Only running that path is.
+
+
+## SEO-13c — the alert step, fixed four times — 2026-09-03
+
+`DISCORD_ALERT_WEBHOOK` is set (read from the encrypted `agent_secret` store, never printed), and a
+forced-failure run posted to `#alerts`:
+
+```
+Ask the API whether cron is still sweeping   failure   <- threshold forced
+Say so in Discord                            success   <- posted
+```
+
+**The setting of the secret was itself blocked by a bug I had already fixed elsewhere.**
+`gh secret set` 403'd twice — because `GITHUB_TOKEN` was exported from `.env` in that shell and `gh`
+prefers it over the keyring. That is exactly the defect fixed in `run_seo_cycle.py` hours earlier
+("gh reads BOTH GITHUB_TOKEN and GH_TOKEN, and either overrides its keyring login"), walked into
+again from the other side. `env -u GITHUB_TOKEN gh …` worked immediately.
+
+**Four fixes to one step, and the first three each looked correct when made:**
+
+| # | problem | caught by |
+|---|---|---|
+| 1 | `env.HOOK` on the step's OWN env | re-reading it — parses, runs, silently never fires |
+| 2 | `secrets.…` in a step `if` | GitHub 422 on dispatch (workflow would not load) |
+| 3 | job-level env, correct guard | forced-failure run showing `skipped` |
+| 4 | default `Python-urllib` UA → Discord 403 | forced-failure run **with the secret set** |
+
+Each verification stage only exposed the next problem, and #4 could not have been found any other
+way: the same webhook posts fine from the API, because httpx sends its own User-Agent. **An alert
+path is the one component whose failure is invisible by construction** — it fails only when something
+else is already wrong, and nobody is watching the watcher. Forcing it to fire on demand is not a
+nicety; it is the only way to know.
