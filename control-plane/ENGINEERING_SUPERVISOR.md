@@ -2497,3 +2497,47 @@ sat there looking wired, failing only on the day an alert actually mattered.
 
 Notably the workflow ran on push and failed in 0s both times, which is the parse error being *loud*.
 Version 1 would not even have done that.
+
+
+## SEO-13b — the watchdog, proven on both paths — 2026-09-03
+
+**Healthy path** (`workflow_dispatch`, run 33748263109, success in 10s):
+
+```
+http=200
+{"status":"ok",...,"scheduler":{"cron_enabled":true,"last_run_age_s":563,"worst_overdue_s":0}}
+worst_overdue_s=0 cron_enabled=True
+scheduler healthy
+```
+
+**Alarm path** (run 33748434546, `max_overdue_s=-1`, failure in 10s):
+
+```
+Set up job                              success
+Ask the API whether cron is sweeping    failure     <- threshold breached, as forced
+Say so in Discord                       skipped     <- no webhook secret; guard works
+Complete job                            success
+```
+
+**The healthy path passing tells you nothing about whether the unhealthy one fires**, which is why
+the threshold is a dispatch input: an alarm nobody can test on demand is an alarm nobody can trust,
+and this one had already been silently broken twice. The skipped Discord step is the third-attempt
+`env.HOOK != ''` guard doing its job — unconfigured degrades to skipped, not to an error.
+
+**Remains:** `DISCORD_ALERT_WEBHOOK` is not set as an Actions secret — the available token 403s on
+`actions/secrets`. Until the operator adds it, a failing watchdog notifies through GitHub only. That
+is a deliberate fallback rather than a gap: it needs no secret, which is the property an alerting
+path of last resort should have.
+
+---
+
+### The shape of this session, worth carrying forward
+
+Nineteen of the defects fixed today lived on a path no test exercised, and each surfaced the first
+time that path actually ran: the dead model tier (an empty completion returned as an answer), the
+dirty repo after a failed commit, the first real settle that wrote nothing and reported success, the
+scheduler loop that did not exist, and three consecutive versions of one alert condition. The
+`index.lock` failure was the single most useful event of the day.
+
+The recurring correction is narrow and worth stating plainly: **"it parses", "it deploys" and "the
+tests pass" are not evidence about the path in question.** Only running that path is.
