@@ -95,6 +95,21 @@ async def _run(cmd: str, cwd: str) -> tuple[int, str]:
     return proc.returncode or 0, (out or b"").decode(errors="replace")[-4000:]
 
 
+# `index.lock` means another git process held the repo for a moment — a `git pull` in another shell,
+# an editor, a hook. Observed live: a cycle authored a post, passed all four gates, and then died on
+# a lock that was gone seconds later. That is a race, not a failure, and it deserves one retry.
+_LOCK_RETRY_S = 3.0
+
+
+async def _run_git(cmd: str, cwd: str, runner: Callable) -> tuple[int, str]:
+    code, out = await runner(cmd, cwd)
+    if code != 0 and "index.lock" in out:
+        log.info("seo.git_lock_retry", cmd=cmd)
+        await asyncio.sleep(_LOCK_RETRY_S)
+        code, out = await runner(cmd, cwd)
+    return code, out
+
+
 async def run_gates(repo: str, gates=DEFAULT_GATES, *, runner: Callable | None = None) -> tuple[dict, str]:
     """Run the site's verification gates. Returns `({name: passed}, first_failure_output)`.
 
@@ -164,7 +179,27 @@ async def publish(
     if not all(res.gates.values()):
         res.reason = f"verification gate failed: {failure[:400]}"
         # Leave the working tree as the gate found it — a human debugging a typecheck failure needs
-        # the file that produced it, not a reverted repo.
+        # the file that produced it, not a reverted repo. No branch has been created yet, so the
+        # only residue is one modified file on the branch the cycle started on.
+        return res
+
+    # The branch to come back to if anything below fails. Without this a failed git step left the
+    # repo dirty AND parked on the lane branch — observed live — which poisons the NEXT cycle: it
+    # reads a `blog.ts` that already contains the post, refuses it as a duplicate slug, and would
+    # have committed onto the wrong branch if it had not. A publisher that fails must leave the repo
+    # exactly as it found it.
+    code, out = await runner("git rev-parse --abbrev-ref HEAD", repo)
+    origin_branch = out.strip().splitlines()[-1] if code == 0 and out.strip() else ""
+
+    async def _abandon(reason: str) -> PublishResult:
+        res.reason = reason
+        for cmd in (f"git checkout -- {blog_file}",
+                    f"git switch {origin_branch}" if origin_branch else "",
+                    f"git branch -D {branch}"):
+            if cmd:
+                await runner(cmd, repo)
+        log.warning("seo.publish_abandoned", slug=post.slug, reason=reason[:200],
+                    restored_to=origin_branch)
         return res
 
     branch = f"{branch_prefix}/{post.slug}"[:100]
@@ -174,16 +209,21 @@ async def publish(
                 f"git commit -m {shlex.quote(f'content: {post.title}')} "
                 f"-m {shlex.quote(AGENT_COMMIT_MARKER)}",
                 f"git push -u origin {branch}"):
-        code, out = await runner(cmd, repo)
+        code, out = await _run_git(cmd, repo, runner)
         if code != 0:
-            res.reason = f"git step failed ({cmd}): {out[:300]}"
-            return res
+            return await _abandon(f"git step failed ({cmd}): {out[:300]}")
 
     code, out = await runner(
         f"gh pr create --base main --title {shlex.quote(post.title)} "
         f"--body {shlex.quote(_pr_body(post, res.gates, stage))}", repo)
     if code != 0:
-        res.reason = f"pr creation failed: {out[:300]}"
+        # The branch is pushed and the commit is good; only the PR is missing. Deleting the remote
+        # branch would throw away work a human can still open a PR from, so the local repo is
+        # restored and the remote branch is left, named in the reason.
+        if origin_branch:
+            await runner(f"git switch {origin_branch}", repo)
+        res.reason = (f"pr creation failed: {out[:300]} — branch {branch} is pushed, "
+                      f"open the PR by hand or delete it")
         return res
     res.pr_url = out.strip().splitlines()[-1] if out.strip() else ""
     res.ok = True
@@ -206,6 +246,14 @@ async def publish(
             log.info("seo.auto_merged", slug=post.slug, stage=stage, url=res.pr_url)
     else:
         log.info("seo.pr_opened_awaiting_human", slug=post.slug, url=res.pr_url)
+
+    # Return to the branch the cycle started on, SUCCESS included. Left on the lane branch, the next
+    # cycle branches from it rather than from `main` — so today's post would silently become the
+    # base of tomorrow's. Nothing catches that until two posts are stacked in one PR.
+    if origin_branch:
+        code, out = await runner(f"git switch {origin_branch}", repo)
+        if code != 0:
+            log.warning("seo.branch_restore_failed", branch=origin_branch, out=out[:200])
     return res
 
 
