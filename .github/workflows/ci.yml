@@ -1,22 +1,34 @@
 name: CI
-# Drift-aware checks that run ON PUSH to `production` (the single trunk) — not on
-# feature branches or PRs. A `changes` job diffs the push and runs only what drifted:
+# Drift-aware checks that run as a PR GATE on pull requests into `production`.
+# A `changes` job diffs the PR against its base and runs only what drifted:
 #   - API code changed  -> import smoke + pytest
 #   - DB changed         -> apply the full Alembic chain to a throwaway Postgres
 #   - web/ changed       -> Next.js build (type-checks the frontend)
 #   - gateway/ changed   -> docker build the gateway image + py_compile bridge.py
 #   - only docs/logs     -> nothing runs, fast pass.
-# (FastAPI Cloud also deploys on this push; run the full suite locally before merging.)
-# The gateway auto-deploys from `production` too: Railway watches THIS branch with
-# watch paths = `gateway/**`, so it redeploys the gateway only when a push changed
-# `gateway/`, and (wait-for-CI) gates on this same commit's gateway check.
-# (The old `gateway-production` deploy branch was retired 2026-08-30.)
+#
+# ⚠️ THIS USED TO RUN ON PUSH TO `production`, which meant it validated code that had
+# ALREADY merged and already begun deploying. A red run told you the trunk was broken;
+# it could not stop it. Running the same checks on the PR makes them a gate instead of a
+# report, and the cost is the same minutes spent a few seconds earlier.
+#
+# Merging still triggers the real deploys — FastAPI Cloud for the API, Railway for the
+# gateway (watch paths `gateway/**`) — and those failing is the signal that something got
+# through. Deploy is the second line, not the first.
+#
+# Kept on push as well, deliberately: a PR that was green against a stale base can still
+# break the trunk once other PRs land ahead of it. The PR run is the gate; the push run is
+# the truth about what is actually on `production`.
 on:
+  pull_request:
+    branches: [production]
   push:
     branches: [production]
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: false
+  # Per PR (or per push), so a new commit supersedes the run it replaced. Push runs on the
+  # trunk are never cancelled — that run is the record of what production actually is.
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Least privilege: every job only reads the repo (checkout + tests + build).
 permissions:
@@ -33,12 +45,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0   # need the pre-push commit to diff against
+          fetch-depth: 0   # need a base commit to diff against
       - id: filter
         env:
           BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+          # A PR diffs against its BASE, not against the previous commit: the interesting
+          # question is "what does this change introduce to production", and on a branch with
+          # several commits HEAD~1 answers a much narrower one.
+          if [ -n "$BASE_SHA" ]; then
+            base="$BASE_SHA"
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
             base="HEAD~1"
           else
             base="$BEFORE"
