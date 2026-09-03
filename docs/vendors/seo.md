@@ -200,13 +200,33 @@ A test asserts this.
 
 | Setting | Meaning |
 |---|---|
-| `<PREFIX>_SEO_ALERT_EMAIL` | where the alert goes. **Unset → logged only**, which is the state today |
-| `<PREFIX>_RESEND_FROM` or `RESEND_FROM` | the From address `send_email` requires |
-| `RESEND_API_KEY` | Resend credential |
+| `<PREFIX>_SEO_ALERT_WEBHOOK` | **Discord webhook URL — the preferred channel.** A webhook needs no bot, no gateway and no inbound plumbing, and the alert lands where the operator already watches |
+| `<PREFIX>_SEO_ALERT_EMAIL` | second channel, tried when Discord does not deliver |
+| `<PREFIX>_RESEND_FROM` or `RESEND_FROM` | the From address `send_email` requires (email path only) |
+| `RESEND_API_KEY` | Resend credential (email path only) |
 | `max_gap_hours` job arg | default 30 — a day plus slack, so a late run is not a page |
 
-Without the email config the check still runs, still logs `seo.heartbeat_stale`, and still returns
-`stale: true` onto its `scheduled_runs` row — so the state is visible, just not pushed.
+Email is a **second** channel, not an alternative: the point is that the message arrives, so a
+failure in one must not consume the alert. A *delivered* Discord post skips email — an alert that
+arrives twice trains the reader to ignore one of them.
+
+With neither configured the check still runs, still logs `seo.heartbeat_stale`, and still returns
+`stale: true` onto its `scheduled_runs` row — visible, just not pushed.
+
+⚠️ **The webhook URL is a credential.** Anyone holding it can post as that channel, so it is never
+logged, never echoed into a result dict, and never included in an error message — failures report the
+HTTP status, never the target. A placeholder value reads as *not configured* rather than as a broken
+channel, so a half-finished setup degrades to "logged only" instead of failing every run.
+
+### Setting up the Discord alerts channel
+
+1. In the MeshPilot control-plane server, create a private channel — e.g. `#alerts`.
+2. Channel settings → **Integrations → Webhooks → New Webhook**, name it `MeshPilot`, copy the URL.
+3. Set `GE_SEO_ALERT_WEBHOOK` to that URL in the **FastAPI Cloud** env (the heartbeat runs in the
+   cloud, not on the Mac). `env set` is create-only — delete and recreate to change it.
+
+The gateway in `gateway/` is deliberately **not** involved: it is the inbound direction (chat →
+agent), and an alert must not depend on the thing it might be alerting about.
 
 It alerts **once per 12h per brand** (a `SharedWindowLimiter` over `rate_counters`). The watcher runs
 on its own schedule, so without that a single stale cycle would page on every firing, and an alert

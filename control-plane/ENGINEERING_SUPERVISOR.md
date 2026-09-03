@@ -2300,3 +2300,39 @@ stale when evaluated 40h forward (`no SEO cycle in 40.1h (threshold 30h)`). 994 
 CLOUD env — none is set locally and cloud secrets are not readable from here. Until they are, the
 check still runs, still logs `seo.heartbeat_stale`, and still returns `stale: true` onto its
 `scheduled_runs` row, so the state is visible but not pushed.
+
+
+## SEO-10 — a Discord channel for alerts — 2026-09-03
+
+**Built:** `comms/discord.py` (`post_alert`, `is_configured`) and a two-channel notify in the
+heartbeat: **Discord webhook first, email second**.
+
+**A webhook, not the bot and not the gateway.** It needs no token, no inbound plumbing and no extra
+service, and the alert lands where the operator already watches. The gateway in `gateway/` is
+deliberately not involved: it is the INBOUND direction (chat → agent), and **an alert must not depend
+on the thing it might be alerting about**.
+
+**Email is a second channel, not an alternative.** The point is that the message arrives, so one
+channel failing must not consume the alert — but a *delivered* Discord post skips email, because an
+alert that arrives twice trains the reader to ignore one of them.
+
+**Three failure-shaped decisions:**
+
+- `post_alert` **never raises**. An alerting path that throws takes down the monitor calling it — the
+  one component that must survive whatever it is reporting on.
+- Messages are **truncated to 1900 chars**. Discord rejects a body over 2000 outright, and an alert
+  too long to send is an alert that does not arrive.
+- `is_configured` requires a real `discord.com/api/webhooks/` URL, so a **placeholder left in the env
+  reads as "not configured"** rather than as a broken channel — a half-finished setup degrades to
+  "logged only" instead of failing every run.
+
+⚠️ **The webhook URL is a credential** — never logged, never echoed into a result dict, never in an
+error message. Failures report the HTTP status, never the target.
+
+**Verified:** 1003 pass / 1 skip (+9), including that a delivered Discord post does not also email,
+that email catches the alert when Discord fails, and that a 401 or a network error returns False
+rather than raising.
+
+**Remains:** the channel and webhook do not exist yet — creating them is three steps in the Discord
+UI (documented), and `GE_SEO_ALERT_WEBHOOK` then goes in the CLOUD env, since the heartbeat runs
+there rather than on the Mac.
