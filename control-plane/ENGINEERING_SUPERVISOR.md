@@ -1767,3 +1767,46 @@ they are on the board as their own lane.
 **Remains:** no schedule is created — the capabilities are schedulable but nothing schedules them;
 `seo_publish` has never run non-dry against the live repo, so `seo_publication` still holds no rows
 and GE is still S0 with an empty streak.
+
+
+## ROUTER — the fallback that wasn't, and the empty answer that hid it — 2026-09-02
+
+**Built:** repointed `routing.TIERS` at models this account can actually reach; made an empty
+completion a failure in `llm._chat`; added `scripts/probe_router_models.py`; three roster invariants
+and eight tests on the empty-completion contract.
+
+**An empty completion was being returned as an answer.** A reasoning model given a budget sized for
+the ANSWER spends it all on thinking and returns `content: null` with `finish_reason: "length"`.
+`_from_openai_response` produced zero blocks, `_text()` joined them to `""`, and the caller carried
+on. That is *how an entire tier stayed broken without anyone noticing* — nothing raised, nothing
+logged, callers just silently got nothing.
+
+Now: **budget exhaustion earns exactly one retry** at a larger budget (floor 1500, ceiling 8000),
+because that cause is mechanically identifiable and mechanically fixable. An empty response for any
+**other** reason raises immediately, naming the model, stop reason, budget and output tokens — an
+unexplained empty answer is a failure, not a result. A response carrying only a `tool_call` is a real
+answer and passes untouched; the check is "nothing came back", not "no prose came back".
+
+**Verified live:** `complete_messages(tier="moderate", max_tokens=50)` — the exact call that used to
+return `''` — now logs `llm.empty_completion_retry model=z-ai/glm-5.2 reasoning_tokens=50
+retry_with=1500` and returns `'ok'`.
+
+**⚠️ The SEO-4 report said 7 of 12 models were unreachable. The real number is 4.** That pass probed
+each model once and read every failure as an access denial. `z-ai/glm-5.3` had failed with "Provider
+returned error" — transient; it answers fine on a second call. A transient provider error is not an
+access denial, and conflating them both overstated the damage and would have retired a working model.
+The probe script now probes twice before calling anything dead. Genuinely unreachable:
+`claude-fable-5`, `openai/gpt-5.6-sol`, `openai/gpt-5.6-luna`, `deepseek/deepseek-v4-pro` — pinned in
+`UNREACHABLE_2026_09_02` so a future session does not re-add them from memory.
+
+**An existing test caught a bad first fix.** `test_tiers_span_more_than_one_provider` rejected an
+all-Anthropic `critical` tier: every Anthropic slug here is served by amazon-bedrock, so the tier
+would fail as one unit. Third slot is now `google/gemini-2.5-pro` (google-ai-studio) — a genuinely
+independent path, which is the entire point of a fallback.
+
+**Verified:** `scripts/probe_router_models.py` — **all 12 LIVE**, exit 0. Suite **937 pass / 1 skip**
+(+11).
+
+**Remains:** the roster substitutes for the originally-chosen models; **widening the OpenRouter
+allowed-providers setting is the operator's alternative** and would restore them. Nothing yet alerts
+when a tier's model count of *reachable* models drops — the probe is a script someone must run.

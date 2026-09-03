@@ -90,38 +90,23 @@ real post first-try (17 blocks, 6 FAQ) against the site's 85 real paths and 10 e
 autonomy by flipping a flag, the streak has to exist. `publish()` reads the earned stage rather than
 accepting one. GE stands at **S0, streak 0** — correct, because no post has settled yet.
 
-### ROUTER — the fallback chain is fiction, and one tier was silently dead   [OPEN — measured]
-Owner: unassigned        Opened: 2026-09-02
-Reading: `src/glitch_signal/agent/loop/routing.py`, `llm.complete_messages`
-Acceptance: every tier has at least one reachable fallback; an empty completion is an error.
-Write-back: docs/plans (new), control-plane/ENGINEERING_SUPERVISOR.md
+### ROUTER — dead slugs repointed, empty completions now fail   [CLOSED 2026-09-02 — PR #249]
+Result: all 12 slugs in `TIERS` return real text on a live call; an empty completion raises instead
+of being handed back as an answer.
 
-Found while wiring SEO-4, by probing all 12 slugs in `TIERS` against the live account:
+⚠️ **Correcting the SEO-4 report on the way in: it said 7 of 12 models were unreachable. The real
+number is 4.** That first pass probed each model ONCE and read every failure as an access denial.
+`z-ai/glm-5.3` had returned "Provider returned error" — transient; it answers fine on a second call.
+A transient provider error and an access denial are different things, and conflating them
+overstated the damage and would have retired a working model. `scripts/probe_router_models.py`
+probes twice before calling anything dead.
 
-| tier | reachable | dead |
-|---|---|---|
-| critical | `anthropic/claude-opus-5` | `claude-fable-5`, `openai/gpt-5.6-sol` |
-| complex | `anthropic/claude-sonnet-5` | `z-ai/glm-5.3`, `moonshotai/kimi-k3` |
-| moderate | `z-ai/glm-5.2` | `openai/gpt-5.6-luna`, `deepseek/deepseek-v4-pro` |
-| simple | all three | — |
-
-**7 of 12 are unreachable** — the OpenRouter account's *allowed-providers* privacy setting permits
-only `google-vertex, cloudflare, amazon-bedrock, google-ai-studio`, and those models are served by
-nobody on that list. So **critical, complex and moderate each run on a single model with nothing
-behind it**, while `routing.py` documents "native fallback" and the roster is annotated *"Verified
-live on OpenRouter 2026-08-30"*. That verification checked that the slugs exist, not that this
-account can reach them.
-
-**Separately: an empty completion is treated as a successful one.** `moderate`'s live model is a
-REASONING model; asked for a one-line answer inside a 50-token budget it spends the whole budget
-thinking and returns `content: null` / `finish_reason: "length"`. Our adapter turns that into `""`
-and returns it as an answer. Measured: 50 tokens → `''`; 400 tokens → `'ok'` after 267 reasoning
-tokens. This is very likely the root of the known *"deliberation returns empty"* symptom — which was
-recorded as cloud-only and is **not**: it reproduces locally. SEO-4 worked around it with a budget
-that covers the thinking (`_TOPIC_MAX_TOKENS = 1200`); the adapter defect is untouched.
-
-**Two fixes, both real decisions:** repoint the dead slugs at models this account can actually reach,
-and make a `finish_reason: "length"` with empty content fail over instead of returning `""`.
+Genuinely unreachable (no allowed provider serves them for this account, which permits only
+`google-vertex, cloudflare, amazon-bedrock, google-ai-studio`): `claude-fable-5`, `openai/gpt-5.6-sol`,
+`openai/gpt-5.6-luna`, `deepseek/deepseek-v4-pro`. Pinned in `UNREACHABLE_2026_09_02` so they are not
+re-added from memory. **The alternative fix is the operator's, not the code's:** widening the
+allowed-providers setting at https://openrouter.ai/settings/privacy would restore the original
+choices instead of substituting for them.
 
 ### DEVVIT — a Reddit-native app for GE                                          [OPEN — scoping]
 Owner: unassigned        Opened: 2026-09-02

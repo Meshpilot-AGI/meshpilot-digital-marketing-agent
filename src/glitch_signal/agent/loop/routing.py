@@ -16,13 +16,36 @@ from __future__ import annotations
 
 import os
 
-# task tier -> ordered OpenRouter model slugs (best first). Verified live on OpenRouter 2026-08-30.
+# task tier -> ordered OpenRouter model slugs (best first).
+#
+# ⚠️ **"Verified" means a real completion came back, not that the slug exists.** The previous roster
+# was annotated "verified live 2026-08-30" and four of its twelve entries could not be called at all:
+# this account's OpenRouter *allowed-providers* setting permits only `google-vertex, cloudflare,
+# amazon-bedrock, google-ai-studio`, and those models are served by nobody on that list. A model that
+# 404s on every call is not a fallback, so `critical` and `moderate` were each running on a single
+# model with nothing behind them while this module advertised native failover.
+#
+# Also: probe TWICE before calling a model dead. `z-ai/glm-5.3` failed one probe with "Provider
+# returned error" — transient, and it answers fine — which is a different thing from an access
+# denial and must not be treated as one.
+#
+# Every slug below returned real text on a live call, 2026-09-02. Re-probe with
+# `scripts/probe_router_models.py` rather than trusting this comment.
 TIERS: dict[str, list[str]] = {
-    "critical": ["anthropic/claude-opus-5", "anthropic/claude-fable-5", "openai/gpt-5.6-sol"],
-    "complex":  ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "moonshotai/kimi-k3"],
-    "moderate": ["z-ai/glm-5.2", "openai/gpt-5.6-luna", "deepseek/deepseek-v4-pro"],
+    # Third entry is deliberately NOT Anthropic: every Anthropic slug here is served by
+    # amazon-bedrock, so an all-Anthropic tier fails as one unit. `gemini-2.5-pro` comes from
+    # google-ai-studio — a genuinely independent path, which is what a fallback is for.
+    "critical": ["anthropic/claude-opus-5", "anthropic/claude-opus-4.8", "google/gemini-2.5-pro"],
+    "complex":  ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "anthropic/claude-sonnet-4.6"],
+    "moderate": ["z-ai/glm-5.2", "google/gemini-2.5-flash", "z-ai/glm-5.3-flash"],
     "simple":   ["anthropic/claude-haiku-4.5", "z-ai/glm-5.3-flash", "google/gemini-2.5-flash"],
 }
+
+# Removed 2026-09-02 because no allowed provider serves them for this account. Kept by name so a
+# future session sees they were dropped deliberately rather than re-adding them from memory.
+UNREACHABLE_2026_09_02 = ("anthropic/claude-fable-5", "anthropic/claude-fable-5-1",
+                          "openai/gpt-5.6-sol", "openai/gpt-5.6-luna", "moonshotai/kimi-k3",
+                          "deepseek/deepseek-v4-pro")
 DEFAULT_TIER = "complex"          # the main reasoning loop's default
 
 _CRITICAL_KW = ("final review", "architecture", "launch decision", "legal", "compliance", "crisis",

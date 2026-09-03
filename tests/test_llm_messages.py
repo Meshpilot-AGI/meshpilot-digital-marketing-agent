@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from glitch_signal.agent import llm as agent_llm
 from glitch_signal.agent.loop import llm as loop_llm
+from glitch_signal.agent.loop import routing
 
 
 class _Resp:
@@ -97,7 +98,7 @@ async def test_complete_tools_translates_defs_and_response(monkeypatch):
     assert c.posted["tools"][0] == {"type": "function",
                                     "function": {"name": "a", "description": "A",
                                                  "parameters": {"type": "object", "properties": {}}}}
-    assert c.posted["models"] == ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "moonshotai/kimi-k3"]  # complex tier
+    assert c.posted["models"] == routing.TIERS["complex"]  # complex tier
     assert c.posted["messages"][0] == {"role": "system",
         "content": [{"type": "text", "text": "S", "cache_control": {"type": "ephemeral"}}]}  # loop prefix cached
     assert "output_config" not in c.posted
@@ -154,7 +155,7 @@ async def test_chat_routes_through_router_by_default(monkeypatch):
         tier="smart", client=c)
     assert out == "hi"
     # smart tier → ROUTER complex tier (quality-first list + native fallback)
-    assert c.posted["models"] == ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "moonshotai/kimi-k3"]
+    assert c.posted["models"] == routing.TIERS["complex"]
     assert c.posted["messages"] == [{"role": "system", "content": "S"}, {"role": "user", "content": "write X"}]
 
 
