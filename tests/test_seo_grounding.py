@@ -162,3 +162,50 @@ def test_the_negation_window_does_not_swallow_a_real_claim():
     """A wide negation window would start excusing the claims this exists to catch."""
     p = _post(blocks=[{"type": "p", "text": "This is not a small point. Most firms require one."}])
     assert generate.unsupported_generalisations(p, "") == ["most firms"]
+
+
+# ── the declared list, as shipped ──
+def _shipped_caps():
+    """Read the capabilities GE actually ships with, from the launchd job that runs the cycle."""
+    import pathlib
+    import plistlib
+
+    d = plistlib.loads(pathlib.Path("deploy/com.meshpilot.seo-cycle.plist").read_bytes())
+    env = d["EnvironmentVariables"]
+    return ([t.strip() for t in env["GE_SEO_BRAND_TERMS"].split(",") if t.strip()],
+            [c.strip() for c in env["GE_SEO_CAPABILITIES"].split(",") if c.strip()])
+
+
+def test_the_shipped_list_rejects_the_claim_that_started_this():
+    terms, caps = _shipped_caps()
+    p = _post(blocks=[{"type": "p", "text":
+        "Glitch Executor's engine treats a weekend cutoff as a pre-trade and pre-close condition "
+        "and can block a new order before it reaches the broker."}])
+    assert generate.unverified_product_claims(p, brand_terms=terms, capabilities=caps)
+
+
+def test_the_shipped_list_rejects_order_routing_while_it_is_switched_off():
+    """TRADE_EXEC_BROKER_ROUTING_ENABLED=false in prod. When that flips, this test should be
+    updated in the same change as the capability — that is the point of pinning it."""
+    terms, caps = _shipped_caps()
+    p = _post(blocks=[{"type": "p", "text":
+        "Glitch Executor routes your orders straight through to your broker."}])
+    assert generate.unverified_product_claims(p, brand_terms=terms, capabilities=caps)
+
+
+def test_the_shipped_list_rejects_the_news_blackout_claim():
+    """The same shape as the weekend one: block_minutes_around_news is stored per firm and never
+    emitted as a gate rule. Found while writing the allowlist, not by review."""
+    terms, caps = _shipped_caps()
+    p = _post(blocks=[{"type": "p", "text":
+        "Glitch Executor enforces a news blackout window around high-impact releases."}])
+    assert generate.unverified_product_claims(p, brand_terms=terms, capabilities=caps)
+
+
+def test_the_shipped_list_permits_what_the_product_really_does():
+    terms, caps = _shipped_caps()
+    for text in ("Glitch Executor records each firm's published rules with a dated source.",
+                 "Glitch Executor compares firms side by side on drawdown and daily loss.",
+                 "Glitch Executor calculates drawdown against a firm's rules."):
+        assert generate.unverified_product_claims(
+            _post(blocks=[{"type": "p", "text": text}]), brand_terms=terms, capabilities=caps) == [], text

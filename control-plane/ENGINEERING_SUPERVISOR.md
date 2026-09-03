@@ -1987,3 +1987,36 @@ ignored.
 **Remains:** `_RULE_TOPICS` is a hand-kept phrase map — a rule we hold data for but have not listed
 gets no distribution. The generalisation regex is a heuristic on a fixed phrase list. And GE's
 capability list must be declared before the product-claim check does anything for it.
+
+
+## SEO — GE's capabilities declared, and a second dormant field found doing it — 2026-09-03
+
+**Declared** `GE_SEO_BRAND_TERMS` and `GE_SEO_CAPABILITIES` in the launchd job, **derived from the
+code, not from the marketing site**, with the reasons for every exclusion written down in
+`docs/vendors/seo.md`. Four tests read the shipped plist so the list itself is pinned, not just the
+mechanism.
+
+**Writing the allowlist found a second defect of exactly the first one's shape.**
+`block_minutes_around_news` is stored per firm, served to the UI, and **never emitted as a gate
+rule** — identical to `hold_over_weekend`. Nobody had noticed; it surfaced only because declaring
+what a product does forces someone to go and check. That is the argument for the allowlist in one
+line: the cost is a list to maintain, and the return is that somebody has to verify each entry.
+
+**What was deliberately left out, and why it matters more than what went in:**
+
+| Not claimable | Evidence |
+|---|---|
+| routes orders to your broker | `TRADE_EXEC_BROKER_ROUTING_ENABLED=false` in `infra/prod/ecs.tf`; the router records the decision and returns `broker_routing_not_configured` without POSTing. `TRADE_EXEC_DEMO_ONLY=true` would restrict it to demo accounts even if switched on. |
+| blocks your order before it reaches the broker | Same. The gate evaluates and records, but nothing is armed in prod (`armed=0 evaluated=0 emitted=0 routed=0`) — no order is being stopped for anyone today. |
+| enforces a weekend cutoff | catalogue data, never read as a condition |
+| enforces a news blackout | the second instance, found here |
+| any pass/profit outcome | the program forbids outcome promises; YMYL-adjacent |
+
+⚠️ **This narrows what the agent may say about the product below what the site currently implies.**
+The middle two rows are close to a flagship claim, and the honest position today is that the
+execution path is built, demo-gated and switched off. When routing is armed those rows become
+claimable — move the note rather than deleting it, so a later reader can see the claim was gated on
+evidence rather than never considered.
+
+**Verified:** the shipped list rejects the original weekend sentence, the routing claim and the news
+claim, and passes the three things GE genuinely does. 959 pass / 1 skip (+4).
