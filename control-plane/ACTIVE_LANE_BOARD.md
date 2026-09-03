@@ -78,6 +78,14 @@ the PR path either way.
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **ARMED + LIVE 2026-09-02.** `AGENT_SEO_ENABLED=true` in the launchd job. A full headless cycle
+ran end to end: settle saw PR #558 still open and correctly left it alone → topic picked → authored
+first attempt (16 blocks, 6 FAQ) → **all four site gates passed** → **PR #559 opened at S0 awaiting
+human**. Two real posts now open on `glitch-trade-app` (#558, #559), both unsettled, GE still S0
+streak 0 — correct, nothing has merged. ⚠️ **The router fix earned its keep in production**: that run
+logged `llm.empty_completion_retry model=z-ai/glm-5.2 max_tokens=1200 retry_with=4800` — without
+#249 the topic pick would have silently returned "" and the cycle would have logged `no_topic`.
+
 ✅ **SCHEDULED 2026-09-02.** `nightly-surfaces-sync` created in the agent's own cron (03:15 ET,
 between curate 03:00 and reconcile 03:30) — TARGET-3's capability had shipped unscheduled. The SEO
 cycle is a **launchd job on the Mac instead** (`deploy/com.meshpilot.seo-cycle.plist`, 06:40 local):
