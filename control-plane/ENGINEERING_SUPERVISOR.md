@@ -2179,3 +2179,29 @@ gate wording, news blackout, guaranteed pass, an unrelated invention). 971 pass 
 
 **Remains:** nothing is armed (`armed=0`), so no order has actually been routed — enabled is not the
 same as happening, and the docs say so.
+
+
+## SEO-6 — closing the two failure modes the schedule shipped with — 2026-09-03
+
+**Built:** `supabase/migrations/20260903030000_seo_cycle.sql`, `track.record_cycle` /
+`recent_cycles`, and a `post_in_flight` refusal in `run_publish`.
+
+**1. One post in flight.** Every post is inserted at the same anchor — the top of the `blog` array —
+so two open PRs always conflict with each other. That is not hypothetical: #558 and #559 both landed
+on it, #559 could not be rebased at all, and its content had to be re-applied onto `main` by hand.
+`run_publish` now refuses while any post is unsettled. **Removing the conflict class beats teaching
+the publisher to resolve conflicts**, and it costs nothing real — waiting on review is the normal
+state at S0, and the cadence is one post a day against a review loop measured in days.
+
+**2. Every cycle leaves a row.** The schedule's only output was a log file on one machine that
+nothing reads, so a silent failure at 06:40 and a quiet day were **indistinguishable — both produce
+no PR**. That is the same "looks healthy, does nothing" shape the cloud schedule was rejected for,
+reintroduced on the Mac by the fix for it. `seo_cycle` records every run including refusals, and the
+alarm is the **gap between rows** rather than any single bad one; `ok=false` separates a broken cycle
+from a normal refusal. The script records on the exception path too, so a crash is a row rather than
+a silence.
+
+**Verified:** migration applied against the real Supabase Postgres inside a transaction and rolled
+back — 4 statements, 9 columns, prod untouched. 974 pass / 1 skip (+3).
+
+**Remains:** nothing yet *reads* `seo_cycle` on a schedule — the gap is queryable, not alarmed.
