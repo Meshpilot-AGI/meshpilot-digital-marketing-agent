@@ -49,6 +49,8 @@ which is useful on its own, and declines to publish. Per-brand, via the brand's 
 | `<PREFIX>_SEO_BLOG_FILE` | default `src/data/blog.ts` |
 | `<PREFIX>_SEO_AUDIENCE` | who the post is for |
 | `<PREFIX>_SEO_AUTHOR` | byline slug — a real person's attribution, never model-chosen |
+| `<PREFIX>_SEO_BRAND_TERMS` | csv of names that mean *us* (e.g. `Glitch Executor`). Empty disables the product-claim check — no declaration, no protection. |
+| `<PREFIX>_SEO_CAPABILITIES` | csv of what the product actually does. A sentence about us that matches none of these is rejected. |
 | `<PREFIX>_SEO_AGENT_LOGINS` | csv of the agent's own GitHub logins. **Commits by anyone else count as human edits**, which is what gates promotion out of S0 — get this wrong and the agent either never earns autonomy or earns it falsely. |
 
 ⚠️ **Without a readable sitemap the cycle refuses rather than authoring.** With no URL vocabulary the
@@ -84,3 +86,28 @@ fails.
 If `gh pr create` fails after the push, the branch stays on the remote with no PR and no
 `seo_publication` row. The failure is named in the result, but nothing cleans up — deleting a pushed
 branch automatically is riskier than leaving one for a human.
+
+## What the generator checks, and why each one exists
+
+Every check below was added because something got past the ones before it.
+
+| Check | Catches | Added after |
+|---|---|---|
+| editorial contract | structure — lede length, H2 count, FAQ count, links across clusters | designed up front |
+| `unsupported_figures` | a percentage that appears in no verified fact | first live generation |
+| `unsupported_links` | an internal path the sitemap does not have | `/tools/drawdown-calculator` |
+| **`unsupported_generalisations`** | an invented *consensus* — "most firms", "almost every" | a post claiming most challenges require minimum trading days, when 2 of 6 live firms do |
+| **`unverified_product_claims`** | a claim about **our own product** that we have not declared | a post saying the engine blocks orders on a weekend cutoff; it does not |
+| **`dead_sources`** | a citation that 404s | a CFTC URL that looks authoritative and does not resolve |
+
+⚠️ **The product-claim check is the one nothing else could do.** Figure-grounding checks numbers, the
+contract checks structure, and no external source can confirm what our own code does. A brand
+declares its capabilities; a sentence about the brand that matches none of them is rejected rather
+than published. It costs a declaration to maintain, and that is the price of the guarantee.
+
+⚠️ **Grounding a rule-topic post uses a different query than grounding a firm post.**
+`publishable` governs whether a threshold may be QUOTED — the sentinel zeros are unpublishable
+because "0 minimum profitable days" reads as a threshold rather than an absence. But when the
+question is *how common* a rule is, those zeros are the fact. `rules_for_distribution()` therefore
+reads past `publishable` and renders an absence as "no requirement". Counting only the publishable
+rows reports "2 of 2 firms have one" — grounding that is worse than silence.

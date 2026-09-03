@@ -1935,3 +1935,55 @@ Suite 937 pass / 1 skip.
 **Remains:** the PAT cannot open PRs until its permissions are widened, so the job depends on this
 Mac's `gh` keyring; nothing monitors the launchd log; and a `gh pr create` failure leaves an orphan
 remote branch with no PR and no row (named in the result, not cleaned up).
+
+
+## SEO-5 — grounding the claims that had nothing checking them — 2026-09-03
+
+**Built:** `firms.rules_for_distribution` / `distribution_block` / `rule_keys_for_topic`;
+`generate.unsupported_generalisations`, `unverified_product_claims`, `dead_sources`, all three wired
+into the repair loop; `<PREFIX>_SEO_BRAND_TERMS` / `_CAPABILITIES`. Corrected the live post in
+glitch-trade-app#558.
+
+Reviewing the first two real posts found three holes. Each was replayed against the actual posts, not
+only a fixture: **the bad post flags four sweeping claims plus the dead source; the corrected one
+flags nothing.**
+
+**1. Grounding was triggered by firm NAMES, so rule-explainer posts got nothing.** `facts_for()`
+returned `""` for any topic naming no firm — which is most rule posts, and exactly the ones prone to
+sweeping claims. The post asserted *"most challenges require a minimum number of trading days"*; our
+own table says 2 of 6 live firms. No percentage appeared, so `unsupported_figures` never looked.
+Fixed by supplying the **distribution** — every live firm's position plus the counts.
+
+⚠️ **The first version of that fix was actively harmful, and only checking the output caught it.**
+It reused `publishable_rules()`, which excludes the sentinel zeros — so it reported *"2 of 2 firms
+have a requirement"*, the opposite of the truth and worse than silence. `publishable` governs whether
+a threshold may be QUOTED ("0 minimum profitable days" reads as a threshold rather than an absence);
+it must not govern COUNTING, where absence is the fact. `rules_for_distribution()` reads past it and
+renders absence as "no requirement", while still excluding firms whose STATUS is caveated
+(`pending-relaunch`) — a firm not currently selling should not move a claim about what firms require
+today.
+
+**2. Nothing checked claims about OUR OWN product — the most dangerous kind.** The weekend-cutoff
+claim was plausible because its parts were real: a per-firm `hold_over_weekend` field exists, the
+pre-trade gate really does block orders pre-broker, and the model invented the connection. Verified
+against the code: `execution/gate.py` emits `already_breached`, `challenge_risk`, `daily_loss`,
+`day_stop`, `day_taper_stop`, `drawdown` — none time-of-week — and there is no `if …
+hold_over_weekend` anywhere in `api/src`, `src` or `shared`. Figure-grounding checks numbers, the
+contract checks structure, and no external source can confirm what our own code does; so a brand
+declares its capabilities and an undeclared claim about the brand is rejected.
+
+**3. A citation was never checked for existing.** The contract demanded an external primary source
+and rejected a bare domain, but not a 404 — and a citation that looks authoritative and does not
+resolve is worse than none.
+
+**Two design calls worth recording.** `check_sources` defaults to **False**: a default that silently
+makes network calls turns every unit test into an integration test, so `run.py` — the production
+caller — opts in. And a **negated** generalisation is skipped: *"a firm-by-firm decision, not an
+industry standard"* is the post getting it right, and a check that cries wolf on correct writing gets
+ignored.
+
+**Verified:** 955 pass / 1 skip (+18). Both real posts replayed through the new checks.
+
+**Remains:** `_RULE_TOPICS` is a hand-kept phrase map — a rule we hold data for but have not listed
+gets no distribution. The generalisation regex is a heuristic on a fixed phrase list. And GE's
+capability list must be declared before the product-claim check does anything for it.
