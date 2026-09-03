@@ -1865,3 +1865,32 @@ a model without a line of code changing — exactly the class of failure this la
 in this repo. Two of them — *Allowed Providers* and *Data Training* — gate every slug, and a change to
 either silently changes what the agent can call. The probe takes about a minute and is cheaper than
 discovering it from an empty completion in production.
+
+
+## CRON — the SEO loop is scheduled, but not where the scheduler lives — 2026-09-02
+
+**Created:** `nightly-surfaces-sync` in the agent's own cron (`glitch_executor`, 03:15 ET,
+`surfaces_sync` limit 10). TARGET-3 shipped that capability and nothing had ever scheduled it, so
+surfaces were only ever re-scored by hand.
+
+**The SEO cycle is deliberately NOT in the agent's cron.** `seo_publish` and `seo_settle` both need a
+git checkout of the site repo; publish additionally needs its npm toolchain and a `gh` that can open
+a PR. The API's runtime has none of those, so a cloud schedule would return `no_repo` on every fire —
+**a job that looks healthy and does nothing, which is worse than no job.** It runs instead from the
+host that has the checkout: `deploy/com.meshpilot.seo-cycle.plist` (launchd, 06:40 local) driving
+`scripts/run_seo_cycle.py`.
+
+**Settle runs before publish, every cycle.** `publish()` reads its stage from the track record, so
+publishing first would author at a stale stage — wasteful at S0, and at S1 it would mean self-merging
+on evidence that has since been contradicted.
+
+**Verified by running it, not by installing it:** `launchctl start com.meshpilot.seo-cycle` →
+`seo.settled_batch checked=0`, `settle: {... "stage": "S0", "reason": "no settled posts yet"}`,
+`publish: {"skipped": "seo_disabled"}`, exit 0. The settle half is live against the real DB; the
+publish half is inert until `AGENT_SEO_ENABLED` is set. A refusal exits 0 on purpose — a scheduler
+should not mail about routine quiet days.
+
+**Remains:** `AGENT_SEO_ENABLED` is unset, so nothing publishes yet; `seo_publication` still has no
+rows and GE is S0 with an empty streak. Nothing monitors the launchd job — its only output is
+`/tmp/meshpilot-seo-cycle.log`, which no alert reads. And the whole SEO path depends on this Mac
+being awake at 06:40.
