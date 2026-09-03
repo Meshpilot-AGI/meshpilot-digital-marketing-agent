@@ -1894,3 +1894,44 @@ should not mail about routine quiet days.
 rows and GE is S0 with an empty streak. Nothing monitors the launchd job — its only output is
 `/tmp/meshpilot-seo-cycle.log`, which no alert reads. And the whole SEO path depends on this Mac
 being awake at 06:40.
+
+
+## SEO — armed, and the first two posts are real PRs — 2026-09-02
+
+**Armed:** `AGENT_SEO_ENABLED=true` in the launchd job. Two posts now open on `glitch-trade-app`:
+**#558** (`weekend-holding-rules-friday-close-automation`) and **#559**
+(`minimum-trading-days-why-early-profit-target-still-fails`). Both at S0, awaiting a human, both
+recorded unsettled. GE remains **S0, streak 0** — correct: nothing has merged.
+
+**Two layers of the same mistake, both found by running it rather than reasoning about it.**
+
+1. **launchd inherits nothing from a shell.** `node`/`npm` live under `~/.local/node/bin`, not
+   `~/.local/bin`, so the plist's plausible-looking PATH would have failed the site's gates with
+   "npm: not found". Then the first armed run died on `OPENROUTER_API_KEY not set`: `settings()`
+   reads `.env` through pydantic, but `llm._key()` reads `os.environ` directly, and subprocesses get
+   only what the process hands them. **The earlier "verified by running it" pass proved nothing about
+   any of this, because the kill-switch refused before the code that needed it was reached.** A test
+   that stops short of the code under test is not evidence about that code.
+
+2. **`gh` reads BOTH `GITHUB_TOKEN` and `GH_TOKEN`, and either overrides its keyring login.** Fixing
+   (1) by loading `.env` into the environment therefore replaced a working `gh` auth with the
+   operator's new fine-grained PAT — which could not open PRs. The cycle authored a real post, passed
+   all four gates, pushed the branch, then died on `gh pr create`: *"not all refs are readable"*.
+   My first fix — opt in via `GH_TOKEN` — **did not work**, because `gh` was reading `GITHUB_TOKEN`
+   directly; it took a skip-list over both keys. ⚠️ The PAT returns `"admin": true` on a REST repo
+   read and still cannot open a PR: a fine-grained token needs **Contents: read/write** AND
+   **Pull requests: read/write**, and repo admin is not that.
+
+**The router fix earned its keep in production.** The successful run logged
+`llm.empty_completion_retry model=z-ai/glm-5.2 max_tokens=1200 retry_with=4800`. Without #249 the
+topic pick would have received `""` and the cycle would have reported `no_topic` — the exact silent
+failure that hid a dead tier for weeks, caught and recovered live.
+
+**Verified:** full headless cycle under launchd — settle saw #558 still open and left it alone
+(guessing an outcome would either invent a clean record or destroy a real streak), authored on the
+first attempt, `typecheck ✅ lint ✅ schemas ✅ links ✅`, PR opened, `seo_publication` row written.
+Suite 937 pass / 1 skip.
+
+**Remains:** the PAT cannot open PRs until its permissions are widened, so the job depends on this
+Mac's `gh` keyring; nothing monitors the launchd log; and a `gh pr create` failure leaves an orphan
+remote branch with no PR and no row (named in the result, not cleaned up).

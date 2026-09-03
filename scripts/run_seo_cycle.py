@@ -23,9 +23,61 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import pathlib
 import sys
 
-from glitch_signal.agent.seo import run
+# ⚠️ `gh` authenticates from EITHER of these, and either one OVERRIDES its own keyring login. So
+# simply loading `.env` into the environment silently replaced a working `gh` auth with a token that
+# could not open PRs: the first armed cycle authored a real post, passed all four site gates, pushed
+# the branch, and then died on `gh pr create` with "not all refs are readable". Opting in via
+# GH_TOKEN alone was not enough — GITHUB_TOKEN had to stop being exported too, which is why this is a
+# skip-list rather than a flag on one variable.
+#
+# A fine-grained PAT needs **Contents: read/write** AND **Pull requests: read/write** on the target
+# repo. Repo-level `admin: true` in the REST response is NOT the same thing and is not sufficient.
+# `settings.github_token` still reads `.env` through pydantic, so Scout is unaffected by the skip.
+_GH_AUTH_KEYS = ("GITHUB_TOKEN", "GH_TOKEN")
+
+
+def _use_token() -> bool:
+    """Opt in once the PAT actually carries those permissions."""
+    return os.environ.get("SEO_USE_GITHUB_TOKEN", "").strip().lower() in ("1", "true", "yes")
+
+
+def _load_env() -> None:
+    """Put the repo's `.env` into the process environment before anything reads it.
+
+    ⚠️ **launchd inherits NOTHING from a shell** — no profile, no exports. `settings()` reads `.env`
+    through pydantic, but plenty of code reads `os.environ` directly (`llm._key()` for one), and the
+    `gh` and `npm` subprocesses get only what this process hands them. Under launchd that meant
+    `OPENROUTER_API_KEY not set` on the very first armed run, from a cycle that had "passed" its
+    earlier test — because the kill-switch had refused before any of this was reached. A test that
+    stops short of the code under test proves nothing about it.
+
+    Secrets stay in the gitignored `.env`, never in the committed plist. Real environment wins, so a
+    scheduler or an operator can still override any single value.
+    """
+    env_file = pathlib.Path(__file__).resolve().parent.parent / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key in _GH_AUTH_KEYS and not _use_token():
+            # NOT exported. See below — `gh` reads BOTH of these itself.
+            continue
+        os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+    if _use_token() and os.environ.get("GITHUB_TOKEN") and not os.environ.get("GH_TOKEN"):
+        os.environ["GH_TOKEN"] = os.environ["GITHUB_TOKEN"]
+
+
+_load_env()
+
+from glitch_signal.agent.seo import run  # noqa: E402 — must follow _load_env()
 
 
 async def main() -> int:

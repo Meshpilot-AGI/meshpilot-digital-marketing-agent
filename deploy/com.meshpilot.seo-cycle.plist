@@ -31,8 +31,12 @@
 
   <key>EnvironmentVariables</key>
   <dict>
+    <!-- node/npm live under ~/.local/node/bin here, NOT ~/.local/bin. launchd does not read a
+         shell profile, so a PATH that merely looks plausible fails the site's gates with
+         "npm: not found" — and the first run never caught it, because the kill-switch refused
+         before the gates ran. -->
     <key>PATH</key>
-    <string>/Users/tejaskaranagrawal/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <string>/Users/tejaskaranagrawal/.local/bin:/Users/tejaskaranagrawal/.local/node/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>GE_SEO_REPO_PATH</key>
     <string>/Users/tejaskaranagrawal/dev/glitch-executor/glitch-trade-app</string>
     <key>GE_SEO_AUDIENCE</key>
@@ -42,6 +46,10 @@
          falsely. -->
     <key>GE_SEO_AGENT_LOGINS</key>
     <string>floating-astronaut</string>
+    <!-- ARMED 2026-09-02. At S0 this opens a PR for a human to merge; it cannot self-merge until
+         the track record earns S1. Unset this to stand it down — settle keeps running. -->
+    <key>AGENT_SEO_ENABLED</key>
+    <string>true</string>
   </dict>
 
   <!-- 06:40 local. After the site's own nightly audit, and well clear of the agent's 03:00-03:30

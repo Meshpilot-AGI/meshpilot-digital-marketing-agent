@@ -61,3 +61,26 @@ as an invented figure.
 Stage is **derived from the track record, never configured** — see `agent/seo/track.py`. S0 opens a
 PR for a human; S1 (five consecutive posts merged with zero human edits) self-merges; S2 after ten
 clean self-merges. Gates run at every stage including S2: autonomy removes the human, not the checks.
+
+## Headless auth — the trap this actually hit
+
+`gh` authenticates from **`GITHUB_TOKEN` or `GH_TOKEN`**, and **either one overrides its own keyring
+login.** So loading `.env` into the process environment silently replaced a working `gh` auth with a
+PAT that could not open PRs. The armed cycle authored a real post, passed all four site gates, pushed
+the branch — and died on `gh pr create` with *"not all refs are readable"*, leaving an orphan branch
+and no PR.
+
+`scripts/run_seo_cycle.py` therefore **skips both keys** when loading `.env`, unless
+`SEO_USE_GITHUB_TOKEN=true`. `settings.github_token` still reads the value through pydantic, so
+Scout is unaffected.
+
+A fine-grained PAT for this job needs **Contents: read/write** and **Pull requests: read/write** on
+the target repo. ⚠️ Repo-level `"admin": true` in the REST response is **not** the same thing and is
+not sufficient — the REST repo read returns 200 with admin permissions while `gh pr create` still
+fails.
+
+## Known rough edge
+
+If `gh pr create` fails after the push, the branch stays on the remote with no PR and no
+`seo_publication` row. The failure is named in the result, but nothing cleans up — deleting a pushed
+branch automatically is riskier than leaving one for a human.
