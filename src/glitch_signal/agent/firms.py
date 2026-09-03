@@ -117,3 +117,93 @@ def mentioned(text_blob: str) -> list[str]:
         if alias in low and _ALIASES[alias] not in hits:
             hits.append(_ALIASES[alias])
     return hits
+
+
+# ── rule-topic grounding (SEO-5) ────────────────────────────────────────────────────────────────
+#
+# `rules_block` answers "what are THIS firm's numbers". A post about a RULE rather than a firm asks a
+# different question — "how common is this requirement" — and nothing answered it, so the model
+# answered from its priors. It wrote *"most challenges require a minimum number of trading days"*
+# while our own table holds a minimum for 2 of 7 firms. The claim carried no percentage, so the
+# figure check never looked at it, and no firm was named, so no facts were supplied at all.
+#
+# The distribution IS the fact. Grounding a rule-topic post means handing the model the spread.
+
+_RULE_TOPICS: dict[str, tuple[str, ...]] = {
+    "min_profitable_days": ("minimum trading day", "minimum profitable day", "min trading day",
+                            "trading days", "profitable days", "day count"),
+    "max_drawdown": ("drawdown", "trailing", "max loss"),
+    "daily_loss": ("daily loss", "daily limit", "daily drawdown"),
+    "profit_target": ("profit target", "profit goal"),
+    "payout_cadence": ("payout", "withdraw"),
+}
+
+
+def rule_keys_for_topic(topic: str) -> list[str]:
+    """Which rule_keys a topic is about, when it names no firm."""
+    t = (topic or "").lower()
+    return sorted({key for key, phrases in _RULE_TOPICS.items() if any(p in t for p in phrases)})
+
+
+async def rules_for_distribution(rule_keys: list[str], *, engine: Any = None) -> list[dict]:
+    """Every LIVE firm's row for these rules — publishable or not.
+
+    ⚠️ Deliberately does NOT use `publishable_rules()`, and the distinction is the whole point.
+    `publishable` governs whether a threshold may be QUOTED: the zeros are flagged unpublishable
+    because "0 minimum profitable days" is a misleading way to state a threshold (same family as the
+    "every 0 days" defect). But for asking HOW COMMON a rule is, the absence IS the fact — those
+    zeros are precisely what refutes "most firms require one". Counting only the publishable rows
+    would have reported "2 of 2 firms have a requirement" and made the grounding actively worse than
+    silence.
+
+    Firms whose STATUS is caveated (e.g. `pending-relaunch`) are excluded from the denominator: a
+    firm that is not currently selling should not shift a claim about what firms require today.
+    """
+    try:
+        eng = engine or _engine()
+        async with eng.connect() as conn:
+            rows = (await conn.execute(
+                text("SELECT firm_name, rule_key, value_num, value_text, caveat, firm_status, as_of "
+                     "FROM firm_rule WHERE rule_key = ANY(:keys) "
+                     "  AND (firm_status IS NULL OR firm_status = 'live') "
+                     "ORDER BY rule_key, firm_name"),
+                {"keys": list(rule_keys)})).mappings().all()
+        return [dict(r) for r in rows]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("firms.distribution_lookup_failed", error=str(exc)[:200])
+        return []
+
+
+def _has_requirement(row: dict) -> bool:
+    """A sentinel zero means the firm has NO such rule — it is data, not a missing value."""
+    return float(row.get("value_num") or 0) > 0
+
+
+def distribution_block(rows: list[dict], rule_keys: list[str]) -> str:
+    """Every live firm's position on these rules, plus the counts that make a claim checkable.
+
+    Counts are stated explicitly rather than left for the model to derive: "2 of 6 firms require one"
+    is the sentence that stops "most firms require one" from being written. A firm with no
+    requirement is rendered as *"no requirement"* — never as "0 minimum profitable days", the
+    phrasing that made these rows unpublishable in the first place.
+    """
+    rows = [r for r in rows if r.get("rule_key") in set(rule_keys)]
+    if not rows:
+        return ""
+    lines = ["\n--- HOW COMMON IS THIS RULE (every live firm we have verified data for) ---"]
+    for key in rule_keys:
+        group = [r for r in rows if r["rule_key"] == key]
+        if not group:
+            continue
+        have = [r for r in group if _has_requirement(r)]
+        lines.append(f"\n{key}: {len(have)} of {len(group)} firms have one.")
+        for r in group:
+            value = (str(r["value_text"]) if _has_requirement(r) and not _degenerate(r.get("value_text"))
+                     else "no requirement")
+            lines.append(f"- {r['firm_name']}: {value} (as of {r['as_of']})")
+    lines.append(
+        "\nThese counts are the ONLY basis for saying how common a rule is. Do NOT write 'most "
+        "firms', 'almost every', 'nearly all', 'the industry standard' or similar unless the counts "
+        "above support it — and where they do, state the count rather than the impression."
+    )
+    return "\n".join(lines) + "\n"

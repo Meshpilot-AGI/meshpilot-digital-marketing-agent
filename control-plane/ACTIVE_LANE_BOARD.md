@@ -78,6 +78,13 @@ the PR path either way.
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **SEO-5 GROUNDING 2026-09-03.** Reviewing the first two real posts found three holes, each now
+closed and each replayed against the actual posts: an invented **consensus** ("most challenges
+require a minimum number of trading days" — our data says 2 of 6 live firms), an unverified claim
+about **our own product** (the engine "blocks a new order" on a weekend cutoff — the gate emits six
+rules, none time-of-week), and a **citation that 404s**. Replay: the bad post flags 4 sweeping claims
++ the dead source; the good post flags nothing.
+
 ✅ **ARMED + LIVE 2026-09-02.** `AGENT_SEO_ENABLED=true` in the launchd job. A full headless cycle
 ran end to end: settle saw PR #558 still open and correctly left it alone → topic picked → authored
 first attempt (16 blocks, 6 FAQ) → **all four site gates passed** → **PR #559 opened at S0 awaiting

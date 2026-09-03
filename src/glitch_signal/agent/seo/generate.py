@@ -203,6 +203,102 @@ def unsupported_figures(post: Post, facts_block: str) -> list[str]:
     return sorted(f for f in found if f.replace(" ", "") not in norm)
 
 
+# Sweeping claims about how the market behaves. Each of these asserts a distribution, and a
+# distribution is checkable — we hold one. The post that prompted this wrote "almost every challenge
+# structure pairs a profit target with a minimum number of trading days"; the count is 2 of 6.
+_GENERALISATIONS = re.compile(
+    r"\b(most (?:firms|challenges|prop firms|providers)|almost every|nearly all|virtually all|"
+    r"the (?:vast )?majority of (?:firms|challenges)|every (?:firm|challenge)|all (?:firms|challenges)|"
+    r"industry[- ]standard|the industry standard|standard across the industry)\b", re.I)
+
+# Negations immediately before a generalisation invert it. Deliberately a short window and a small
+# list: this is a heuristic, and a wide one would start swallowing the claims it exists to catch.
+_NEGATED = re.compile(r"\b(not|isn'?t|aren'?t|never|rather than|no)\s+(an?\s+|the\s+)?$", re.I)
+
+
+def unsupported_generalisations(post: Post, facts_block: str) -> list[str]:
+    """Claims about how common something is, in a post that was given no distribution to back them.
+
+    Only fires when the facts block carries NO counts — with a distribution in hand the model has
+    what it needs, and the counts are stated there for it to quote. This is the qualitative sibling
+    of `unsupported_figures`: that one catches an invented number, this catches an invented
+    consensus, and until now nothing caught the second.
+    """
+    if "firms have one." in facts_block or "of the firms" in facts_block:
+        return []
+    prose = " ".join(str(b.get("text") or "") for b in post.blocks)
+    prose += " " + post.lede + " " + post.tldr
+    prose += " " + " ".join(str(q.get("a", "")) for q in post.faq)
+    found = set()
+    for m in _GENERALISATIONS.finditer(prose):
+        # A NEGATED generalisation is the claim we want. "It's a firm-by-firm decision, not an
+        # industry standard" is the post getting this right, and flagging it would spend a repair
+        # round making a correct sentence worse — a check that cries wolf gets ignored.
+        if _NEGATED.search(prose[max(0, m.start() - 40):m.start()]):
+            continue
+        found.add(m.group(0).lower())
+    return sorted(found)
+
+
+def unverified_product_claims(post: Post, *, brand_terms: list[str],
+                              capabilities: list[str]) -> list[str]:
+    """Sentences claiming OUR product does something, where the capability is not on the allowlist.
+
+    ⚠️ The most dangerous claim in a brand's own post is the one about the brand. A shipped post said
+    our engine "treats a weekend cutoff as a pre-trade and pre-close condition" and "can block a new
+    order" on that basis. It does not: the pre-trade gate emits six rules and none is time-of-week.
+    It was plausible precisely because the parts were real — a per-firm weekend field exists, the
+    gate really does block orders pre-broker — and the model invented the connection between them.
+
+    Nothing else can catch this. Figure-grounding checks numbers, the contract checks structure, and
+    an external source cannot confirm what our own code does. So capabilities are declared, and a
+    verb applied to us that is not declared is flagged for a human rather than published.
+    """
+    if not brand_terms:
+        return []
+    allowed = [c.lower() for c in capabilities]
+    prose = " ".join(str(b.get("text") or "") for b in post.blocks)
+    prose += " " + " ".join(str(q.get("a", "")) for q in post.faq)
+    flagged: list[str] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", prose):
+        low = sentence.lower()
+        if not any(t.lower() in low for t in brand_terms):
+            continue
+        if any(c in low for c in allowed):
+            continue
+        flagged.append(sentence.strip()[:220])
+    return flagged
+
+
+async def dead_sources(post: Post, fetch: Any = None) -> list[str]:
+    """StatCallout source URLs that do not resolve.
+
+    The contract already requires an external primary source and rejects a bare domain — it never
+    checked that the page EXISTS. A shipped post cited a CFTC page that 404s, which is a citation a
+    reader cannot follow and an AI search engine cannot verify: worse than no citation, because it
+    looks like one.
+    """
+    urls = [u for u in post.stat_sources() if u.startswith("http")]
+    if not urls:
+        return []
+    if fetch is None:
+        import httpx
+
+        async def fetch(url: str) -> int:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                return (await client.get(url)).status_code
+
+    dead = []
+    for url in urls:
+        try:
+            code = await fetch(url)
+        except Exception:  # noqa: BLE001 — a network blip is not evidence the page is gone
+            continue
+        if code >= 400:
+            dead.append(f"{url} -> HTTP {code}")
+    return dead
+
+
 async def author(
     topic: str,
     *,
@@ -215,6 +311,13 @@ async def author(
     complete: Any = None,
     tier: str = "complex",
     max_repairs: int = MAX_REPAIRS,
+    brand_terms: list[str] | None = None,
+    capabilities: list[str] | None = None,
+    # Off by default: `author()` is a pure-ish function everywhere else, and a default that silently
+    # makes network calls turns every unit test into an integration test. `run.py` — the production
+    # caller — turns it on.
+    check_sources: bool = False,
+    fetch: Any = None,
 ) -> tuple[Post | None, list[str]]:
     """Author a post, repairing against the contract. Returns `(post_or_None, problems)`.
 
@@ -262,7 +365,28 @@ async def author(
                 f"these internal links do not exist on the site and must be replaced with ones "
                 f"from SITE PAGES: {', '.join(bad_links)}")
 
-        if ok and not invented and not bad_links:
+        sweeping = unsupported_generalisations(post, facts_block)
+        if sweeping:
+            problems.append(
+                f"these claim how common something is, and nothing in the brief supports a claim "
+                f"about the whole market — remove them or narrow them to what you were given: "
+                f"{', '.join(sweeping)}")
+
+        claims = unverified_product_claims(post, brand_terms=brand_terms or [],
+                                           capabilities=capabilities or [])
+        if claims:
+            problems.append(
+                f"these describe what the product does, and only the declared capabilities may be "
+                f"stated. Remove the claim or write only what is on the list. Sentences: "
+                f"{' | '.join(claims[:3])}")
+
+        dead = await dead_sources(post, fetch) if check_sources else []
+        if dead:
+            problems.append(
+                f"these cited sources do not resolve — cite a page that exists, or drop the claim: "
+                f"{', '.join(dead)}")
+
+        if ok and not invented and not bad_links and not sweeping and not claims and not dead:
             log.info("seo.authored", slug=post.slug, attempt=attempt + 1,
                      blocks=len(post.blocks), faq=len(post.faq))
             return post, []
@@ -275,17 +399,27 @@ async def author(
 
 
 async def facts_for(topic: str, *, engine: Any = None) -> str:
-    """Verified firm figures for whichever firms the topic names. Empty when none are named.
+    """Grounded facts for a topic — firm thresholds when it names firms, the DISTRIBUTION when it
+    names a rule.
 
     Reuses the same `firm_rule` grounding the social copy uses, so a figure cannot be right in one
     channel and invented in another.
+
+    ⚠️ This used to return `""` for any topic that named no firm, which is most rule-explainer
+    topics — exactly the posts most prone to sweeping claims. One shipped saying *"most challenges
+    require a minimum number of trading days"* when our own data says 2 of 6 live firms do. No
+    percentage appeared in the sentence, so the figure check never looked at it; no firm was named,
+    so no facts were supplied at all. A post about a rule needs the spread, not a threshold.
     """
     from glitch_signal.agent import firms
 
     named = firms.mentioned(topic)
-    if not named:
+    if named:
+        return firms.rules_block(await firms.rules_for_names(named, engine=engine))
+    keys = firms.rule_keys_for_topic(topic)
+    if not keys:
         return ""
-    return firms.rules_block(await firms.rules_for_names(named, engine=engine))
+    return firms.distribution_block(await firms.rules_for_distribution(keys, engine=engine), keys)
 
 
 def check_only(post: Post) -> list[str]:

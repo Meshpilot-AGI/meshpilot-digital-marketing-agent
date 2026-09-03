@@ -52,6 +52,16 @@ def _cfg(brand_id: str, name: str, default: str = "") -> str:
     return brand_env(f"SEO_{name}", brand_id, default) or default
 
 
+def _csv(brand_id: str, name: str) -> list[str]:
+    """A brand's declared list, e.g. the capabilities a post is allowed to claim.
+
+    Empty means the product-claim check cannot run — stated here rather than hidden, because a brand
+    that declares nothing gets no protection from the check that would have caught the weekend-cutoff
+    claim.
+    """
+    return [x.strip() for x in _cfg(brand_id, name).split(",") if x.strip()]
+
+
 def _enabled() -> bool:
     """Global kill-switch. Ships OFF — autonomous publishing is opt-in per deployment."""
     from glitch_signal.config import settings
@@ -172,7 +182,10 @@ async def run_publish(brand_id: str, args: dict | None = None) -> dict:
     post, problems = await generate.author(
         topic, audience=audience, author_slug=_cfg(brand_id, "AUTHOR", "ryan"),
         facts_block=facts, site_links=links, positioning=positioning,
-        today=dt.date.today().isoformat())
+        today=dt.date.today().isoformat(),
+        brand_terms=_csv(brand_id, "BRAND_TERMS"),
+        capabilities=_csv(brand_id, "CAPABILITIES"),
+        check_sources=True)
     if post is None:
         log.warning("seo.run_author_failed", brand_id=brand_id, topic=topic[:80],
                     problems=problems[:4])
