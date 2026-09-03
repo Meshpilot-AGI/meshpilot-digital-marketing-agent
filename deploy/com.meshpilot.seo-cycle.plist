@@ -50,6 +50,11 @@
          the track record earns S1. Unset this to stand it down — settle keeps running. -->
     <key>AGENT_SEO_ENABLED</key>
     <string>true</string>
+    <!-- The PAT's permissions were widened 2026-09-02; both calls that previously failed now pass
+         (GraphQL repository.defaultBranchRef, and reading refs/heads/main). Using it makes the job
+         independent of this Mac's `gh` keyring, which a LaunchAgent cannot be relied on to reach. -->
+    <key>SEO_USE_GITHUB_TOKEN</key>
+    <string>true</string>
   </dict>
 
   <!-- 06:40 local. After the site's own nightly audit, and well clear of the agent's 03:00-03:30
