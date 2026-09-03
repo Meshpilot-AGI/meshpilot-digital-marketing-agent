@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The SEO cycle, scheduled on a host that HAS the site checkout.
+
+  This is a launchd job rather than an entry in the agent's own cron because `seo_publish` needs a
+  git checkout, the site's npm toolchain and a `gh` that can open a PR — none of which exist in the
+  API's runtime. Scheduling it there would produce a job that looks healthy and logs `no_repo`
+  forever. See scripts/run_seo_cycle.py.
+
+  It ships INERT: `AGENT_SEO_ENABLED` defaults to false, so until that is set the job runs, records
+  PR outcomes (`settle`, which is useful on its own) and declines to publish.
+
+  Install:   cp deploy/com.meshpilot.seo-cycle.plist ~/Library/LaunchAgents/
+             launchctl load ~/Library/LaunchAgents/com.meshpilot.seo-cycle.plist
+  Remove:    launchctl unload ~/Library/LaunchAgents/com.meshpilot.seo-cycle.plist
+  Run now:   launchctl start com.meshpilot.seo-cycle
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.meshpilot.seo-cycle</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/tejaskaranagrawal/.local/bin/uv</string>
+    <string>run</string><string>python</string>
+    <string>scripts/run_seo_cycle.py</string>
+  </array>
+
+  <!-- The repo's own .env is read relative to the working directory. -->
+  <key>WorkingDirectory</key>
+  <string>/Users/tejaskaranagrawal/dev/meshpilot-social-media-agent</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/tejaskaranagrawal/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>GE_SEO_REPO_PATH</key>
+    <string>/Users/tejaskaranagrawal/dev/glitch-executor/glitch-trade-app</string>
+    <key>GE_SEO_AUDIENCE</key>
+    <string>traders evaluating or running prop-firm challenges</string>
+    <!-- Commits by anyone else on the PR branch count as human edits, which is what gates
+         promotion out of S0. Get this wrong and the agent never earns autonomy, or earns it
+         falsely. -->
+    <key>GE_SEO_AGENT_LOGINS</key>
+    <string>floating-astronaut</string>
+  </dict>
+
+  <!-- 06:40 local. After the site's own nightly audit, and well clear of the agent's 03:00-03:30
+       cloud jobs so a failure is attributable to one of them. -->
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>40</integer></dict>
+
+  <key>StandardOutPath</key><string>/tmp/meshpilot-seo-cycle.log</string>
+  <key>StandardErrorPath</key><string>/tmp/meshpilot-seo-cycle.log</string>
+  <key>RunAtLoad</key><false/>
+</dict></plist>

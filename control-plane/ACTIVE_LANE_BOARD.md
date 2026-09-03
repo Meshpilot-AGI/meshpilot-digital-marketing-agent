@@ -78,6 +78,13 @@ the PR path either way.
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **SCHEDULED 2026-09-02.** `nightly-surfaces-sync` created in the agent's own cron (03:15 ET,
+between curate 03:00 and reconcile 03:30) — TARGET-3's capability had shipped unscheduled. The SEO
+cycle is a **launchd job on the Mac instead** (`deploy/com.meshpilot.seo-cycle.plist`, 06:40 local):
+`seo_publish` needs a checkout, npm and `gh`, so a cloud schedule would log `no_repo` forever — a job
+that looks healthy and does nothing. Installed and executed once end-to-end: settle ran against the
+real DB, publish correctly refused `seo_disabled`. Inert until `AGENT_SEO_ENABLED` is set.
+
 ✅ **WIRED 2026-09-02 (SEO-4).** Two cron capabilities: `seo_publish` (requires `publish`) and
 `seo_settle` (requires nothing — deliberately NOT bundled, so the run that publishes does not mark
 its own homework). Ships behind `AGENT_SEO_ENABLED=false`. ⚠️ `seo_publish` needs a git checkout, the
