@@ -2238,3 +2238,29 @@ one PR. It now returns to the starting branch on success too.
 that-void-your-challenge`, 19 blocks, 6 FAQ, first attempt), all four gates green, the commit carries
 `X-Authored-By-Agent`, `seo_cycle` recorded `ok=True published`, one post in flight so the next cycle
 will correctly refuse, and the site repo is back on `main` with zero changes. 978 pass / 1 skip.
+
+
+## SEO-8 — the first real settle wrote nothing, and reported success — 2026-09-03
+
+The operator merged glitch-trade-app#580. The first genuine settle then failed silently, and the two
+defects together were the worst possible pair.
+
+**1. `gh` returns `mergedAt` as an ISO STRING; asyncpg refuses it.**
+*"invalid input for query argument $1: '2026-09-03T10:11:11Z' (expected a datetime.date or
+datetime.datetime)"*. Same shape as the asyncpg CAST defect this repo hit before — the driver is
+stricter than the string looks. `_as_datetime()` now coerces, and an unparsable value becomes `None`
+rather than breaking the write.
+
+**2. `settle_open` counted the outcome anyway.** `settle()` fails soft by design (bookkeeping must
+not break a publish), so the write failed and the summary still said `merged=1`. **The ladder would
+have sat at S0 forever while every summary said it was working** — a lie in the exact table built to
+prevent lies. A failed write is now `write_failed`, never `merged`.
+
+Neither was reachable before today: every prior settle had nothing to settle, so the write path had
+never run with a real timestamp. **The first execution of a code path is where its bugs are**, and
+this one only ran once a human actually merged a post.
+
+**Verified live:** re-ran settle against the real merged PR — `edits=0 merged=True`,
+`write_failed=0`, and the standing moved to **S0, clean_streak 1, settled 3, "1 of 5 consecutive
+clean posts"**. The commit marker did its job: the agent's own commit was not counted as a human
+edit, and the post was recorded as shipped exactly as proposed. 983 pass / 1 skip (+5).

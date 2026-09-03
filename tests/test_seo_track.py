@@ -231,3 +231,43 @@ async def test_an_unreadable_pr_stays_unsettled_rather_than_guessing():
     out = await track.settle_open("b", repo="/r", runner=_Gh({"u/1": ""}), engine=eng)
     assert out["unreadable"] == 1
     assert not any(c[1] and "human_edits" in (c[1] or {}) for c in eng.calls)
+
+
+# ── the timestamp `gh` actually returns (SEO-8) ──
+def test_the_iso_string_gh_returns_is_coerced():
+    """`gh pr view --json mergedAt` returns an ISO STRING and asyncpg refuses it outright. The first
+    real settle wrote nothing because of this."""
+    out = track._as_datetime("2026-09-03T10:11:11Z")
+    assert isinstance(out, dt.datetime) and out.tzinfo is not None
+
+
+def test_a_datetime_passes_through_untouched():
+    assert track._as_datetime(NOW) is NOW
+
+
+def test_an_unparsable_timestamp_becomes_none_rather_than_breaking_the_write():
+    assert track._as_datetime("last tuesday") is None
+
+
+async def test_settle_writes_the_string_form_without_erroring():
+    eng = _Engine()
+    assert await track.settle("b", slug="s", merged_at="2026-09-03T10:11:11Z",
+                              human_edits=0, engine=eng) is True
+    params = [c[1] for c in eng.calls if c[1] and "merged_at" in c[1]][0]
+    assert isinstance(params["merged_at"], dt.datetime)
+
+
+async def test_a_failed_write_is_not_counted_as_a_settled_outcome():
+    """⚠️ Counting an outcome we failed to record is worse than failing loudly: the first real settle
+    reported `merged=1` while writing nothing, so the ladder would have sat at S0 forever with the
+    summary saying it was working."""
+    class _Boom:
+        def begin(self):
+            raise RuntimeError("db down")
+
+        def connect(self):
+            return _Conn([], [{"slug": "s", "pr_url": "u/1", "branch": "b", "stage_at_author": "S0"}])
+
+    gh = _Gh({"u/1": '{"state":"MERGED","mergedAt":"2026-09-03T10:11:11Z","commits":[]}'})
+    out = await track.settle_open("b", repo="/r", runner=gh, engine=_Boom())
+    assert out["merged"] == 0 and out["write_failed"] == 1
