@@ -119,6 +119,19 @@ async def _cap_seo_settle(brand_id: str, args: dict) -> dict:
     return await run_settle(brand_id, args)
 
 
+async def _cap_seo_heartbeat(brand_id: str, args: dict) -> dict:
+    """SEO-9: alert when the SEO cycle stops running.
+
+    Deliberately hosted HERE, in the cloud, rather than beside the cycle it watches: a watcher on the
+    machine it watches dies with it and reports nothing at precisely the moment there is something to
+    report. It needs only the database.
+    """
+    from glitch_signal.agent.seo.heartbeat import DEFAULT_MAX_GAP_HOURS, check
+
+    return await check(brand_id,
+                       max_gap_hours=float(args.get("max_gap_hours", DEFAULT_MAX_GAP_HOURS)))
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -130,6 +143,7 @@ _REGISTRY: dict[str, CapFn] = {
     "surfaces_sync": _cap_surfaces_sync,
     "seo_publish": _cap_seo_publish,
     "seo_settle": _cap_seo_settle,
+    "seo_heartbeat": _cap_seo_heartbeat,
 }
 
 
@@ -155,6 +169,9 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     # the autonomy ladder, so it is deliberately NOT bundled into `seo_publish`: the run that
     # publishes does not get to mark its own homework in the same breath.
     "seo_settle": frozenset(),
+    # Reads our own rows — but can SEND an alert email, and `send_email` lives under `publish` in the
+    # capability vocabulary. Mapping it honestly rather than arguing that an ops alert is different.
+    "seo_heartbeat": frozenset({"publish"}),
 }
 
 

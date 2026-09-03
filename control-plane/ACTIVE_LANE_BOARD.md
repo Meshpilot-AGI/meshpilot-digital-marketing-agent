@@ -78,6 +78,13 @@ the PR path either way.
 S1 gated auto-merge after 5 consecutive zero-edit posts → S2 autonomous after 10 clean auto-merges.
 Gates run at every stage including S2 — autonomy removes the human, not the checks. "Zero human
 edits" is measured as the diff between proposed and merged.
+✅ **SEO-9 HEARTBEAT 2026-09-03.** `seo_heartbeat` capability + `daily-seo-heartbeat` cron (12:00 ET)
+alarms on the GAP between `seo_cycle` rows. Hosted in the CLOUD deliberately — a watcher on the Mac
+it watches dies with it. Never writes to `seo_cycle` (that would mask the gap it measures); alerts
+once per 12h; a refusal still counts as a heartbeat. ⚠️ Email delivery needs
+`GE_SEO_ALERT_EMAIL` + `RESEND_FROM` + `RESEND_API_KEY` in the cloud env — until then it logs and
+reports `stale: true` on its `scheduled_runs` row.
+
 ✅ **SEO-6 CYCLE HARDENING 2026-09-03.** Closed the two failure modes the schedule shipped with.
 (1) **One post in flight** — every post inserts at the same anchor, so two open PRs always conflict;
 #559 could not be rebased and had to be re-applied by hand. `run_publish` now refuses with
