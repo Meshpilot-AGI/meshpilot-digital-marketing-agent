@@ -27,6 +27,14 @@ concurrency:
 jobs:
   scheduler:
     runs-on: ubuntu-latest
+    # ⚠️ Hoisted to the JOB, and it took three attempts to get this right — each failing at a
+    # different stage, which is why none of the earlier checks caught the next one:
+    #   1. `env.HOOK` referring to the step's OWN env    -> parses, never fires (silently wired)
+    #   2. `secrets.DISCORD_ALERT_WEBHOOK` in a step `if` -> WORKFLOW WILL NOT PARSE
+    #   3. job-level `env`, tested as `env.HOOK`          -> correct
+    # `secrets` is not a valid context in an `if`; job-level `env` is, and a step can read it.
+    env:
+      HOOK: ${{ secrets.DISCORD_ALERT_WEBHOOK }}
     steps:
       - name: Ask the API whether cron is still sweeping
         id: probe
@@ -60,12 +68,9 @@ jobs:
           fi
           echo "scheduler healthy"
 
-      # `secrets` is available in a step `if`; a step's OWN `env` is not, so testing `env.HOOK`
-      # here would silently never fire — the alert step would look wired and do nothing.
       - name: Say so in Discord
-        if: failure() && secrets.DISCORD_ALERT_WEBHOOK != ''
+        if: failure() && env.HOOK != ''
         env:
-          HOOK: ${{ secrets.DISCORD_ALERT_WEBHOOK }}
           REASON: ${{ steps.probe.outputs.reason }}
         run: |
           python3 -c '
