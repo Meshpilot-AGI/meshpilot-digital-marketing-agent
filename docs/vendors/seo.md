@@ -116,55 +116,41 @@ rows reports "2 of 2 firms have one" — grounding that is worse than silence.
 
 Derived from the code, then corrected by the operator. Kept current in `deploy/com.meshpilot.seo-cycle.plist`.
 
-**Routing went live 2026-09-03 — halfway.** Verified on the running revision
-(`ge-prod-trade-api:12`): `TRADE_EXEC_BROKER_ROUTING_ENABLED=true`, `TRADE_EXEC_FEATURE_FLAG=true`.
-But `TRADE_EXEC_DEMO_ONLY` is **not set**, so it keeps its code default `true` and only accounts with
-`is_live=false` route; a live account additionally needs `exec_live_opt_in`. Lifting demo-only is a
-separate, explicit change.
+**Live routing is on as of 2026-09-03.** Verified on the running revision `ge-prod-trade-api:14`:
+`TRADE_EXEC_BROKER_ROUTING_ENABLED=true`, `TRADE_EXEC_FEATURE_FLAG=true`, `TRADE_EXEC_DEMO_ONLY=false`.
 
-So the declared capability is **"routes orders to your broker on demo accounts"**, and that qualifier
-is load-bearing rather than hedging: the matcher requires every content word, so "demo" must appear
-in any sentence claiming routing. *"Glitch Executor routes your orders straight through to your
-broker"* is rejected — true of the code, false for the reader who matters most, the one with a funded
-account. **Drop the qualifier when demo-only is lifted, and not before.**
+**The qualifier changed rather than disappeared.** `router.py` guard (ii) still requires PER-ACCOUNT
+`exec_live_opt_in` — a live account must be explicitly opted in "even once the global flag lifts" —
+plus per-account risk caps. So the declared capabilities are *"on demo accounts"* AND *"on live
+accounts you opt in"*. Both are true; an unqualified *"routes your orders to your broker"* is not,
+for a reader who has done neither.
 
-Order *placement* is declared separately (`places orders on demo accounts`, `submits trades on demo
-accounts`) because the matcher needs every content word: "routes orders to your broker" does not
-match "places orders", so a real capability described in the words a writer would naturally use was
-being rejected. Declare the phrasings, not just the feature.
+⚠️ **EVERY entry must carry its qualifier, because the list's weakest entry sets the bar.** A bare
+`order routing` entry — left over from when routing looked fully claimable — was silently making
+"routes your orders straight through to your broker" pass, right next to the carefully qualified
+entries. One unqualified capability voids every qualifier in the list. The shipped list now has none,
+and a test asserts it.
 
-⚠️ **Enabled is not the same as happening.** As of 2026-09-03 the execution runtime still logs
-`execution.runtime.tick armed=0 evaluated=0 emitted=0 routed=0` every cycle, and no order has been
-routed in 24h. The path is on and functional; nothing is armed on it yet. A post may say the product
-places orders on demo accounts — it may not imply anyone's orders are being placed today.
-
-⚠️ Before this, the list read a disabled flag as an absent feature and refused the claim entirely —
-wrong, and the wrong direction to be wrong in, since it had the agent understate a real product.
-Between "it does not exist" and "it does everything the sentence implies" there is a third answer,
-and it is usually the true one. **Do not retract these on rediscovering the flags.**
-
-That makes the distinction the list actually encodes:
-
-| | Example | Claimable |
-|---|---|---|
-| built, switched off | order routing, pre-broker block | **yes** — a product decision |
-| built, switched on | firm rules, comparison, drawdown calc, journal, alerts, backtest | yes |
-| **no code path at all** | weekend cutoff, news blackout | **no** — a false claim |
-| forbidden regardless | "guaranteed pass", any outcome promise | no |
-
-`hold_over_weekend` and `block_minutes_around_news` are both stored per firm and served to the UI,
-and neither is emitted as a rule anywhere in `api/src/glitch_trade_api/execution/`. A flag you could
-flip is a decision; a rule that does not exist is a fabrication.
-
-⚠️ **The second one was found by writing this list.** `block_minutes_around_news` is the same dormant
-shape as `hold_over_weekend`, and nobody had noticed — declaring what a product does forces someone
-to check. Add a capability here in the same change that ships it.
+⚠️ **Enabled is not the same as happening.** The execution runtime still logs
+`execution.runtime.tick armed=0 evaluated=0 emitted=0 routed=0` every cycle, with no order routed in
+24h. The path is on and functional; nothing is armed on it. A post may say the product places orders
+on accounts you opt in — it may not imply anyone's orders are being placed today.
 
 ### How a claim is matched
 
-Every content word of a declared capability must appear in the sentence. Substring matching came
-first and was too brittle to use — the declared "routes orders to your broker" failed to match
-"routes your orders straight through to your broker", flagging a true claim. Requiring **all**
-content words rather than a fraction is deliberate: a partial match would let "enforces a weekend
-cutoff tied to the firm rule" through on the strength of sharing "firm" with "records each firm's
-published rules".
+Every content word of a declared capability must appear in the sentence, matched as a **prefix** of
+one of its words.
+
+Three attempts, and the first two both rejected TRUE claims:
+
+1. **substring on the whole phrase** — "routes orders to your broker" missed "routes your orders
+   straight through to your broker"
+2. **symmetric stemming** — failed on its own inconsistency: "places" trimmed to "plac" while
+   "place" stayed "place", so the two never met
+3. **reduce only the declared word, prefix-match the sentence** — "place" is a prefix of "place",
+   "places" and "placed" alike
+
+Requiring **all** content words rather than a fraction is deliberate: a partial match would let
+"enforces a weekend cutoff tied to the firm rule" through on the strength of sharing "firm" with
+"records each firm's published rules". Declaring every inflection would also have worked, and would
+have grown a list nobody could maintain.

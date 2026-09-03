@@ -2143,3 +2143,39 @@ accounts; it may not imply anyone's orders are being placed today.
 
 **Verified:** six cases — three true phrasings pass with "demo" stated, and the unqualified claim,
 the live-funded claim and the weekend claim are all rejected. 969 pass / 1 skip.
+
+
+## SEO — live routing on, and the allowlist's weakest entry was setting the bar — 2026-09-03
+
+**Live routing verified on the running revision** (`ge-prod-trade-api:14`, `/health` 200):
+`TRADE_EXEC_BROKER_ROUTING_ENABLED=true`, `TRADE_EXEC_FEATURE_FLAG=true`,
+`TRADE_EXEC_DEMO_ONLY=false`. Waited for the deploy rather than editing on the terraform commit —
+`:12` was still serving for two minutes after the change landed.
+
+**The qualifier changed rather than disappeared.** `router.py` guard (ii) still requires PER-ACCOUNT
+`exec_live_opt_in` — "a live account must be explicitly opted in, even once the global flag lifts" —
+plus per-account risk caps. Declared both *"on demo accounts"* and *"on live accounts you opt in"*.
+
+### ⚠️ A bare entry was voiding every qualifier beside it
+
+`order routing`, left over from when routing looked fully claimable, made *"routes your orders
+straight through to your broker"* pass — sitting right next to the carefully qualified entries.
+**The allowlist's weakest entry sets the bar, not its most careful one.** Every entry now carries its
+qualifier (`pre-trade rule check` became `pre-trade rule check on daily loss and drawdown`), and a
+test asserts no shipped capability matches the unqualified routing sentence.
+
+### The matcher took three attempts, and the first two rejected TRUE claims
+
+1. substring on the phrase — missed "routes your orders straight through to your broker"
+2. symmetric stemming — failed on its own inconsistency: "places"→"plac" while "place"→"place"
+3. reduce only the DECLARED word, prefix-match the sentence — "place" prefixes place/places/placed
+
+Each failure was in the direction of rejecting truth, which is the safer direction but still a defect:
+a check that punishes correct writing gets switched off.
+
+**Verified:** 12 cases, all correct — six true claims pass (demo, live-with-opt-in, both inflections,
+firm rules, the gate), six false ones flag (unqualified routing, automatic placement, weekend via
+gate wording, news blackout, guaranteed pass, an unrelated invention). 971 pass / 1 skip.
+
+**Remains:** nothing is armed (`armed=0`), so no order has actually been routed — enabled is not the
+same as happening, and the docs say so.
