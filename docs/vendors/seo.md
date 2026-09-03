@@ -177,3 +177,37 @@ refusal is normal and `ok=false` means the cycle itself broke. Before this, the 
 file on one machine that nothing read, so a silent failure at 06:40 and a quiet day were
 indistinguishable — both produce no PR. That is the same "looks healthy, does nothing" shape the
 cloud schedule was rejected for, and it had been reintroduced on the Mac.
+
+## Alerting on the gap (SEO-9)
+
+`seo_cycle` made a failure queryable; nobody queries it. `seo_heartbeat` turns "you could have
+noticed" into "you were told".
+
+**The thing being watched is silence, not an error.** A cycle that crashes leaves a row with
+`ok=false`; a cycle that never runs — laptop asleep, launchd unloaded, plist broken, Mac off —
+leaves nothing, and nothing is exactly what a healthy quiet day looks like. So the signal is the
+**age of the newest row**, and no row at all is the loudest case rather than a missing one. A
+*refusal* still counts as a heartbeat: the cycle ran and declined, which means the machine is alive.
+
+⚠️ **It runs in the CLOUD, not on the Mac.** A watcher living on the machine it watches dies with it
+and reports nothing at exactly the moment there is something to report. It needs only the database,
+so the agent's own cron hosts it — scheduled `daily-seo-heartbeat`, 12:00 ET, about five hours after
+the 06:40 cycle.
+
+⚠️ **It never writes to `seo_cycle`.** Recording its own run there would refresh the newest-row
+timestamp and mask the very gap it exists to measure — the watcher would permanently reassure itself.
+A test asserts this.
+
+| Setting | Meaning |
+|---|---|
+| `<PREFIX>_SEO_ALERT_EMAIL` | where the alert goes. **Unset → logged only**, which is the state today |
+| `<PREFIX>_RESEND_FROM` or `RESEND_FROM` | the From address `send_email` requires |
+| `RESEND_API_KEY` | Resend credential |
+| `max_gap_hours` job arg | default 30 — a day plus slack, so a late run is not a page |
+
+Without the email config the check still runs, still logs `seo.heartbeat_stale`, and still returns
+`stale: true` onto its `scheduled_runs` row — so the state is visible, just not pushed.
+
+It alerts **once per 12h per brand** (a `SharedWindowLimiter` over `rate_counters`). The watcher runs
+on its own schedule, so without that a single stale cycle would page on every firing, and an alert
+that repeats is an alert people filter.

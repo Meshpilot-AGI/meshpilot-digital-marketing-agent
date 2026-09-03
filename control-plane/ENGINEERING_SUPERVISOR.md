@@ -2264,3 +2264,39 @@ this one only ran once a human actually merged a post.
 `write_failed=0`, and the standing moved to **S0, clean_streak 1, settled 3, "1 of 5 consecutive
 clean posts"**. The commit marker did its job: the agent's own commit was not counted as a human
 edit, and the post was recorded as shipped exactly as proposed. 983 pass / 1 skip (+5).
+
+
+## SEO-9 — alarming on silence — 2026-09-03
+
+**Built:** `agent/seo/heartbeat.py`, the `seo_heartbeat` cron capability, and the
+`daily-seo-heartbeat` job (12:00 ET, ~5h after the 06:40 cycle).
+
+**The thing being watched is silence, not an error**, and that shaped every decision. A cycle that
+crashes leaves a row with `ok=false` — already visible. A cycle that never runs leaves nothing, and
+nothing is indistinguishable from a healthy quiet day. So the signal is the **age of the newest
+row**, and no row at all is the loudest case rather than a missing one. A *refusal* counts as a
+heartbeat: the cycle ran and declined, which means the machine is alive — treating it as failure
+would page on every quiet day.
+
+**Three design decisions worth keeping:**
+
+1. **It runs in the CLOUD, not beside the thing it watches.** A watcher on the Mac dies with the Mac
+   and reports nothing at exactly the moment there is something to report. It needs only the
+   database, so the agent's own cron can host it.
+2. **It never writes to `seo_cycle`.** Recording its own run there would refresh the newest-row
+   timestamp and mask the very gap it measures — the watcher would permanently reassure itself. A
+   test asserts no `record_cycle` call.
+3. **One alert per 12h per brand**, via the existing `SharedWindowLimiter`. The watcher fires on its
+   own schedule, so without this a single stale cycle pages every time — and an alert that repeats is
+   an alert people filter.
+
+The alert body names the likely causes and the two commands to run (`launchctl list`, `tail` the
+log), because an alert that says only "it broke" costs the reader the same investigation every time.
+
+**Verified against real prod data, both branches:** healthy now (`age_hours 0.1`, `stale False`) and
+stale when evaluated 40h forward (`no SEO cycle in 40.1h (threshold 30h)`). 994 pass / 1 skip (+11).
+
+**Remains:** email delivery needs `GE_SEO_ALERT_EMAIL`, `RESEND_FROM` and `RESEND_API_KEY` in the
+CLOUD env — none is set locally and cloud secrets are not readable from here. Until they are, the
+check still runs, still logs `seo.heartbeat_stale`, and still returns `stale: true` onto its
+`scheduled_runs` row, so the state is visible but not pushed.
