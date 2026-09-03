@@ -101,7 +101,8 @@ async def publish(
     post: Post,
     *,
     repo: str,
-    stage: str = "S0",
+    brand_id: str = "",
+    stage: str | None = None,
     branch_prefix: str = "agent/blog",
     gates=DEFAULT_GATES,
     runner: Callable | None = None,
@@ -118,6 +119,14 @@ async def publish(
     runner = runner or _run
     reader = reader or (lambda p: pathlib.Path(p).read_text())
     writer = writer or (lambda p, s: pathlib.Path(p).write_text(s))
+
+    # The stage is EARNED, not passed in. An explicit `stage` is honoured only for tests and
+    # dry-runs; in normal operation it is read from the track record, so autonomy cannot be granted
+    # by a caller deciding it is time.
+    if stage is None:
+        from glitch_signal.agent.seo import track
+
+        stage = await track.stage_for(brand_id) if brand_id else "S0"
     res = PublishResult(ok=False, stage=stage, slug=post.slug)
 
     ok, violations = is_publishable(post)
@@ -156,19 +165,35 @@ async def publish(
 
     code, out = await runner(
         f"gh pr create --base main --title {shlex.quote(post.title)} "
-        f"--body {shlex.quote(_pr_body(post, res.gates))}", repo)
+        f"--body {shlex.quote(_pr_body(post, res.gates, stage))}", repo)
     if code != 0:
         res.reason = f"pr creation failed: {out[:300]}"
         return res
     res.pr_url = out.strip().splitlines()[-1] if out.strip() else ""
     res.ok = True
 
-    if stage == "S0":
+    if brand_id:
+        from glitch_signal.agent.seo import track
+
+        await track.record(brand_id, slug=post.slug, title=post.title, stage=stage,
+                           gates=res.gates, pr_url=res.pr_url, branch=branch)
+
+    if stage in ("S1", "S2"):
+        # Earned self-merge. The gates already passed — that is what "all gates pass" means here —
+        # so merging is the agreed behaviour rather than a shortcut.
+        code, out = await runner(f"gh pr merge {shlex.quote(res.pr_url or branch)} "
+                                 f"--squash --delete-branch", repo)
+        if code != 0:
+            res.reason = f"auto-merge failed, PR left open for review: {out[:200]}"
+            log.warning("seo.auto_merge_failed", slug=post.slug, url=res.pr_url)
+        else:
+            log.info("seo.auto_merged", slug=post.slug, stage=stage, url=res.pr_url)
+    else:
         log.info("seo.pr_opened_awaiting_human", slug=post.slug, url=res.pr_url)
     return res
 
 
-def _pr_body(post: Post, gates: dict[str, bool]) -> str:
+def _pr_body(post: Post, gates: dict[str, bool], stage: str = "S0") -> str:
     passed = " · ".join(f"{k} {'✅' if v else '❌'}" for k, v in gates.items())
     return (
         f"Authored by the agent. **{post.reading_minutes} min read**, "
@@ -178,6 +203,7 @@ def _pr_body(post: Post, gates: dict[str, bool]) -> str:
         f"StatCallout, comparison table or ordered list, anti-pattern callout, FAQ count, internal "
         f"links across clusters, no unsourced figures).\n\n"
         f"**Site gates:** {passed}\n\n"
-        f"Stage S0: opened for human review. Autonomy is earned per `ai-seo-program.md` — five "
-        f"consecutive posts merged with no edits to the body promotes to S1."
+        f"Stage {stage}. Autonomy is earned per `ai-seo-program.md`: five consecutive posts merged "
+        f"with no edits to the body promotes to S1 (self-merge). "
+        f"{'Opened for human review.' if stage == 'S0' else 'Merged automatically after all gates passed.'}"
     )

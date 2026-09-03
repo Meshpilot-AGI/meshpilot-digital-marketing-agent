@@ -167,3 +167,70 @@ def test_emitted_post_is_valid_json_inside_the_file():
             end = i + 1
             break
     assert json.loads(out[start:end])["slug"] == "a-new-post"
+
+
+# ── the stage is earned, not passed (SEO-3) ──
+async def test_publish_reads_the_earned_stage_when_a_brand_is_given(monkeypatch):
+    """A caller cannot decide it is time for autonomy — the track record decides."""
+    from glitch_signal.agent.seo import track
+
+    async def _stage(brand_id, **kw):
+        return "S1"
+
+    async def _record(*a, **kw):
+        return True
+
+    monkeypatch.setattr(track, "stage_for", _stage)
+    monkeypatch.setattr(track, "record", _record)
+    store, reader, writer = _io()
+    runner = _Fake()
+    res = await pub.publish(_valid_post(), repo="/repo", brand_id="b",
+                            runner=runner, reader=reader, writer=writer)
+    assert res.stage == "S1"
+    assert any("pr merge" in c for c in runner.cmds)      # earned self-merge
+
+
+async def test_s0_still_never_merges(monkeypatch):
+    from glitch_signal.agent.seo import track
+
+    async def _stage(brand_id, **kw):
+        return "S0"
+
+    async def _record(*a, **kw):
+        return True
+
+    monkeypatch.setattr(track, "stage_for", _stage)
+    monkeypatch.setattr(track, "record", _record)
+    store, reader, writer = _io()
+    runner = _Fake()
+    res = await pub.publish(_valid_post(), repo="/repo", brand_id="b",
+                            runner=runner, reader=reader, writer=writer)
+    assert res.stage == "S0"
+    assert not any("pr merge" in c for c in runner.cmds)
+
+
+async def test_a_failed_auto_merge_leaves_the_pr_open_rather_than_losing_it(monkeypatch):
+    from glitch_signal.agent.seo import track
+
+    async def _stage(brand_id, **kw):
+        return "S1"
+
+    async def _record(*a, **kw):
+        return True
+
+    monkeypatch.setattr(track, "stage_for", _stage)
+    monkeypatch.setattr(track, "record", _record)
+    store, reader, writer = _io()
+    runner = _Fake(fail={"pr merge"})
+    res = await pub.publish(_valid_post(), repo="/repo", brand_id="b",
+                            runner=runner, reader=reader, writer=writer)
+    assert res.ok and res.pr_url            # the post still exists as a reviewable PR
+    assert "left open for review" in res.reason
+
+
+async def test_no_brand_id_defaults_to_supervised():
+    """A dry run or a test harness gets the safe stage, not an assumed one."""
+    store, reader, writer = _io()
+    runner = _Fake()
+    res = await pub.publish(_valid_post(), repo="/repo", runner=runner, reader=reader, writer=writer)
+    assert res.stage == "S0"
