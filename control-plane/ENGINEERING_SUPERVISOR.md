@@ -2088,3 +2088,33 @@ that routing was a held switch rather than a missing capability.
 
 **Verified:** both posts on `main`; CI green on #565 (7 checks) — waited for it rather than using
 `--admin`, since bypassing the repo's own gates is the failure this lane exists to prevent. 967 pass.
+
+
+## SEO — routing went live, and the capability grew only halfway — 2026-09-03
+
+**Verified on the RUNNING revision, not on terraform's intent.** `ge-prod-trade-api:12` carries
+`TRADE_EXEC_BROKER_ROUTING_ENABLED=true` and `TRADE_EXEC_FEATURE_FLAG=true`. But
+`TRADE_EXEC_DEMO_ONLY` is **not set**, so it keeps its code default `true`: only `is_live=false`
+accounts route, and a live account additionally needs `exec_live_opt_in`. Lifting demo-only is a
+separate, explicit change that has not happened.
+
+**So the capability moved from "off" to "demo only", not to "on".** Declared as **"routes orders to
+your broker on demo accounts"**, and that qualifier is load-bearing rather than hedging: the matcher
+requires every content word, so "demo" must appear in any sentence claiming routing. *"routes your
+orders straight through to your broker"* is now rejected — true of the code, false for the reader who
+matters most, the one with a funded account. The qualifier comes out when demo-only is lifted.
+
+**Three positions on the same feature in one day**, and the middle one was as wrong as the first:
+
+| | Verdict | Right? |
+|---|---|---|
+| flag false | "not a capability" | **no** — read a product decision as an absent feature |
+| operator correction | "a held switch, fully claimable" | closer, but the demo gate was still on |
+| running revision read | "claimable, qualified to demo accounts" | what the evidence supports |
+
+Between "it does not exist" and "it does everything the sentence implies" there is a third answer,
+and it is usually the true one. Checking terraform alone would have given the second; only the task
+definition gives the third.
+
+**Verified:** six cases — routing and the block pass **with** "demo" stated, and both the unqualified
+claim and an explicit live-funded-account claim are rejected. 967 pass / 1 skip.
