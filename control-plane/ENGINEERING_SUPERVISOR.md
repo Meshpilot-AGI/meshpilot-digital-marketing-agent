@@ -1848,3 +1848,20 @@ alarming when it is the only live model, and only a rate lets anyone tell those 
 same settings page, unchanged and worth the operator's attention: *"Allow paid endpoints that train
 on request data"* and *"Allow 1% data discount in workspaces"* are both ON, which sits oddly beside
 ZDR toggles set to strict.
+
+
+## ROUTER — data-training endpoints excluded, roster re-verified — 2026-09-02
+
+**Changed (operator account, on instruction):** all four *Data Training* toggles OFF —
+"allow paid endpoints that train on request data" and "allow 1% data discount in workspaces" were the
+two still ON; the free-endpoint pair was already off. No endpoint that trains on, retains or
+publishes request data is eligible for this account's routing any more.
+
+**Re-probed rather than assumed.** Tightening this NARROWS the eligible endpoint pool, so it can kill
+a model without a line of code changing — exactly the class of failure this lane has been chasing.
+`scripts/probe_router_models.py` → **all 12 LIVE 3/3**, exit 0. Nothing regressed.
+
+**The point recorded in `routing.py` itself:** the roster is decided by account settings that are not
+in this repo. Two of them — *Allowed Providers* and *Data Training* — gate every slug, and a change to
+either silently changes what the agent can call. The probe takes about a minute and is cheaper than
+discovering it from an empty completion in production.

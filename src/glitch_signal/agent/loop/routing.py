@@ -29,8 +29,17 @@ import os
 # returned error" — transient, and it answers fine — which is a different thing from an access
 # denial and must not be treated as one.
 #
-# Every slug below returned real text on a live call, 2026-09-02. Re-probe with
-# `scripts/probe_router_models.py` rather than trusting this comment.
+# ⚠️ **The account's privacy settings decide this roster, and they are not in this repo.** Two
+# separate OpenRouter settings gate every slug here, and a change to either can kill a tier without a
+# line of code changing:
+#   1. *Allowed Providers* — Google Vertex, Cloudflare, Amazon Bedrock, Google AI Studio, Azure.
+#   2. *Data Training* — all four toggles OFF as of 2026-09-02, so no endpoint that trains on, retains
+#      or publishes request data is eligible. Tightening this NARROWS the endpoint pool.
+# Re-probe after touching either. `scripts/probe_router_models.py` is the check, and it takes about a
+# minute — cheaper than discovering it from an empty completion in production.
+#
+# Every slug below returned real text on three consecutive live calls, 2026-09-02, WITH those
+# settings in force. Re-probe rather than trusting this comment.
 TIERS: dict[str, list[str]] = {
     # Third entry is deliberately NOT Anthropic: every Anthropic slug here is served by
     # amazon-bedrock, so an all-Anthropic tier fails as one unit.
