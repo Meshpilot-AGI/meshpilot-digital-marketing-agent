@@ -90,3 +90,28 @@ def test_mentioned_is_empty_when_no_firm_is_named():
 def test_mentioned_handles_spacing_variants():
     assert firms.mentioned("the 5ers consistency rule") == ["the5ers"]
     assert firms.mentioned("funding pips zero") == ["fundingpips_zero"]
+
+
+# ── degenerate-text screening (2026-09-02) ──
+def test_a_formatted_zero_is_screened_out_of_the_facts():
+    """A published post said "The5ers lists payout cadence as every 0 days" — faithful to a row that
+    said exactly that. Grounding guarantees fidelity to our data, not the correctness of it."""
+    from glitch_signal.agent import firms
+
+    block = firms.rules_block({"X": [{"firm_name": "X", "stage": "funded",
+                                      "rule_key": "payout_cadence",
+                                      "value_text": "payouts every 0 days", "as_of": "2026-09-01"}]})
+    assert "0 days" not in block
+
+
+def test_a_correctly_worded_sentinel_is_kept():
+    """`payoutCadenceDays: 0` is a deliberate sentinel for ON-DEMAND payouts — a real differentiator.
+    The first version of this filter screened on value_num <= 0 and would have suppressed it; the
+    row was wrong in its wording, not in what it held."""
+    from glitch_signal.agent import firms
+
+    block = firms.rules_block({"X": [{"firm_name": "X", "stage": "funded",
+                                      "rule_key": "payout_cadence", "value_num": 0,
+                                      "value_text": "on-demand payouts (no fixed cadence)",
+                                      "as_of": "2026-09-01"}]})
+    assert "on-demand payouts" in block

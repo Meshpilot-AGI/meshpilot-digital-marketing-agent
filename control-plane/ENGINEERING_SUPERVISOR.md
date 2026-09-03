@@ -1625,3 +1625,37 @@ responsibly, telling readers the numbers do not apply if a firm changed a thresh
 **Minor, not fixed:** the chosen stat (prop firms' regulatory status, via FINRA) is true and properly
 sourced but tangential to profit targets. The contract cannot judge relevance — that is what the
 conscience critic and a human reader are for.
+
+
+## FIRM-RULE-FIX — The5ers payout cadence — 2026-09-02
+
+**Traced the bad fact to its source rather than patching the symptom.** The first agent-authored post
+said *"The5ers High Stakes lists payout cadence as every 0 days"*, faithful to a row holding
+`value_num = 0`, `value_text = 'payouts every 0 days'`.
+
+**The zero is not missing data — it is a deliberate sentinel.** The source of truth is the app's own
+engine table, `glitch-trade-app/shared/risk/firmRules.ts`:
+
+    // - On-demand payouts on the funded stage
+    payoutCadenceDays: 0,
+
+Every other firm carries 14 (bi-weekly). The5ers pays **on demand**, which is a genuine
+differentiator worth stating. The row was wrong in its WORDING, not in what it held, and the widgets
+read that zero.
+
+**So I also had to correct my own fix from the previous lane.** That filter screened out any
+non-positive `value_num` — which would have suppressed this real fact entirely. It now screens
+degenerate TEXT (`_degenerate()`: "every 0", "0 days", "0% ") — a number formatted into a phrase it
+cannot support — rather than the value itself. Fix the wording, keep the fact.
+
+**Changed:** migration `20260902130000_fix_the5ers_payout_cadence.sql` sets the text to "on-demand
+payouts (no fixed cadence)" and records the sentinel in `caveat`; `firms._degenerate` replaces the
+value-based screen; two tests pin both halves (a formatted zero is screened, a correctly-worded
+sentinel is kept).
+
+**Verified:** the fact now reaches a model as *"The5ers High Stakes · funded stage · payout_cadence:
+on-demand payouts (no fixed cadence)"*, alongside FTMO's "every 14 days". 888 pass / 1 skip.
+
+**Note:** no extractor exists in code — `firm_rule` rows were seeded at runtime, so this fix is
+durable rather than something a re-run would revert. If an extractor is written later it must render
+`payoutCadenceDays: 0` as on-demand, not as a cycle.
