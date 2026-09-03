@@ -2020,3 +2020,37 @@ evidence rather than never considered.
 
 **Verified:** the shipped list rejects the original weekend sentence, the routing claim and the news
 claim, and passes the three things GE genuinely does. 959 pass / 1 skip (+4).
+
+
+## SEO — a held switch is not a missing capability — 2026-09-03
+
+**Operator correction, and it was the right one.** Order routing and the pre-broker block ARE built
+and working; `TRADE_EXEC_BROKER_ROUTING_ENABLED=false` is a **pre-launch off-switch**, not evidence
+of an absent feature. The previous list read the flag as absence and refused the claim — wrong, and
+wrong in the worse direction: it would have had the agent understate a real product on the brand's
+own site. Both are now declared, with the flag names recorded so a future session does not "discover"
+them and retract the claim again.
+
+**The distinction the list now encodes** — and it is the useful one:
+
+| | Claimable |
+|---|---|
+| built, switched off (routing, pre-broker block) | **yes** — a product decision |
+| built, switched on (firm rules, comparison, calc, journal, alerts, backtest) | yes |
+| **no code path at all** (weekend cutoff, news blackout) | **no** — a fabrication |
+| forbidden regardless (outcome promises) | no |
+
+Re-verified before accepting the correction: no rule named `news`, `weekend` or `session` is emitted
+anywhere in `api/src/glitch_trade_api/execution/`. A flag you could flip is a decision; a rule that
+does not exist is a false claim.
+
+**The correction also exposed a defect in my own matcher.** Adding "routes orders to your broker"
+did not make "routes your orders straight through to your broker" pass — substring matching is too
+brittle for natural phrasing, and it was flagging a TRUE claim. Padding the list with phrasings would
+have hidden the defect and grown a list nobody could maintain. Now every **content word** of a
+capability must appear; ALL of them, not a fraction, because a partial match would let "enforces a
+weekend cutoff tied to the firm rule" through on the strength of sharing "firm" with "records each
+firm's published rules".
+
+**Verified:** eight cases, all correct — four true claims pass (including both routing claims), four
+false ones flag (weekend, news, guaranteed pass, and an unrelated invention). 963 pass / 1 skip (+4).

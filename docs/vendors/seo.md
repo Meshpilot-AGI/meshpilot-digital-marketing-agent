@@ -114,27 +114,36 @@ rows reports "2 of 2 firms have one" — grounding that is worse than silence.
 
 ## GE's declared capabilities (2026-09-03)
 
-Derived from the code, not from the marketing site. Each was checked against what actually runs.
+Derived from the code, then corrected by the operator. Kept current in `deploy/com.meshpilot.seo-cycle.plist`.
 
-```
-records each firm's published rules,dated source for every firm rule,compares firms side by side,calculates drawdown against a firm's rules,tracks account equity,daily-loss and drawdown evaluation,trade journal,replay,alerts,backtest,strategy builder,connects to cTrader,connects to DXtrade,connects to MetaApi
-```
+**A held switch is not a missing capability.** Order routing and the pre-broker block are **built and
+working**; they sit behind a pre-launch off-switch (`TRADE_EXEC_BROKER_ROUTING_ENABLED`,
+`TRADE_EXEC_DEMO_ONLY`). An earlier version of this list read those flags as evidence the feature did
+not exist and refused the claim — wrong, and the wrong direction to be wrong in, since it would have
+had the agent understate a real product. **Do not retract these on rediscovering the flags.**
 
-**Deliberately left out, with the reason — this half is the more useful half:**
+That makes the distinction the list actually encodes:
 
-| Not claimable | Why |
-|---|---|
-| routes orders to your broker | `TRADE_EXEC_BROKER_ROUTING_ENABLED=false` in `infra/prod/ecs.tf`. The router persists the gate decision and returns `broker_routing_not_configured` — it never POSTs. `TRADE_EXEC_DEMO_ONLY=true` would restrict it to demo accounts even if switched on. |
-| blocks your order before it reaches the broker | Same reason. The gate evaluates and records, but nothing is armed in prod (`armed=0 evaluated=0 emitted=0 routed=0`), so no order is being stopped for anyone today. |
-| enforces a weekend cutoff | `hold_over_weekend` is catalogue data, never read as a condition. This is the claim that started all of this. |
-| enforces a news blackout | `block_minutes_around_news` is the **same trap**: stored per firm, served to the UI, never emitted as a gate rule. Found while writing this list — nobody had noticed. |
-| any pass/profit outcome | The program forbids outcome promises, and the vertical is YMYL-adjacent. |
+| | Example | Claimable |
+|---|---|---|
+| built, switched off | order routing, pre-broker block | **yes** — a product decision |
+| built, switched on | firm rules, comparison, drawdown calc, journal, alerts, backtest | yes |
+| **no code path at all** | weekend cutoff, news blackout | **no** — a false claim |
+| forbidden regardless | "guaranteed pass", any outcome promise | no |
 
-⚠️ **Two of the five were found by writing the allowlist, not by review.** Declaring what a product
-does forces someone to check, and checking turned up a second dormant field of exactly the shape of
-the first. Keep this table current: a capability that ships should be added here in the same change,
-and a capability that is switched off should be removed here in the same change.
+`hold_over_weekend` and `block_minutes_around_news` are both stored per firm and served to the UI,
+and neither is emitted as a rule anywhere in `api/src/glitch_trade_api/execution/`. A flag you could
+flip is a decision; a rule that does not exist is a fabrication.
 
-**When routing is armed, this list changes.** The first two rows become claimable and the note
-should move rather than being deleted, so a future reader can see the claim was gated on evidence
-rather than never considered.
+⚠️ **The second one was found by writing this list.** `block_minutes_around_news` is the same dormant
+shape as `hold_over_weekend`, and nobody had noticed — declaring what a product does forces someone
+to check. Add a capability here in the same change that ships it.
+
+### How a claim is matched
+
+Every content word of a declared capability must appear in the sentence. Substring matching came
+first and was too brittle to use — the declared "routes orders to your broker" failed to match
+"routes your orders straight through to your broker", flagging a true claim. Requiring **all**
+content words rather than a fraction is deliberate: a partial match would let "enforces a weekend
+cutoff tied to the firm rule" through on the strength of sharing "firm" with "records each firm's
+published rules".

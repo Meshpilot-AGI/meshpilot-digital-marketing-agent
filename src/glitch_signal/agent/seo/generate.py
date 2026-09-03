@@ -256,7 +256,6 @@ def unverified_product_claims(post: Post, *, brand_terms: list[str],
     """
     if not brand_terms:
         return []
-    allowed = [c.lower() for c in capabilities]
     prose = " ".join(str(b.get("text") or "") for b in post.blocks)
     prose += " " + " ".join(str(q.get("a", "")) for q in post.faq)
     flagged: list[str] = []
@@ -264,10 +263,35 @@ def unverified_product_claims(post: Post, *, brand_terms: list[str],
         low = sentence.lower()
         if not any(t.lower() in low for t in brand_terms):
             continue
-        if any(c in low for c in allowed):
+        if any(_capability_matches(c, low) for c in capabilities):
             continue
         flagged.append(sentence.strip()[:220])
     return flagged
+
+
+# Words that carry no meaning for matching a capability to a sentence.
+_FILLER = {"a", "an", "the", "to", "of", "on", "for", "your", "you", "it", "and", "or", "in",
+           "with", "each", "every", "before", "after", "when", "that", "this", "is", "are"}
+
+
+def _capability_matches(capability: str, sentence: str) -> bool:
+    """Does this sentence describe the declared capability?
+
+    ⚠️ Substring matching was the first attempt and it was too brittle to be useful: the declared
+    "routes orders to your broker" did not match "routes your orders straight through to your
+    broker", so a TRUE claim was flagged. Padding the list with phrasings would have hidden the
+    defect and grown a list nobody could maintain.
+
+    Content-word overlap instead — every meaningful word of the capability must appear. Deliberately
+    ALL of them, not a fraction: this check exists to reject claims, and a partial match is how
+    "enforces a weekend cutoff tied to the firm rule" would slip past "records each firm's published
+    rules" on the strength of sharing "firm".
+    """
+    words = [w for w in re.findall(r"[a-z]+", capability.lower())
+             if w not in _FILLER and len(w) > 2]
+    if not words:
+        return False
+    return all(w in sentence for w in words)
 
 
 async def dead_sources(post: Post, fetch: Any = None) -> list[str]:

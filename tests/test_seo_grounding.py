@@ -184,18 +184,30 @@ def test_the_shipped_list_rejects_the_claim_that_started_this():
     assert generate.unverified_product_claims(p, brand_terms=terms, capabilities=caps)
 
 
-def test_the_shipped_list_rejects_order_routing_while_it_is_switched_off():
-    """TRADE_EXEC_BROKER_ROUTING_ENABLED=false in prod. When that flips, this test should be
-    updated in the same change as the capability — that is the point of pinning it."""
+def test_order_routing_is_claimable_because_it_is_built():
+    """Operator, 2026-09-03: routing and the pre-broker block ARE working — they sit behind a
+    PRE-LAUNCH off-switch (`TRADE_EXEC_BROKER_ROUTING_ENABLED`, `TRADE_EXEC_DEMO_ONLY`).
+
+    A held switch is a product decision, not a missing capability, and the earlier version of this
+    test had it backwards: it read a disabled flag as an absent feature. That distinction is the
+    whole point of the next test — a switched-off capability and a capability with no code path are
+    different things, and only the second is a false claim."""
     terms, caps = _shipped_caps()
-    p = _post(blocks=[{"type": "p", "text":
-        "Glitch Executor routes your orders straight through to your broker."}])
-    assert generate.unverified_product_claims(p, brand_terms=terms, capabilities=caps)
+    for text in ("Glitch Executor routes your orders straight through to your broker.",
+                 "Glitch Executor blocks an order before it reaches the broker when a rule would "
+                 "be breached."):
+        assert generate.unverified_product_claims(
+            _post(blocks=[{"type": "p", "text": text}]),
+            brand_terms=terms, capabilities=caps) == [], text
 
 
 def test_the_shipped_list_rejects_the_news_blackout_claim():
-    """The same shape as the weekend one: block_minutes_around_news is stored per firm and never
-    emitted as a gate rule. Found while writing the allowlist, not by review."""
+    """NOT the same case as order routing, and the difference is the one that matters.
+
+    Routing is built and held behind a flag. `block_minutes_around_news` — like `hold_over_weekend` —
+    is stored per firm, served to the UI, and has NO code path: no rule of that name is emitted
+    anywhere in `api/src/glitch_trade_api/execution/`. A flag you could flip is a decision; a rule
+    that does not exist is a false claim."""
     terms, caps = _shipped_caps()
     p = _post(blocks=[{"type": "p", "text":
         "Glitch Executor enforces a news blackout window around high-impact releases."}])
@@ -209,3 +221,32 @@ def test_the_shipped_list_permits_what_the_product_really_does():
                  "Glitch Executor calculates drawdown against a firm's rules."):
         assert generate.unverified_product_claims(
             _post(blocks=[{"type": "p", "text": text}]), brand_terms=terms, capabilities=caps) == [], text
+
+
+# ── matching a claim to a declared capability ──
+def test_a_true_claim_in_different_words_still_matches():
+    """Substring matching was the first attempt and flagged a TRUE claim: the declared "routes
+    orders to your broker" did not match "routes your orders straight through to your broker".
+    Padding the list with phrasings would have hidden the defect and grown a list nobody could
+    maintain."""
+    assert generate._capability_matches("routes orders to your broker",
+                                        "glitch executor routes your orders straight through to "
+                                        "your broker.")
+
+
+def test_a_partial_overlap_is_not_a_match():
+    """ALL content words, not a fraction — otherwise "enforces a weekend cutoff tied to the firm
+    rule" slips past "records each firm's published rules" on the strength of sharing "firm"."""
+    assert not generate._capability_matches(
+        "records each firm's published rules",
+        "glitch executor enforces a weekend cutoff tied to the firm rule.")
+
+
+def test_filler_words_do_not_have_to_appear():
+    assert generate._capability_matches("tracks account equity",
+                                        "we track the equity on an account")  is False
+    assert generate._capability_matches("trade journal", "glitch executor has a trade journal.")
+
+
+def test_an_empty_capability_matches_nothing():
+    assert not generate._capability_matches("the and of", "anything at all")
