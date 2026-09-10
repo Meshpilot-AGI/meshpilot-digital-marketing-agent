@@ -134,6 +134,11 @@ async def run_gates(repo: str, gates=DEFAULT_GATES, *, runner: Callable | None =
         code, out = await runner(cmd, repo)
         results[name] = code == 0
         if code != 0:
+            # ⚠️ PRINT the whole thing. `PublishResult.reason` keeps only the first 400 chars, which
+            # is fine for a summary row and useless for a diagnosis — and on a CI runner there is no
+            # second chance to re-run the gate by hand, so whatever is not emitted here is gone. A
+            # link audit naming thirty broken targets became four visible ones and a shrug.
+            print(f"\n--- gate '{name}' failed ({cmd}) ---\n{out}\n--- end {name} ---\n", flush=True)
             log.warning("seo.gate_failed", gate=name, cmd=cmd)
             return results, out
     return results, ""
