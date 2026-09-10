@@ -288,3 +288,14 @@ async def test_a_detached_head_is_not_fast_forwarded(monkeypatch, repo):
     monkeypatch.setattr("glitch_signal.agent.seo.publish._run", _runner)
     monkeypatch.setattr(track, "unsettled", lambda *a, **k: _wrap([]))
     assert await run._refresh_repo(repo) is False
+
+
+def test_known_sources_are_harvested_from_published_posts(repo):
+    """Self-improving by construction: every merged post adds its citation to the vocabulary."""
+    import pathlib as _p
+    blog = _p.Path(repo) / "src/data/blog.ts"
+    blog.write_text(blog.read_text().replace(
+        "{ slug: 'trailing-drawdown-explained',",
+        "{ sourceUrl: 'https://www.bis.org/x', slug: 'trailing-drawdown-explained',"))
+    assert run.known_sources(repo) == ["https://www.bis.org/x"]
+    assert run.domains_of(["https://www.bis.org/x", "https://ftmo.com/y"]) == ["www.bis.org", "ftmo.com"]

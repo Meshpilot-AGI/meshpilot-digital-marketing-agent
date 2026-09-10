@@ -38,6 +38,7 @@ _DEFAULT_SITEMAP = "public/sitemap-en.xml"
 _DEFAULT_BLOG_FILE = "src/data/blog.ts"
 
 _LOC = re.compile(r"<loc>\s*([^<]+?)\s*</loc>", re.I)
+_SOURCE_URL = re.compile(r"""["']?sourceUrl["']?\s*:\s*['"](https?://[^'"]+)['"]""")
 # Anchored on the SLUG, then the title that follows it. `title:` also appears on nested blocks and
 # on the type declaration itself, so matching it alone picks up strings that are not post titles;
 # and the file mixes hand-written single-quoted TS with our own JSON-shaped output, so indentation
@@ -130,6 +131,36 @@ def existing_posts(repo: str, blog_file: str = _DEFAULT_BLOG_FILE) -> tuple[list
 # just the output.
 _TOPIC_MAX_TOKENS = 1200
 
+def known_sources(repo: str, blog_file: str = _DEFAULT_BLOG_FILE) -> list[str]:
+    """External sources the site's PUBLISHED posts already cite.
+
+    The external counterpart of `site_links`, harvested the same way and for the same reason: the
+    model invents plausible URLs when it has no vocabulary. These were written by humans, which makes
+    them a better starting point than anything the model would guess — but see `live_sources`, since
+    being human-written is not the same as still resolving.
+
+    Self-improving by construction: every merged post adds its source to the vocabulary.
+    """
+    path = pathlib.Path(repo) / blog_file
+    if not path.exists():
+        return []
+    seen: list[str] = []
+    for url in _SOURCE_URL.findall(path.read_text(errors="replace")):
+        if url not in seen:
+            seen.append(url)
+    return seen
+
+
+def domains_of(urls: list[str]) -> list[str]:
+    """The domains behind a source list — what a NEW citation is allowed to sit on."""
+    out: list[str] = []
+    for u in urls:
+        d = re.sub(r"^https?://", "", u).split("/")[0].lower()
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
 _TOPIC_PROMPT = """You are choosing ONE topic for the next blog post on this site.
 
 AUDIENCE: {audience}
@@ -218,6 +249,13 @@ async def run_publish(brand_id: str, args: dict | None = None) -> dict:
     # against.
     await _refresh_repo(repo)
     slugs, titles = existing_posts(repo, blog_file)
+    # Harvest the site's own citations, then keep only what still resolves. Offering an unchecked
+    # list would cause the very failure this prevents: 4 of the 11 sources the published posts cite
+    # were already 404 when this was written.
+    harvested = known_sources(repo, blog_file)
+    sources = await generate.live_sources(harvested)
+    if len(sources) != len(harvested):
+        log.info("seo.sources_pruned", offered=len(sources), harvested=len(harvested))
     audience = _cfg(brand_id, "AUDIENCE") or args.get("audience", "")
     positioning = await _positioning.get(brand_id)
 
@@ -230,6 +268,7 @@ async def run_publish(brand_id: str, args: dict | None = None) -> dict:
     post, problems = await generate.author(
         topic, audience=audience, author_slug=_cfg(brand_id, "AUTHOR", "ryan"),
         facts_block=facts, site_links=links, positioning=positioning,
+        source_urls=sources, source_domains=_csv(brand_id, "SOURCE_DOMAINS") or domains_of(sources),
         today=dt.date.today().isoformat(),
         brand_terms=_csv(brand_id, "BRAND_TERMS"),
         capabilities=_csv(brand_id, "CAPABILITIES"),
