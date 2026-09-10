@@ -309,3 +309,16 @@ def test_the_schema_gate_is_preceded_by_a_build():
     names = [n for n, _ in pub.DEFAULT_GATES]
     assert names.index("build") < names.index("schemas")
     assert dict(pub.DEFAULT_GATES)["build"] == "npm run build:full"
+
+
+async def test_a_failed_gate_prints_its_full_output(capsys):
+    """`reason` keeps 400 chars, which is a summary, not a diagnosis — and on a CI runner there is no
+    second chance to re-run the gate by hand. A link audit naming thirty broken targets became four
+    visible ones and a shrug."""
+    long_output = "\n".join(f"broken-link-{i}" for i in range(60))
+    runner = _Fake(fail={"links:audit"}, fail_output=long_output)
+    results, failure = await pub.run_gates("/repo", runner=runner)
+    assert results["links"] is False
+    printed = capsys.readouterr().out
+    assert "broken-link-59" in printed          # the tail survives, not just the first 400 chars
+    assert "gate 'links' failed" in printed
