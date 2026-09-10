@@ -76,6 +76,7 @@ async def test_an_empty_topic_stops_the_run(monkeypatch, repo):
     async def _none(*a, **k):
         return ""
 
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
     monkeypatch.setattr(run, "pick_topic", _none)
     res = await run.run_publish("b", {"repo": repo})
     assert res["skipped"] == "no_topic"
@@ -94,6 +95,7 @@ async def test_a_duplicate_slug_is_named_rather_than_left_to_git(monkeypatch, re
     class _Dupe:
         slug, title = "trailing-drawdown-explained", "x"
 
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
     monkeypatch.setattr(run, "pick_topic", _dummy_topic)
     monkeypatch.setattr("glitch_signal.agent.seo.generate.author",
                         lambda *a, **k: _wrap((_Dupe(), [])))
@@ -103,6 +105,7 @@ async def test_a_duplicate_slug_is_named_rather_than_left_to_git(monkeypatch, re
 
 
 async def test_dry_run_authors_but_never_touches_the_repo(monkeypatch, repo):
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
     monkeypatch.setattr(run, "pick_topic", _dummy_topic)
     monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
     monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
@@ -187,6 +190,7 @@ async def test_nothing_in_flight_lets_the_cycle_proceed(monkeypatch, repo):
         return []
 
     monkeypatch.setattr(track, "unsettled", _none)
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
     monkeypatch.setattr(run, "pick_topic", _dummy_topic)
     monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
     monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
@@ -196,6 +200,7 @@ async def test_nothing_in_flight_lets_the_cycle_proceed(monkeypatch, repo):
 
 async def test_a_dry_run_without_a_brand_does_not_query_for_open_prs(monkeypatch, repo):
     """No brand means no track record to consult — a harness run should not need a database."""
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
     monkeypatch.setattr(run, "pick_topic", _dummy_topic)
     monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
     monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
@@ -219,12 +224,16 @@ async def test_the_cycle_refreshes_the_checkout_before_reading_what_is_published
 
     monkeypatch.setattr("glitch_signal.agent.seo.publish._run", _runner)
     monkeypatch.setattr(track, "unsettled", lambda *a, **k: _wrap([]))
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
     monkeypatch.setattr(run, "pick_topic", _dummy_topic)
     monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
     monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
     await run.run_publish("b", {"repo": repo, "dry_run": True})
     assert any("git fetch" in c for c in ran)
-    assert any("merge --ff-only" in c for c in ran)
+    # Resolved from the CURRENT branch, not `origin/HEAD` — that symref is undefined in a fresh
+    # clone, including an `actions/checkout` working copy, where it failed on every run.
+    assert any("merge --ff-only --quiet origin/ok" in c for c in ran)
+    assert not any("origin/HEAD" in c for c in ran)
 
 
 async def test_a_failed_refresh_does_not_stop_the_run(monkeypatch, repo):
@@ -237,8 +246,45 @@ async def test_a_failed_refresh_does_not_stop_the_run(monkeypatch, repo):
 
     monkeypatch.setattr("glitch_signal.agent.seo.publish._run", _runner)
     monkeypatch.setattr(track, "unsettled", lambda *a, **k: _wrap([]))
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
     monkeypatch.setattr(run, "pick_topic", _dummy_topic)
     monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
     monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
     res = await run.run_publish("b", {"repo": repo, "dry_run": True})
     assert res.get("authored") is True
+
+
+# ── the guard must fail CLOSED (2026-09-10) ──
+async def test_an_unreadable_track_record_refuses_rather_than_publishing(monkeypatch, repo):
+    """`unsettled()` used to return `[]` on any database error, and this is the IN-FLIGHT GUARD — so
+    a connection blip read as "nothing is open" and would publish a second post at the same anchor,
+    recreating the #558/#559 conflict the guard exists to prevent. A real blip
+    (`ConnectionDoesNotExistError`) did occur on 2026-09-10, harmlessly, elsewhere.
+
+    A guard that cannot see must refuse. One missing post costs a day; guessing wrong costs a human
+    untangling a merge conflict."""
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap(None))
+    res = await run.run_publish("b", {"repo": repo, "dry_run": True})
+    assert res["skipped"] == "in_flight_unknown"
+
+
+async def test_looked_and_found_nothing_is_not_the_same_as_could_not_look(monkeypatch, repo):
+    monkeypatch.setattr("glitch_signal.agent.seo.track.unsettled", lambda *a, **k: _wrap([]))
+    monkeypatch.setattr(run, "pick_topic", _dummy_topic)
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.author", lambda *a, **k: _wrap((_Post(), [])))
+    monkeypatch.setattr("glitch_signal.agent.seo.generate.facts_for", lambda *a, **k: _wrap(""))
+    res = await run.run_publish("b", {"repo": repo, "dry_run": True})
+    assert res.get("authored") is True
+
+
+async def test_a_detached_head_is_not_fast_forwarded(monkeypatch, repo):
+    """A CI checkout can land detached. Merging into a detached HEAD is meaningless, and guessing a
+    branch would be worse — skip the refresh and let the duplicate-slug guard be the backstop."""
+    from glitch_signal.agent.seo import track
+
+    async def _runner(cmd, cwd):
+        return (0, "HEAD") if "rev-parse" in cmd else (0, "ok")
+
+    monkeypatch.setattr("glitch_signal.agent.seo.publish._run", _runner)
+    monkeypatch.setattr(track, "unsettled", lambda *a, **k: _wrap([]))
+    assert await run._refresh_repo(repo) is False

@@ -57,7 +57,15 @@ async def _refresh_repo(repo: str) -> bool:
     tree still beats no run at all, and the duplicate-slug guard in `insert_post` is the backstop."""
     from glitch_signal.agent.seo import publish as _publish
 
-    for cmd in ("git fetch --quiet origin", "git merge --ff-only --quiet origin/HEAD"):
+    # ⚠️ `origin/HEAD` is a symref that a fresh clone often does not define — including an
+    # `actions/checkout` working copy, where it would fail on every run. Resolve the CURRENT branch
+    # and fast-forward from its remote counterpart, which holds both locally and on a runner.
+    code, out = await _publish._run("git rev-parse --abbrev-ref HEAD", repo)
+    branch = out.strip().splitlines()[-1] if code == 0 and out.strip() else ""
+    if not branch or branch == "HEAD":
+        log.warning("seo.repo_refresh_skipped", reason="detached HEAD")
+        return False
+    for cmd in ("git fetch --quiet origin", f"git merge --ff-only --quiet origin/{branch}"):
         code, out = await _publish._run(cmd, repo)
         if code != 0:
             log.warning("seo.repo_refresh_failed", cmd=cmd, out=out[:200])
@@ -190,6 +198,12 @@ async def run_publish(brand_id: str, args: dict | None = None) -> dict:
     from glitch_signal.agent.seo import track
 
     open_prs = await track.unsettled(brand_id) if brand_id else []
+    if open_prs is None:
+        # Could not read the track record. A guard that cannot see must REFUSE, not proceed: the
+        # cost of skipping a day is one missing post, and the cost of guessing wrong is two posts
+        # inserted at the same anchor, which is a merge conflict a human has to untangle by hand.
+        return {"skipped": "in_flight_unknown",
+                "detail": "could not read open PRs, so cannot rule out a post already in flight"}
     if open_prs:
         return {"skipped": "post_in_flight",
                 "detail": f"{len(open_prs)} post(s) awaiting review; a second insert at the same "

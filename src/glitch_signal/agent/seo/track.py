@@ -195,8 +195,19 @@ async def stage_for(brand_id: str, *, engine: Any = None) -> str:
     return (await standing(brand_id, engine=engine)).stage
 
 
-async def unsettled(brand_id: str, *, engine: Any = None) -> list[dict]:
-    """Proposed posts whose PR outcome has not been recorded yet."""
+async def unsettled(brand_id: str, *, engine: Any = None) -> list[dict] | None:
+    """Proposed posts whose PR outcome has not been recorded yet.
+
+    ⚠️ Returns **None when it could not tell**, and `[]` only when it genuinely looked and found
+    nothing. Those are different facts and this used to conflate them: the empty list was returned
+    on any database error, and `run_publish` reads this as its IN-FLIGHT GUARD. A connection blip
+    therefore read as "nothing is open" and would have published a second post at the same anchor —
+    recreating the #558/#559 conflict that the guard exists to prevent. One such blip really did
+    occur on 2026-09-10 (`ConnectionDoesNotExistError`), harmlessly, inside `settle_open`.
+
+    A guard that cannot see must refuse, not proceed. Callers for whom not-knowing is harmless can
+    still coerce with `or []`.
+    """
     try:
         eng = _engine_or(engine)
         async with eng.connect() as conn:
@@ -204,7 +215,7 @@ async def unsettled(brand_id: str, *, engine: Any = None) -> list[dict]:
                     (await conn.execute(_UNSETTLED, {"brand_id": brand_id})).mappings().all()]
     except Exception as exc:  # noqa: BLE001
         log.warning("seo.unsettled_failed", error=str(exc)[:200])
-        return []
+        return None
 
 
 def human_edits_from_commits(commits: list[dict], agent_logins: tuple[str, ...] = ()) -> int:
@@ -267,7 +278,8 @@ async def settle_open(brand_id: str, *, repo: str, agent_logins: tuple[str, ...]
     from glitch_signal.agent.seo import publish as _publish
 
     runner = runner or _publish._run
-    rows = await unsettled(brand_id, engine=engine)
+    # `None` here is harmless: settling nothing this pass costs a delay, not correctness.
+    rows = await unsettled(brand_id, engine=engine) or []
     out = {"checked": len(rows), "merged": 0, "rejected": 0, "still_open": 0, "unreadable": 0,
            "write_failed": 0}
 
