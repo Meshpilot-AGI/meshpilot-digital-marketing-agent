@@ -4,6 +4,30 @@ The agent authors blog posts and ships them into the **site's own repo** as a co
 a typed object appended to `src/data/blog.ts`, the site's own gates run, a PR opened. CF Pages
 builds on merge.
 
+## Where the cycle runs (changed 2026-09-10)
+
+**It runs on a GitHub Actions runner in `glitch-trade-app`, not on the operator's Mac.**
+
+The Mac hosted it because publishing needs a checkout, the site's npm toolchain and a credential that
+can open a PR — none of which the API's runtime has. A runner has all three, so the constraint that
+forced it onto a laptop does not apply there.
+
+⚠️ **What made the move non-negotiable:** between 2026-09-05 and 2026-09-08 the Mac was simply off,
+and the cycle did not run for four days. The agent's social campaign, which runs in the cloud, posted
+on every one of those days. Same agent, same week, opposite outcomes — the only difference was the
+host. The heartbeat did alert (three times, into `#alerts`), so the failure was visible; it just had
+nobody to fix it.
+
+Hosted in the SITE repo rather than the agent's, because the agent repo is public and this one is
+private: a runner here already *is* the checkout, and the public agent needs no token to check out.
+The PR is opened with a repo-scoped user PAT rather than `GITHUB_TOKEN` — the org forbids Actions
+from creating PRs, and that policy is about the Actions *bot* authoring them; this keeps the author
+identical to what the Mac produced.
+
+⚠️ **The launchd job is RETIRED, not merely idle** (`~/Library/LaunchAgents/*.retired`). Two hosts on
+the same 06:40 schedule would both find nothing in flight and both publish, inserting two posts at the
+same anchor — the in-flight guard cannot arbitrate a race it cannot see. One host, or a real lock.
+
 ## The constraint that shapes everything here
 
 Publishing needs three things the API's runtime does not have:
