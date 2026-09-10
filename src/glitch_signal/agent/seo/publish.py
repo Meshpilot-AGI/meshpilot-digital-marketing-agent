@@ -37,6 +37,18 @@ log = structlog.get_logger(__name__)
 DEFAULT_GATES: tuple[tuple[str, str], ...] = (
     ("typecheck", "npm run typecheck"),
     ("lint", "npm run lint"),
+    # ⚠️ `schemas:validate` walks `dist/**/*.html` POST-PRERENDER — its own usage line reads
+    # `npm run build:full && npm run schemas:validate`. Without the build it has nothing to inspect.
+    #
+    # On the operator's Mac a months-old `dist/` happened to exist, so the gate passed by walking
+    # stale HTML that had never contained the post being validated. It reported green on every post
+    # while checking none of them. A clean CI runner has no `dist/`, which is how this surfaced: the
+    # gate finally failed, and the failure was the first true thing it had said.
+    #
+    # The build is the expensive step in the cycle. It is also what makes the FAQPage and BlogPosting
+    # JSON-LD exist to be validated, and it refreshes the sitemap the next run reads for internal
+    # links.
+    ("build", "npm run build:full"),
     ("schemas", "npm run schemas:validate"),
     ("links", "npm run links:audit"),
 )

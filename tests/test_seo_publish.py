@@ -299,3 +299,13 @@ async def test_a_successful_publish_also_returns_to_the_starting_branch():
                             runner=runner, reader=reader, writer=writer)
     assert res.ok
     assert runner.cmds[-1].strip() == "git switch main"
+
+
+def test_the_schema_gate_is_preceded_by_a_build():
+    """`schemas:validate` walks `dist/**/*.html` post-prerender — its own usage line is
+    `npm run build:full && npm run schemas:validate`. On the Mac a months-old `dist/` existed, so the
+    gate passed by walking stale HTML that had never contained the post it was validating: green on
+    every post, checking none of them."""
+    names = [n for n, _ in pub.DEFAULT_GATES]
+    assert names.index("build") < names.index("schemas")
+    assert dict(pub.DEFAULT_GATES)["build"] == "npm run build:full"
