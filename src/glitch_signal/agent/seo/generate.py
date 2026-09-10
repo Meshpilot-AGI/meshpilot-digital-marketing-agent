@@ -323,13 +323,40 @@ def _base(word: str) -> str:
     return word
 
 
+# ⚠️ "I was refused" is not "it is not there", and conflating them cost a whole day's post.
+#
+# The first real cycle on a GitHub runner rejected THREE drafts in a row on citations that are
+# perfectly alive: investopedia.com -> 402, investor.gov -> 403, apextraderfunding.com -> 403. A
+# datacenter IP with a library User-Agent gets bot-walled by most CDNs; the pages open fine in a
+# browser. The check was answering "will this host let me in?" and reporting it as "does this page
+# exist?".
+#
+# So only the codes that actually mean ABSENT count. 401/402/403/429 mean a gate — paywall, bot wall,
+# rate limit — and say nothing about whether the page supports the claim. 5xx is the server having a
+# bad day. Being wrong in this direction is the safe one: a citation that is genuinely dead still
+# gets caught by the site's own `links:audit` and by a reader, whereas a false positive silently
+# blocks publishing and there is nothing downstream to catch that.
+_MISSING = frozenset({404, 410})
+
+# A browser-shaped UA, for the same reason the Discord alert step needed one: the default library
+# agent is what gets refused.
+_SOURCE_CHECK_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
 async def dead_sources(post: Post, fetch: Any = None) -> list[str]:
-    """StatCallout source URLs that do not resolve.
+    """StatCallout source URLs that are genuinely MISSING (404 / 410).
 
     The contract already requires an external primary source and rejects a bare domain — it never
     checked that the page EXISTS. A shipped post cited a CFTC page that 404s, which is a citation a
     reader cannot follow and an AI search engine cannot verify: worse than no citation, because it
     looks like one.
+
+    ⚠️ It deliberately does NOT reject a page that merely refused us — see `_MISSING`.
     """
     urls = [u for u in post.stat_sources() if u.startswith("http")]
     if not urls:
@@ -338,7 +365,8 @@ async def dead_sources(post: Post, fetch: Any = None) -> list[str]:
         import httpx
 
         async def fetch(url: str) -> int:
-            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True,
+                                         headers=_SOURCE_CHECK_HEADERS) as client:
                 return (await client.get(url)).status_code
 
     dead = []
@@ -347,7 +375,7 @@ async def dead_sources(post: Post, fetch: Any = None) -> list[str]:
             code = await fetch(url)
         except Exception:  # noqa: BLE001 — a network blip is not evidence the page is gone
             continue
-        if code >= 400:
+        if code in _MISSING:
             dead.append(f"{url} -> HTTP {code}")
     return dead
 

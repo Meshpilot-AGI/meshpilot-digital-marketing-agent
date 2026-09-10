@@ -108,6 +108,35 @@ def test_a_brand_that_declares_nothing_gets_no_check():
 
 
 # ── citations that do not resolve ──
+async def test_a_refusal_is_not_a_missing_page():
+    """⚠️ "I was refused" is not "it is not there", and conflating them cost a whole day's post: the
+    first real cycle on a GitHub runner rejected THREE drafts on live citations (investopedia 402,
+    investor.gov 403, apextraderfunding 403). A datacenter IP with a library User-Agent gets
+    bot-walled; the pages open fine in a browser."""
+    p = _post(blocks=[{"type": "stat", "stat": "x", "context": "y",
+                       "sourceUrl": "https://www.investopedia.com/terms/h/highwatermark.asp",
+                       "sourceLabel": "Investopedia"}])
+
+    for refused in (401, 402, 403, 429, 500, 503):
+        async def fetch(url, _c=refused):
+            return _c
+
+        assert await generate.dead_sources(p, fetch) == [], refused
+
+
+async def test_being_wrong_in_the_safe_direction():
+    """A genuinely dead citation is still caught by the site's own `links:audit` and by a reader. A
+    FALSE positive silently blocks publishing, and nothing downstream catches that."""
+    assert generate._MISSING == frozenset({404, 410})
+
+
+async def test_the_source_check_sends_a_browser_user_agent():
+    """Same lesson as the Discord alert step: the default library agent is what gets refused.
+    Measured — investor.gov answers 403 to httpx's default and 200 to this."""
+    ua = generate._SOURCE_CHECK_HEADERS["User-Agent"]
+    assert "Mozilla/5.0" in ua and "Chrome/" in ua
+
+
 async def test_a_404_source_is_rejected():
     """The contract required an external primary source and rejected a bare domain — it never
     checked the page exists. A shipped post cited a CFTC page that 404s: worse than no citation,
