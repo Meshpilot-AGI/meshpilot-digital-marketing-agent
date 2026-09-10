@@ -271,3 +271,14 @@ async def test_a_failed_write_is_not_counted_as_a_settled_outcome():
     gh = _Gh({"u/1": '{"state":"MERGED","mergedAt":"2026-09-03T10:11:11Z","commits":[]}'})
     out = await track.settle_open("b", repo="/r", runner=gh, engine=_Boom())
     assert out["merged"] == 0 and out["write_failed"] == 1
+
+
+async def test_unsettled_distinguishes_empty_from_unreadable():
+    """`[]` means it looked and found nothing; `None` means it could not tell. Conflating them made
+    the in-flight guard fail OPEN."""
+    class _Boom:
+        def connect(self):
+            raise RuntimeError("db down")
+
+    assert await track.unsettled("b", engine=_Boom()) is None
+    assert await track.unsettled("b", engine=_Engine([])) == []

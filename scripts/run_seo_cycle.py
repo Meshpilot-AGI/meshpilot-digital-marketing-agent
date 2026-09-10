@@ -26,6 +26,7 @@ import json
 import os
 import pathlib
 import sys
+import traceback
 
 # ⚠️ `gh` authenticates from EITHER of these, and either one OVERRIDES its own keyring login. So
 # simply loading `.env` into the environment silently replaced a working `gh` auth with a token that
@@ -102,8 +103,15 @@ async def main() -> int:
     except Exception as exc:  # noqa: BLE001
         # The cycle itself broke. Recorded as `ok=False` so it is distinguishable from a refusal —
         # the whole point of the row is that silence and failure used to look identical.
-        print("publish: FAILED", exc)
-        await track.record_cycle(args.brand, ok=False, outcome="error", detail=str(exc),
+        #
+        # ⚠️ `str(exc)` alone is not enough: the 2026-09-04 failure recorded an EMPTY detail, because
+        # plenty of exceptions carry no message (a bare `KeyError`, a `CancelledError`, a timeout).
+        # The row said something broke and nothing about what, and the traceback was in a /tmp log
+        # the next reboot deleted. The TYPE is always present, so lead with it.
+        detail = f"{type(exc).__name__}: {exc}".strip().rstrip(":").strip()
+        print("publish: FAILED", detail)
+        traceback.print_exc()
+        await track.record_cycle(args.brand, ok=False, outcome="error", detail=detail,
                                  settled=settled)
         raise
 

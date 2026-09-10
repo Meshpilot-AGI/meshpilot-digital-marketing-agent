@@ -76,7 +76,13 @@
   <key>StartCalendarInterval</key>
   <dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>40</integer></dict>
 
-  <key>StandardOutPath</key><string>/tmp/meshpilot-seo-cycle.log</string>
-  <key>StandardErrorPath</key><string>/tmp/meshpilot-seo-cycle.log</string>
+  <!-- ⚠️ NOT /tmp. macOS purges it on reboot, and the machine rebooting is exactly the event
+       worth diagnosing: the 2026-09-04 run failed, and by the time anyone looked its traceback was
+       gone because the Mac had restarted during the outage. A log that deletes itself at the moment
+       something went wrong is not a log. -->
+  <key>StandardOutPath</key>
+  <string>/Users/tejaskaranagrawal/Library/Logs/meshpilot-seo-cycle.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/tejaskaranagrawal/Library/Logs/meshpilot-seo-cycle.log</string>
   <key>RunAtLoad</key><false/>
 </dict></plist>
