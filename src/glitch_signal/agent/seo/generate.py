@@ -64,11 +64,16 @@ AUTHOR: {author}
 
 {links}
 
+{sources}
+
 HARD RULES
 - Every quantitative claim about a named firm MUST come from VERIFIED FACTS above, quoted exactly.
   If a figure you want is not there, write around it or omit the claim. Do NOT supply your own.
 - Internal links MUST be chosen from SITE PAGES above, copied exactly. A path that looks plausible
   but does not exist is a broken link. Do NOT invent one.
+- The StatCallout's sourceUrl MUST come from TRUSTED SOURCES above, copied exactly, unless you are
+  certain of a specific page on one of those same domains. A URL that looks plausible but does not
+  exist is worse than no citation, because it reads as one.
 - No "guaranteed pass", no promised outcomes, no invented testimonials or funded numbers.
 - The lede is at most 60 words and contains the direct answer. It is also the meta description.
 - `tldr` is the direct answer in 2-3 sentences — the passage an AI search engine will quote.
@@ -348,6 +353,65 @@ _SOURCE_CHECK_HEADERS = {
 }
 
 
+def _domain(url: str) -> str:
+    return re.sub(r"^https?://", "", str(url or "")).split("/")[0].lower()
+
+
+def unsupported_sources(post: Post, allowed_domains: list[str]) -> list[str]:
+    """StatCallout sources on a domain this site has never cited.
+
+    The external sibling of `unsupported_links`, and it exists for the same reason. Internal links
+    were being invented until the model was handed the site's real URL vocabulary; external ones are
+    still invented, because nothing grounds them. Three consecutive runs on 2026-09-10 died citing
+    plausible-looking pages the model had made up — `ftmo.com/en/frequently-asked-questions/` reads
+    exactly like a real page and is a 404.
+
+    Domains, not exact URLs: pinning to known URLs alone would forbid ever citing a new page on a
+    source the site already trusts, which is too tight to write against. `dead_sources` is the
+    backstop for a new page on a known domain that does not exist.
+    """
+    if not allowed_domains:
+        return []
+    allowed = {d.lower().lstrip(".") for d in allowed_domains if d}
+    bad = []
+    for url in post.stat_sources():
+        if not url.startswith("http"):
+            continue
+        host = _domain(url)
+        if not any(host == a or host.endswith("." + a) for a in allowed):
+            bad.append(url)
+    return sorted(set(bad))
+
+
+async def live_sources(urls: list[str], fetch: Any = None) -> list[str]:
+    """Filter a source vocabulary down to what actually resolves, before offering it to the model.
+
+    ⚠️ Offering an unchecked list would cause the exact failure it is meant to prevent. Measured on
+    2026-09-10: **4 of the 11 sources cited by the site's own published posts are already 404** —
+    two FTMO pages, the MetaApi docs, a TradingView support article. Human-written citations rot too,
+    so "a human once vetted this" is not the same as "this works today".
+    """
+    if not urls:
+        return []
+    if fetch is None:
+        import httpx
+
+        async def fetch(url: str) -> int:
+            async with httpx.AsyncClient(timeout=15, follow_redirects=True,
+                                         headers=_SOURCE_CHECK_HEADERS) as client:
+                return (await client.get(url)).status_code
+
+    async def _check(url: str) -> tuple[str, bool]:
+        try:
+            return url, (await fetch(url)) not in _MISSING
+        except Exception:  # noqa: BLE001 — unreachable is not evidence it is gone
+            return url, True
+
+    import asyncio as _asyncio
+
+    return [u for u, ok in await _asyncio.gather(*[_check(u) for u in urls]) if ok]
+
+
 async def dead_sources(post: Post, fetch: Any = None) -> list[str]:
     """StatCallout source URLs that are genuinely MISSING (404 / 410).
 
@@ -387,6 +451,8 @@ async def author(
     author_slug: str = "ryan",
     facts_block: str = "",
     site_links: list[str] | None = None,
+    source_urls: list[str] | None = None,
+    source_domains: list[str] | None = None,
     positioning: str = "",
     today: str = "",
     complete: Any = None,
@@ -408,11 +474,19 @@ async def author(
     """
     complete = complete or _default_complete
     site_links = site_links or []
+    source_urls = source_urls or []
+    source_domains = source_domains or []
+    sources_block = (
+        "TRUSTED SOURCES (cite one of these, copied exactly — they are known to resolve):\n"
+        + "\n".join(f"- {u}" for u in source_urls)
+        + (f"\nIf none fits, you may cite another page on one of these domains ONLY: "
+           f"{', '.join(source_domains)}." if source_domains else "")
+    ) if source_urls else "TRUSTED SOURCES: none supplied — cite only a page you are certain exists."
     links_block = ("SITE PAGES (the only internal links you may use, copied exactly):\n"
                    + "\n".join(f"- {p}" for p in site_links)) if site_links else \
                   "SITE PAGES: none supplied — use only internal links you are certain exist."
     prompt = _PROMPT.format(topic=topic, audience=audience, author=author_slug, today=today,
-                            links=links_block,
+                            links=links_block, sources=sources_block,
                             facts=f"VERIFIED FACTS (the only figures you may cite):\n{facts_block}"
                                   if facts_block.strip() else
                                   "VERIFIED FACTS: none supplied — do not cite firm-specific figures.",
@@ -440,6 +514,12 @@ async def author(
             problems.append(
                 f"these figures appear nowhere in the verified facts and must be removed or "
                 f"replaced with a verified one: {', '.join(invented)}")
+        bad_sources = unsupported_sources(post, source_domains)
+        if bad_sources:
+            problems.append(
+                f"these sources are on domains this site does not cite — use one from TRUSTED "
+                f"SOURCES instead: {', '.join(bad_sources)}")
+
         bad_links = unsupported_links(post, site_links)
         if bad_links:
             problems.append(
@@ -467,7 +547,8 @@ async def author(
                 f"these cited sources do not resolve — cite a page that exists, or drop the claim: "
                 f"{', '.join(dead)}")
 
-        if ok and not invented and not bad_links and not sweeping and not claims and not dead:
+        if (ok and not invented and not bad_links and not bad_sources and not sweeping
+                and not claims and not dead):
             log.info("seo.authored", slug=post.slug, attempt=attempt + 1,
                      blocks=len(post.blocks), faq=len(post.faq))
             return post, []

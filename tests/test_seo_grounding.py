@@ -345,3 +345,57 @@ def test_placing_an_order_still_needs_the_demo_qualifier():
         assert generate.unverified_product_claims(
             _post(blocks=[{"type": "p", "text": overreach}]),
             brand_terms=terms, capabilities=caps), overreach
+
+
+# ── external sources get a vocabulary too (2026-09-10) ──
+def test_a_source_on_an_unknown_domain_is_flagged():
+    """The external sibling of `unsupported_links`, and it exists for the same reason: internal links
+    were invented until the model was handed the site's real vocabulary. Three runs on 2026-09-10
+    died citing made-up pages — `ftmo.com/en/frequently-asked-questions/` reads exactly like a real
+    page and is a 404."""
+    p = _post(blocks=[{"type": "stat", "stat": "x", "context": "y", "sourceLabel": "L",
+                       "sourceUrl": "https://madeupsource.example/report"}])
+    assert generate.unsupported_sources(p, ["bis.org", "ftmo.com"]) == \
+        ["https://madeupsource.example/report"]
+
+
+def test_a_new_page_on_a_known_domain_is_allowed():
+    """Domains, not exact URLs. Pinning to known URLs alone would forbid ever citing a new page on a
+    source the site already trusts — too tight to write against. `dead_sources` is the backstop."""
+    p = _post(blocks=[{"type": "stat", "stat": "x", "context": "y", "sourceLabel": "L",
+                       "sourceUrl": "https://www.bis.org/publ/something-new.htm"}])
+    assert generate.unsupported_sources(p, ["www.bis.org"]) == []
+
+
+def test_a_subdomain_of_a_trusted_domain_is_allowed():
+    p = _post(blocks=[{"type": "stat", "stat": "x", "context": "y", "sourceLabel": "L",
+                       "sourceUrl": "https://data.bis.org/x"}])
+    assert generate.unsupported_sources(p, ["bis.org"]) == []
+
+
+def test_no_declared_domains_means_no_restriction():
+    """A brand that has published nothing yet has no vocabulary to offer, and inventing one for it
+    would be worse than leaving the check inert."""
+    p = _post(blocks=[{"type": "stat", "stat": "x", "context": "y", "sourceLabel": "L",
+                       "sourceUrl": "https://anything.example/x"}])
+    assert generate.unsupported_sources(p, []) == []
+
+
+async def test_the_offered_vocabulary_is_pruned_to_what_resolves():
+    """⚠️ Offering an unchecked list would cause the very failure it prevents. Measured: 4 of the 11
+    sources the site's own published posts cite were already 404 — human-written citations rot too."""
+    async def fetch(url):
+        return 404 if "gone" in url else 200
+
+    live = await generate.live_sources(
+        ["https://a.example/ok", "https://b.example/gone", "https://c.example/ok"], fetch)
+    assert live == ["https://a.example/ok", "https://c.example/ok"]
+
+
+async def test_an_unreachable_source_is_kept_rather_than_pruned():
+    """Unreachable is not evidence it is gone — dropping it would shrink the vocabulary on a network
+    blip, in the same direction of error as calling a refusal a missing page."""
+    async def fetch(url):
+        raise TimeoutError("blip")
+
+    assert await generate.live_sources(["https://a.example/x"], fetch) == ["https://a.example/x"]

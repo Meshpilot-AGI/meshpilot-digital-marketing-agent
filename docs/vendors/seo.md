@@ -122,7 +122,8 @@ Every check below was added because something got past the ones before it.
 | `unsupported_links` | an internal path the sitemap does not have | `/tools/drawdown-calculator` |
 | **`unsupported_generalisations`** | an invented *consensus* — "most firms", "almost every" | a post claiming most challenges require minimum trading days, when 2 of 6 live firms do |
 | **`unverified_product_claims`** | a claim about **our own product** that we have not declared | a post saying the engine blocks orders on a weekend cutoff; it does not |
-| **`dead_sources`** | a citation that 404s | a CFTC URL that looks authoritative and does not resolve |
+| **`dead_sources`** | a citation that is genuinely MISSING (404/410 only) | a CFTC URL that looks authoritative and does not resolve |
+| **`unsupported_sources`** | a citation on a domain the site has never cited | three runs in a row killed by invented URLs like `ftmo.com/en/frequently-asked-questions/` |
 
 ⚠️ **The product-claim check is the one nothing else could do.** Figure-grounding checks numbers, the
 contract checks structure, and no external source can confirm what our own code does. A brand
@@ -267,3 +268,35 @@ agent), and an alert must not depend on the thing it might be alerting about.
 It alerts **once per 12h per brand** (a `SharedWindowLimiter` over `rate_counters`). The watcher runs
 on its own schedule, so without that a single stale cycle would page on every firing, and an alert
 that repeats is an alert people filter.
+
+## Grounding external sources (2026-09-10)
+
+Internal links stopped being invented once the model was handed the site's real URL vocabulary.
+External sources were still invented, because nothing grounded them — three consecutive runs died on
+plausible-looking pages that do not exist (`ftmo.com/en/frequently-asked-questions/` reads exactly
+like a real page and is a 404).
+
+The vocabulary is **the site's own published citations**, harvested from `blog.ts` the same way
+`site_links` is harvested from the sitemap. Self-improving by construction: every merged post adds
+its source to the pool.
+
+⚠️ **Harvested is not the same as usable.** Offering the list unchecked would cause the very failure
+it prevents: **4 of the 11 sources the published posts cite were already 404** when this shipped —
+two FTMO pages, the MetaApi docs, a TradingView support article. Human-written citations rot too, so
+`live_sources()` prunes the pool before it is offered. An *unreachable* source is kept, not pruned —
+same direction of error as refusing to call a 403 a missing page.
+
+Two layers, because one is not enough:
+
+| | catches |
+|---|---|
+| `unsupported_sources` (domains) | a citation on a domain the site has never used — wholesale invention |
+| `dead_sources` (404/410) | a new page on a *known* domain that does not exist |
+
+Domains rather than exact URLs is deliberate: pinning to known URLs alone would forbid ever citing a
+new page on a source the site already trusts, which is too tight to write against.
+`<PREFIX>_SEO_SOURCE_DOMAINS` overrides the harvested set; empty means the check is inert, which is
+the right default for a brand that has published nothing yet.
+
+⚠️ **The rot is in the live site, not just the pipeline.** Those four 404s are in published posts a
+reader can click today. Worth a pass with `links:audit` — it audits internal links, not external ones.
