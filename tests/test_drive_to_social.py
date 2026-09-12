@@ -121,7 +121,7 @@ class _Res:
 
 
 def _deps(ig_fail=False, tt_fail=False):
-    calls = {"ig": [], "tt": [], "up": []}
+    calls = {"ig": [], "tt": [], "up": [], "sheet": []}
 
     async def list_files(folder, brand_id=None):
         return [F("f1", "2026-09-01_first.mp4")]
@@ -149,9 +149,12 @@ def _deps(ig_fail=False, tt_fail=False):
     async def complete(prompt):
         return "First one from the new batch."
 
+    async def record_sheet(brand_id, row):
+        calls["sheet"].append(row)
+
     return calls, {"list_files": list_files, "download": download, "upload": upload,
                    "publish_instagram": publish_instagram, "create_post": create_post,
-                   "complete": complete}
+                   "complete": complete, "record_sheet": record_sheet}
 
 
 
@@ -256,3 +259,22 @@ async def test_model_hashtags_are_dropped_so_the_brand_set_appears_once():
     cap = await d2s.write_caption("ayurpet", "IMG_1.mov", complete=complete)
     assert cap.count("#") == 1 and cap.endswith("#ayurpet")
     assert cap.startswith("A calm bowl, a happy dog.")
+
+
+async def test_every_post_is_recorded_on_the_operator_sheet():
+    calls, deps = _deps()
+    await d2s.run("ayurpet", {}, engine=_Eng(), deps=deps)
+    row = calls["sheet"][0]
+    assert row["status"] == "posted" and row["video_name"] and row["drive_link"].startswith("https://drive.google.com/file/d/")
+    assert row["instagram_url"] and row["tiktok_url"] and set(row) <= set(d2s.SHEET_COLUMNS)
+
+
+async def test_a_sheet_failure_never_undoes_the_post():
+    calls, deps = _deps()
+
+    async def boom(brand_id, row):
+        raise RuntimeError("sheet down")
+
+    deps["record_sheet"] = boom
+    out = await d2s.run("ayurpet", {}, engine=_Eng(), deps=deps)
+    assert out["instagram"] and out["tiktok"] and "sheet down" in out["sheet_error"]

@@ -30,6 +30,8 @@ SA `meshpilot-agent@capable-boulder-487806-j0.iam.gserviceaccount.com` (the unpr
 capability posts one video per run, oldest by name, to Instagram Reels (`AP_META_*`) and TikTok
 (Buffer channel `theayurpetstore`, `AP_BUFFER_API_KEY`) together, with an agent-written caption in
 brand voice, and records the outcome per platform in `drive_post` so nothing posts twice.
+Every post is also appended to the operator sheet `AP_POSTING_SHEET_ID` (Sheet1, legacy columns +
+`instagram_url`) — the DB row is the idempotency record, the sheet is for humans.
 History: before the refactor the same job ran TikTok-only from a tracking sheet
 (`AyurpetTiktok Posting - Task #2`, 49 posted Apr 20 – May 9 2026); the 28 of those still in the
 folder were seeded into `drive_post` so the agent starts on the 84 fresh files.
