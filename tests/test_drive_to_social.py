@@ -215,17 +215,34 @@ async def test_no_folder_is_a_named_refusal(monkeypatch):
     assert (await d2s.run("ayurpet", {}, engine=_Eng(), deps=deps))["skipped"] == "no_folder"
 
 
-def test_drive_client_resolves_sa_per_brand(monkeypatch):
-    """AyurPet must fall to the unprefixed MeshPilot SA while GE keeps its own GE_ one."""
+def test_drive_client_resolves_sa_per_brand(monkeypatch, tmp_path):
+    """AyurPet must fall to the unprefixed MeshPilot SA while GE keeps its own GE_ one.
+
+    Brands are built in a tmp dir — `brand/configs/` is gitignored and absent on CI runners."""
+    import json
+
+    from glitch_signal import config
     from glitch_signal.integrations import google_drive as gd
 
+    (tmp_path / "glitch_executor.json").write_text(json.dumps(config._default_brand_config()))
+    (tmp_path / "ayurpet.json").write_text(json.dumps(
+        {"brand_id": "ayurpet", "display_name": "AyurPet", "env_prefix": "AP"}))
+    monkeypatch.setenv("BRAND_CONFIGS_DIR", str(tmp_path))
+    monkeypatch.setenv("DEFAULT_BRAND_ID", "glitch_executor")
+    monkeypatch.delenv("BRAND_CONFIGS_JSON", raising=False)
     # The module-wide fixture stubs brand_config/brand_env; this test needs the real registry.
     monkeypatch.setattr("glitch_signal.config.brand_config", _real_brand_config)
     monkeypatch.setattr("glitch_signal.config.brand_env", _real_brand_env)
     monkeypatch.setattr(gd, "GoogleDriveClient", lambda sa: sa)
     monkeypatch.setenv("GE_GOOGLE_DRIVE_SA_JSON", "ge-sa")
     monkeypatch.setenv("GOOGLE_DRIVE_SA_JSON", "meshpilot-sa")
+    config.settings.cache_clear()
+    config._reset_brand_registry_for_tests()
     gd._client.cache_clear()
-    assert gd._client("ayurpet") == "meshpilot-sa"
-    assert gd._client("glitch_executor") == "ge-sa"
-    gd._client.cache_clear()
+    try:
+        assert gd._client("ayurpet") == "meshpilot-sa"
+        assert gd._client("glitch_executor") == "ge-sa"
+    finally:
+        gd._client.cache_clear()
+        config.settings.cache_clear()
+        config._reset_brand_registry_for_tests()
