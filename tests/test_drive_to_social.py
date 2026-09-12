@@ -246,3 +246,13 @@ def test_drive_client_resolves_sa_per_brand(monkeypatch, tmp_path):
         gd._client.cache_clear()
         config.settings.cache_clear()
         config._reset_brand_registry_for_tests()
+
+
+async def test_model_hashtags_are_dropped_so_the_brand_set_appears_once():
+    async def complete(prompt):
+        assert "have NOT seen the video" in prompt
+        return "A calm bowl, a happy dog. #dogs #turmeric\n\n#AyurPet #ayurveda"
+
+    cap = await d2s.write_caption("ayurpet", "IMG_1.mov", complete=complete)
+    assert cap.count("#") == 1 and cap.endswith("#ayurpet")
+    assert cap.startswith("A calm bowl, a happy dog.")

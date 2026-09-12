@@ -113,16 +113,25 @@ def caption_from_name(name: str) -> str:
     return (stem[:1].upper() + stem[1:]) if stem else "New from the team"
 
 
-_CAPTION_PROMPT = """Write ONE short social caption (max 2 sentences, then 3-5 hashtags on a new line)
-for a video a brand is posting to Instagram and TikTok.
+_CAPTION_PROMPT = """Write ONE short social caption (max 2 sentences, no hashtags) for a video a
+brand is posting to Instagram and TikTok.
 
 BRAND: {name}
 VOICE: {voice}
-VIDEO FILENAME (the only thing you know about the video): {filename}
+VIDEO FILENAME: {filename}
 
+You have NOT seen the video. Do not describe what happens in it, who is in it, or how a product
+is used — you would be making it up. If the filename plainly names a product or theme, you may
+lean on that; otherwise write a line about the brand's everyday care that fits any clip.
 Rules: no health or outcome claims of any kind, no superlatives, no emoji walls (one is fine),
 no "link in bio", no questions to the audience. Sound like a person who owns the product, not a
 marketer. Reply with the caption only."""
+
+
+def _strip_hashtags(text: str) -> str:
+    """Drop any hashtags the model added anyway — the brand's own set is appended once."""
+    lines = [ln for ln in text.splitlines() if not ln.strip().startswith("#")]
+    return re.sub(r"\s#\w+", "", "\n".join(lines)).strip()
 
 
 async def write_caption(brand_id: str, filename: str, *, complete: Any = None) -> str:
@@ -145,7 +154,7 @@ async def write_caption(brand_id: str, filename: str, *, complete: Any = None) -
     except Exception as exc:  # noqa: BLE001 — a caption is not worth failing the post
         log.warning("drive_to_social.caption_failed", error=str(exc)[:160])
     hashtags = " ".join(f"#{h.lstrip('#')}" for h in (cfg.get("default_hashtags") or [])[:5])
-    body = scrub((raw or "").strip(), _hard_stops(brand_id)) or caption_from_name(filename)
+    body = scrub(_strip_hashtags(raw or ""), _hard_stops(brand_id)) or caption_from_name(filename)
     return f"{body}\n\n{hashtags}".strip()[:_MAX_CAPTION]
 
 
