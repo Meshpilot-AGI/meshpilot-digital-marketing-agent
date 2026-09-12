@@ -224,6 +224,13 @@ class Settings(BaseSettings):
     # --- Brand ---
     brand_config_path: str = "brand.config.json"          # legacy single-file (still supported)
     brand_configs_dir: str = "brand/configs"              # multi-brand dir
+    # ⚠️ How brand configs reach PRODUCTION. `brand/configs/*.json` is gitignored — the dir was
+    # designed as a nested private repo whose "real values live on the deployed box". The box is
+    # gone, the runtime is FastAPI Cloud, and this repo is public, so there was NO path for a config
+    # file to reach prod: GE ran on the built-in default the whole time, and the multi-brand loader
+    # had never executed outside a test. This env var is that path. A JSON object keyed by brand_id,
+    # set in the cloud env — the doctrine's source of truth for everything brand-scoped.
+    brand_configs_json: str = ""                          # BRAND_CONFIGS_JSON: {brand_id: config}
     default_brand_id: str = "glitch_executor"
 
     # --- OAuth + token storage ---
@@ -459,10 +466,13 @@ _brand_registry: dict[str, dict] | None = None
 
 
 def _load_brand_registry() -> dict[str, dict]:
-    """Discover and load every brand config file under brand/configs/.
+    """Discover and load every brand config: from files, from the cloud env, or built-in.
 
     Precedence (highest first):
-      1. Files under brand_configs_dir (one file per brand, stem = brand_id).
+      0. BRAND_CONFIGS_JSON in the environment — a JSON object keyed by brand_id. The ONLY source
+         that reaches production, since config files are gitignored (see `brand_configs_json`).
+         Merged over files: env is the source of truth for brand-scoped values.
+      1. Files under brand_configs_dir (one file per brand, stem = brand_id) — local and tests.
       2. Legacy brand.config.json at repo root, registered as default brand.
       3. Built-in defaults (glitch_executor only) — tolerated, warned about.
 
@@ -494,6 +504,24 @@ def _load_brand_registry() -> dict[str, dict]:
                 )
             data.setdefault("brand_id", stem)
             registry[stem] = data
+
+    # Cloud env — the path that actually reaches production.
+    if s.brand_configs_json.strip():
+        try:
+            from_env = json.loads(s.brand_configs_json)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"BRAND_CONFIGS_JSON is not valid JSON: {exc}") from exc
+        if not isinstance(from_env, dict):
+            raise RuntimeError("BRAND_CONFIGS_JSON must be a JSON object keyed by brand_id")
+        for bid, data in from_env.items():
+            if not isinstance(data, dict):
+                raise RuntimeError(f"BRAND_CONFIGS_JSON[{bid!r}] must be an object")
+            internal_id = data.get("brand_id")
+            if internal_id and internal_id != bid:
+                raise RuntimeError(
+                    f"BRAND_CONFIGS_JSON key {bid!r} disagrees with its brand_id={internal_id!r}")
+            data.setdefault("brand_id", bid)
+            registry[bid] = data
 
     # Legacy single-file fallback (pre-multi-brand deployments).
     legacy_path = pathlib.Path(s.brand_config_path)
