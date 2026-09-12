@@ -154,6 +154,17 @@ async def _cap_discord_provision_alerts(brand_id: str, args: dict) -> dict:
     return {"ok": stored, **res, "stored": stored}
 
 
+async def _cap_drive_to_social(brand_id: str, args: dict) -> dict:
+    """DRIVE-TO-SOCIAL: post the next unposted Drive video to Instagram + TikTok.
+
+    For a brand whose content already exists. No ideation, no generation — one file a day, oldest
+    first, each platform's outcome recorded independently so one failing never repeats the other.
+    """
+    from glitch_signal.agent.social.drive_to_social import run
+
+    return await run(brand_id, args)
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -167,6 +178,7 @@ _REGISTRY: dict[str, CapFn] = {
     "seo_settle": _cap_seo_settle,
     "seo_heartbeat": _cap_seo_heartbeat,
     "discord_provision_alerts": _cap_discord_provision_alerts,
+    "drive_to_social": _cap_drive_to_social,
 }
 
 
@@ -198,6 +210,7 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     # Creates a channel in the operator's own Discord and mints a webhook. Outward-facing, so it
     # demands `publish` rather than passing as read-only bookkeeping.
     "discord_provision_alerts": frozenset({"publish"}),
+    "drive_to_social": frozenset({"publish"}),
 }
 
 

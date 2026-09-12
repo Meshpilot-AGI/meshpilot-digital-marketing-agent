@@ -21,14 +21,22 @@ identifier (snake_case); the tag is the short env prefix.
 ### GE — Glitch Executor
 The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
 
-### AP — AyurPet (registered 2026-09-12, not yet armed)
-Natural Ayurvedic pet care for dogs — yak chews, turmeric and ashwagandha supplements — a **Shopify**
-store at https://theayurpet.com. `env_prefix: AP`, so its keys are `AP_*`; **none are set**, so nothing
-can post for it. No schedules. `seo.publisher: shopify` — the git-repo SEO publisher does not apply,
-and a Shopify Admin API publisher does not exist yet. ORM guardrails are pet-HEALTH-shaped (no
-"cures / treats / FDA approved / vet recommended"), and deliberately more conservative than GE's:
-`neutral_technical` goes to review rather than auto-response, because a question about a supplement
-is a health question. Arming is one switch at a time: credentials → a schedule → a publisher.
+### AP — AyurPet (registered 2026-09-12, armed for Drive-to-social)
+Natural Ayurvedic pet care for dogs — a **Shopify** store at https://theayurpet.com. `env_prefix: AP`.
+**The content is not generated.** `content_source: drive_footage`: the videos already exist in the
+Drive folder `AutoPosting_Social_AyurPet` (`AP_DRIVE_FOLDER_ID`), shared Viewer with MeshPilot's own
+SA `meshpilot-agent@capable-boulder-487806-j0.iam.gserviceaccount.com` (the unprefixed
+`GOOGLE_DRIVE_SA_JSON`; GE keeps its own `GE_GOOGLE_DRIVE_SA_JSON`). The `drive_to_social`
+capability posts one video per run, oldest by name, to Instagram Reels (`AP_META_*`) and TikTok
+(Buffer channel `theayurpetstore`, `AP_BUFFER_API_KEY`) together, with an agent-written caption in
+brand voice, and records the outcome per platform in `drive_post` so nothing posts twice.
+History: before the refactor the same job ran TikTok-only from a tracking sheet
+(`AyurpetTiktok Posting - Task #2`, 49 posted Apr 20 – May 9 2026); the 28 of those still in the
+folder were seeded into `drive_post` so the agent starts on the 84 fresh files.
+`seo.publisher: shopify` — the git-repo SEO publisher does not apply, and a Shopify Admin API
+publisher does not exist yet. ORM guardrails are pet-HEALTH-shaped (no "cures / treats / FDA
+approved / vet recommended") and more conservative than GE's: `neutral_technical` goes to review,
+because a question about a supplement is a health question.
 
 - **Meta (Facebook / Instagram):** FB Page `1120765137796667`, IG user
   `17841468194646846`. Publishing verified live (a real post to the FB page).

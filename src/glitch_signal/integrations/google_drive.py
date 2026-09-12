@@ -14,6 +14,7 @@ so node code doesn't deal with Drive's full file-type zoo.
 from __future__ import annotations
 
 import asyncio
+import json
 import pathlib
 from dataclasses import dataclass
 from functools import lru_cache
@@ -45,9 +46,14 @@ class GoogleDriveClient:
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
 
-        creds = service_account.Credentials.from_service_account_file(
-            service_account_json, scopes=_DRIVE_SCOPES
-        )
+        # Cloud env holds the SA inline (a JSON object); local .env may point at a file.
+        raw = service_account_json.strip()
+        if raw.startswith("{"):
+            info = json.loads(raw)
+            creds = service_account.Credentials.from_service_account_info(info, scopes=_DRIVE_SCOPES)
+        else:
+            creds = service_account.Credentials.from_service_account_file(raw, scopes=_DRIVE_SCOPES)
+        self.service_account_email: str = creds.service_account_email
         # cache_discovery=False silences a noisy warning on newer google-api-client.
         self._svc = build("drive", "v3", credentials=creds, cache_discovery=False)
 
@@ -159,24 +165,28 @@ def _is_video(name: str, mime: str) -> bool:
     return ext in _VIDEO_EXTENSIONS
 
 
-@lru_cache(maxsize=1)
-def _client() -> GoogleDriveClient:
-    path = settings().google_drive_sa_json
-    if not path:
+@lru_cache(maxsize=8)
+def _client(brand_id: str | None = None) -> GoogleDriveClient:
+    from glitch_signal.config import brand_env_or_default
+
+    # Resolved PER BRAND: `<PREFIX>_GOOGLE_DRIVE_SA_JSON` if the brand has its own (GE does), else
+    # the unprefixed MeshPilot SA. Without the brand argument this answered for the default brand,
+    # so AyurPet authenticated as GE's account and could never see its own folder.
+    sa = brand_env_or_default("GOOGLE_DRIVE_SA_JSON", brand_id) or settings().google_drive_sa_json
+    if not sa:
         raise RuntimeError(
-            "GOOGLE_DRIVE_SA_JSON is not set. Point it at the service-account "
-            "JSON file (Drive readonly scope) before running drive_scout."
-        )
-    return GoogleDriveClient(path)
+            "GOOGLE_DRIVE_SA_JSON is not set — a service-account JSON (inline, or a file path "
+            "locally) with the Drive readonly scope, shared Viewer on the brand's folder.")
+    return GoogleDriveClient(sa)
 
 
-async def list_video_files(folder_id: str) -> list[DriveFile]:
+async def list_video_files(folder_id: str, brand_id: str | None = None) -> list[DriveFile]:
     """Async wrapper — runs the blocking Drive SDK call in a thread."""
-    return await asyncio.to_thread(_client().list_video_files, folder_id)
+    return await asyncio.to_thread(_client(brand_id).list_video_files, folder_id)
 
 
-async def download_file(file_id: str, dest: pathlib.Path) -> int:
-    return await asyncio.to_thread(_client().download_file, file_id, dest)
+async def download_file(file_id: str, dest: pathlib.Path, brand_id: str | None = None) -> int:
+    return await asyncio.to_thread(_client(brand_id).download_file, file_id, dest)
 
 
 def _reset_client_for_tests() -> None:
