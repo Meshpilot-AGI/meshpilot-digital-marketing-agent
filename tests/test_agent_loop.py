@@ -279,6 +279,6 @@ def test_system_prompt_carries_the_soul():
 
     p = system_prompt()
     assert "Digital Marketing AGI" in p            # identity
-    assert "Glitch Executor (GE)" in p and "30 days" in p   # current single-brand scope
+    assert "Glitch Executor (GE)" in p and "AyurPet" in p   # both registered brands, per SOUL scope
     assert "Publishing is gated OFF" in p          # live guardrail
     assert "Operating rules" in p                  # operating rules block present

@@ -21,6 +21,15 @@ identifier (snake_case); the tag is the short env prefix.
 ### GE — Glitch Executor
 The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
 
+### AP — AyurPet (registered 2026-09-12, not yet armed)
+Natural Ayurvedic pet care for dogs — yak chews, turmeric and ashwagandha supplements — a **Shopify**
+store at https://theayurpet.com. `env_prefix: AP`, so its keys are `AP_*`; **none are set**, so nothing
+can post for it. No schedules. `seo.publisher: shopify` — the git-repo SEO publisher does not apply,
+and a Shopify Admin API publisher does not exist yet. ORM guardrails are pet-HEALTH-shaped (no
+"cures / treats / FDA approved / vet recommended"), and deliberately more conservative than GE's:
+`neutral_technical` goes to review rather than auto-response, because a question about a supplement
+is a health question. Arming is one switch at a time: credentials → a schedule → a publisher.
+
 - **Meta (Facebook / Instagram):** FB Page `1120765137796667`, IG user
   `17841468194646846`. Publishing verified live (a real post to the FB page).
 - **YouTube:** channel **Glitch Executor** (`UCky5yKjfKsEPb2K0ePZA-yw`), connected
@@ -39,6 +48,17 @@ The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
 1. **Pick a tag** — a short UPPERCASE prefix (e.g. `ACME`), unique across brands.
 2. **Add a brand config** — `brand/configs/<brand_id>.json` with
    `"env_prefix": "<TAG>"` (validated against `brand/schema/brand.config.schema.json`).
+   ⚠️ **That file is gitignored and never reaches production.** The directory was designed as a
+   nested private repo on a box that no longer exists; the runtime is FastAPI Cloud and this repo
+   is public. GE ran on the built-in default the whole time for exactly this reason. The path that
+   reaches prod is **`BRAND_CONFIGS_JSON`** in the cloud env — a JSON object keyed by brand_id
+   holding every brand's config. Rebuild it from the local files and set it (`env set` is
+   create-only: delete first to update):
+   ```
+   python -c 'import json,pathlib; print(json.dumps({p.stem: json.load(open(p)) for p in pathlib.Path("brand/configs").glob("*.json")}, separators=(",",":")))' \
+     | uvx --from "fastapi[standard]" fastapi cloud env set BRAND_CONFIGS_JSON --value-stdin
+   ```
+   Adding a brand file WITHOUT the default brand's file crashes the API at boot — materialise both.
 3. **Set its keys** in the **cloud env** (source of truth) as `<TAG>_<KEY>` — the
    same key names GE uses (Meta app/token/page/IG, Buffer, Google SA, jobs token).
    Never set global/unprefixed keys.

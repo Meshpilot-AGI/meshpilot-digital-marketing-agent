@@ -2624,3 +2624,35 @@ detail to absorb.**
 
 **Remains:** PR **#590** has been open since 09-09 and is the only thing blocking the next post —
 the guard refuses while it is in flight. Merging it unedited takes the streak to 2 of 5.
+
+
+## BRAND — AyurPet registered, and the multi-brand path that had never run — 2026-09-12
+
+**Registered** `ayurpet` (`env_prefix: AP`, theayurpet.com, Shopify). Not armed: no `AP_*`
+credentials, no schedules, no blog publisher. The SOUL now names both brands and says so.
+
+**The finding that matters more than the brand:** `brand/configs/*.json` is **gitignored** — the
+directory was designed as a nested private repo whose "real values live on the deployed box". The
+box is gone, the runtime is FastAPI Cloud, and the repo is public. **There had never been a path for
+a brand config to reach production**, which is why GE has run on the built-in default the entire
+time and the multi-brand loader had never executed outside a test. Adding Ayurpet as a file would
+have changed nothing in the cloud — and adding it WITHOUT GE's file would have crashed the API at
+boot (`default_brand_id has no matching config`), caught by a test before it was learned live.
+
+`BRAND_CONFIGS_JSON` is now the path: a JSON object keyed by brand_id, set in the cloud env — the
+doctrine's source of truth for brand-scoped values — merged over files, with malformed input failing
+loudly at boot rather than dropping a brand. Files stay gitignored; the env carries both brands.
+
+**Schema extended** for `site_url` and `seo.publisher ∈ {git, shopify, none}`, so a brand can say
+"my blog is not a git repo" and the SEO lane refuses rather than tries. AyurPet's ORM tiers use the
+real vocabulary (an earlier draft invented tier names) and are deliberately more conservative than
+GE's — `neutral_technical` reviews rather than auto-responds, because a supplement question is a
+health question.
+
+**Verified:** both configs validate; GE's file is byte-identical to the built-in default (a test
+pins it); 1038 pass. `BRAND_CONFIGS_JSON` set in the cloud (2700 bytes, both brands). Prod
+verification below, after deploy.
+
+**Remains:** AyurPet needs a Shopify Admin API publisher before SEO can run for it — a separate lane.
+And arming it is deliberate: credentials, then a schedule, then a publisher, each on the operator's
+say-so.
