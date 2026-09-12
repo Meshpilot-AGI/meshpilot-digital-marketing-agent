@@ -30,6 +30,7 @@ scheduler event loop doesn't block on Google's HTTP roundtrip.
 from __future__ import annotations
 
 import asyncio
+import json
 import pathlib
 import time
 from functools import lru_cache, wraps
@@ -90,14 +91,18 @@ def _service():
             "google_sheets: GOOGLE_DRIVE_SA_JSON is not set — the sheets "
             "sink reuses the same service account as drive_scout."
         )
-    if not pathlib.Path(sa_path).exists():
-        raise RuntimeError(
-            f"google_sheets: service-account JSON not found at {sa_path!r}"
+    if sa_path.strip().startswith("{"):   # the cloud env carries the SA inline
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(sa_path), scopes=[_SHEETS_SCOPE],
         )
-
-    creds = service_account.Credentials.from_service_account_file(
-        sa_path, scopes=[_SHEETS_SCOPE],
-    )
+    else:
+        if not pathlib.Path(sa_path).exists():
+            raise RuntimeError(
+                f"google_sheets: service-account JSON not found at {sa_path!r}"
+            )
+        creds = service_account.Credentials.from_service_account_file(
+            sa_path, scopes=[_SHEETS_SCOPE],
+        )
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
 
@@ -203,7 +208,7 @@ def _append_row_sync(
     # operator thinks the sheet is empty.
     svc.spreadsheets().values().append(
         spreadsheetId=sheet_id,
-        range=f"'{worksheet}'!A:K",
+        range=f"'{worksheet}'!A:{_col_letter(len(columns))}",
         valueInputOption="USER_ENTERED",   # allow hyperlink / date parsing
         insertDataOption="INSERT_ROWS",
         body={"values": values},

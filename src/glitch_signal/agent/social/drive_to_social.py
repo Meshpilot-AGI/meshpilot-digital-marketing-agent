@@ -232,7 +232,45 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
                                      "c": caption, "ig": ig_id, "ige": ig_err, "tt": tt_id, "tte": tt_err})
     log.info("drive_to_social.posted", brand_id=brand_id, file=file.name,
              instagram=bool(ig_id), tiktok=bool(tt_id))
+
+    # The operator's record: the same sheet the pre-refactor TikTok job wrote to, one row per post.
+    # Best effort — the DB row above is the idempotency record; the sheet is for humans.
+    record = d.get("record_sheet") or _record_sheet
+    try:
+        await record(brand_id, {
+            "video_name": file.name, "drive_link": f"https://drive.google.com/file/d/{file.id}/view",
+            "caption": caption, "status": "posted" if (ig_id or tt_id) else "failed",
+            "posted_at": _now_str(), "tiktok_url": out["tiktok"] or "",
+            "instagram_url": out["instagram"] or "",
+            "notes": "; ".join(e for e in (ig_err and f"ig: {ig_err}", tt_err and f"tiktok: {tt_err}") if e),
+        })
+    except Exception as exc:  # noqa: BLE001
+        log.warning("drive_to_social.sheet_record_failed", error=str(exc)[:200])
+        out["sheet_error"] = str(exc)[:200]
     return out
+
+
+# Column order of the operator sheet (row 1). `product`/`variant_group`/`geo`/`scheduled_for` are
+# the legacy job's columns, kept so old and new rows line up; `instagram_url` is new, at the end.
+SHEET_COLUMNS = ["video_name", "drive_link", "product", "variant_group", "geo", "caption", "status",
+                 "scheduled_for", "posted_at", "tiktok_url", "notes", "instagram_url"]
+
+
+def _now_str() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def _record_sheet(brand_id: str, row: dict[str, str]) -> None:
+    """Append one row to `<PREFIX>_POSTING_SHEET_ID` (Sheet1). No sheet configured → no-op."""
+    from glitch_signal.config import brand_env
+    from glitch_signal.integrations.google_sheets import append_row
+
+    sheet_id = brand_env("POSTING_SHEET_ID", brand_id)
+    if not sheet_id:
+        return
+    await append_row(sheet_id, "Sheet1", SHEET_COLUMNS, row)
 
 
 async def _download(file_id: str, dest: pathlib.Path, brand_id: str | None = None) -> int:
