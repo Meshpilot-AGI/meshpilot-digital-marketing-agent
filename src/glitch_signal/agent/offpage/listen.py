@@ -46,17 +46,35 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
         from glitch_signal.agent.social.surfaces import upsert_discovered as upsert
 
     out: dict[str, Any] = {"ran": "offpage_listen_reddit", "queries": len(queries), "posts": 0,
-                           "communities": 0, "errors": []}
+                           "communities": 0, "dropped_communities": 0, "errors": []}
+    rooms_with_threads: set[str] = set()
+    found: dict[str, dict] = {}
     for q in queries:
         try:
             posts = (await search_posts(q, sort="relevance", time_window="week",
                                         limit=_POSTS_PER_QUERY)).get("posts", [])
             out["posts"] += await record(brand_id, SOURCE, "post", posts, query=q, engine=engine)
-            comms = (await search_communities(q, limit=_COMMUNITIES_PER_QUERY)).get("communities", [])
-            out["communities"] += await upsert(brand_id, "subreddit", comms, engine=engine)
+            rooms_with_threads |= {str(p.get("subreddit") or "").lower() for p in posts if p.get("subreddit")}
+            for c in (await search_communities(q, limit=_COMMUNITIES_PER_QUERY)).get("communities", []):
+                if c.get("name"):
+                    found.setdefault(str(c["name"]).lower(), c)
         except Exception as exc:  # noqa: BLE001 — one query failing must not blind the rest
             out["errors"].append(f"{q[:40]}: {str(exc)[:120]}")
             log.warning("offpage.listen.query_failed", query=q, error=str(exc)[:160])
+    # A community search for "prop firm challenge failed rule" returns r/electrical and r/tattooadvice
+    # on the strength of a shared word. A room is a surface only if a query actually surfaced a
+    # thread IN it — the same relevance-density opinion the scorer holds.
+    keep = [c for name, c in found.items() if name in rooms_with_threads]
+    out["dropped_communities"] = len(found) - len(keep)
+    # ...and every room a thread lives in IS a surface, whether or not community search named it:
+    # r/Forex and r/algotrading hold most of the threads and community search never returns them.
+    known = {str(c["name"]).lower() for c in keep}
+    keep += [{"name": r} for r in sorted(rooms_with_threads) if r and r not in known]
+    if keep:
+        try:
+            out["communities"] = await upsert(brand_id, "subreddit", keep, engine=engine)
+        except Exception as exc:  # noqa: BLE001
+            out["errors"].append(f"upsert: {str(exc)[:120]}")
     try:
         await rescore(brand_id, engine=engine)
         out["rules_synced"] = await sync_rules(brand_id, limit=10, engine=engine)
