@@ -11,6 +11,16 @@ Done: migration in prod, 28 legacy rows seeded, dry run, first real post (IG + T
 written), daily cron 10:30 ET. Open: captions for uninformative filenames still narrate product use
 the video may not show — consider a config caption pool for those files.
 
+### OFF-PAGE — syndicate, listen, reply ladder, HARO drafts                    [OPEN — designed 2026-09-12]
+Owner: unassigned        Opened: 2026-09-12
+Reading: docs/plans/2026-09-12-offpage-seo.md (the design; operator decisions recorded in its header),
+docs/plans/2026-09-02-targeting-and-distribution.md (sensing/surfaces/standing it builds on).
+Acceptance: per sub-lane OFFPAGE-1..5 in the design § 12; each live before the next starts.
+Write-back: ARCHITECTURE.md (3 tables), docs/vendors/{discord,brightdata,zernio}.md, ENGINEERING_SUPERVISOR.md.
+Operator decisions: the ladder for Reddit (R0 operator posts by hand → R1 veto window → R2), HARO and
+mention-outreach draft-only forever, approvals in Discord `#approvals` via REST polling (the Railway
+bridge holds the single gateway session).
+
 ### TARGETING — sensing, surfaces, Reddit, SEO                                   [OPEN — designed]
 Owner: unassigned        Opened: 2026-09-02
 Reading: docs/plans/2026-09-02-targeting-and-distribution.md, and for the SEO half
