@@ -198,3 +198,14 @@ async def test_drafter_falls_through_tiers_and_fails_loudly(monkeypatch):
     monkeypatch.setattr("glitch_signal.agent.loop.llm.complete_messages", always_empty)
     with pytest.raises(RuntimeError):
         await syn._default_complete("p")
+
+
+async def test_an_over_long_draft_gets_one_shorten_pass():
+    prompts = []
+
+    async def complete(prompt):
+        prompts.append(prompt)
+        return ("x" * 300) if len(prompts) == 1 else "short and grounded"
+
+    out = await syn.draft("x", title="T", page_text=PAGE, complete=complete)
+    assert out == "short and grounded" and "at most 240 characters" in prompts[1]
