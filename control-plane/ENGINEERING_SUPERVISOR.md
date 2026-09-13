@@ -2656,3 +2656,17 @@ verification below, after deploy.
 **Remains:** AyurPet needs a Shopify Admin API publisher before SEO can run for it — a separate lane.
 And arming it is deliberate: credentials, then a schedule, then a publisher, each on the operator's
 say-so.
+
+## OFFPAGE-1 — syndication: the blog tells someone — 2026-09-13
+
+**Read:** docs/plans/2026-09-12-offpage-seo.md (approved design), seo/track + publish, platforms/buffer,
+loop/tools `_t_web_fetch`. **Changed:** `agent/offpage/{store,syndicate}.py`, migration
+`20260913010000_offpage.sql` (validated against real Postgres, rolled back; duplicate refused by the
+coalesced unique index), capability `offpage_syndicate` (+ REQUIRED_CAPABILITIES `publish`),
+`_t_web_fetch` gains `max_chars` (≤ 20k), GE default config gains `site_url` + `seo.blog_path`,
+schema `seo.publisher` made optional. **Verified:** 21 new tests (planning, checks incl. spelled-out
+counts, run paths: post / refuse-no-row / publish-fail-skipped-row / dry run / kill switches); suite
+1090 green; local dry run against the live article + real router drafted a grounded X post for
+`minimum-trading-days…` with zero refusals after the two fixes the first dry run forced (4k fetch cap;
+"seven" vs `7`). **Docs:** docs/vendors/seo.md § Off-page, board. **Remains:** first live post,
+daily cron, then OFFPAGE-2.

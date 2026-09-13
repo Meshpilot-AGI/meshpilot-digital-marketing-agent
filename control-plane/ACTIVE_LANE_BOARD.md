@@ -11,8 +11,8 @@ Done: migration in prod, 28 legacy rows seeded, dry run, first real post (IG + T
 written), daily cron 10:30 ET. Open: captions for uninformative filenames still narrate product use
 the video may not show — consider a config caption pool for those files.
 
-### OFF-PAGE — syndicate, listen, reply ladder, HARO drafts                    [OPEN — designed 2026-09-12]
-Owner: unassigned        Opened: 2026-09-12
+### OFF-PAGE — syndicate, listen, reply ladder, HARO drafts                    [IN PROGRESS — OFFPAGE-1 2026-09-13]
+Owner: claude        Opened: 2026-09-12
 Reading: docs/plans/2026-09-12-offpage-seo.md (the design; operator decisions recorded in its header),
 docs/plans/2026-09-02-targeting-and-distribution.md (sensing/surfaces/standing it builds on).
 Acceptance: per sub-lane OFFPAGE-1..5 in the design § 12; each live before the next starts.
