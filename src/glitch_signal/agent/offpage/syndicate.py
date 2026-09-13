@@ -133,10 +133,22 @@ def check(draft: str, *, platform: str, page_text: str, hard_stops: list[str]) -
     return problems
 
 
+_SHORTEN = """Shorten this social post to at most {limit} characters. Keep every figure and firm name
+exactly as written, drop the least important sentence first, no new facts, no hashtags, no URL.
+Reply with the shortened post only.
+
+{body}"""
+
+
 async def draft(platform: str, *, title: str, page_text: str, complete: Any) -> str:
     raw = await complete(_PROMPT.format(platform=platform, limit=LIMITS[platform], title=title,
                                         page=page_text[:_PAGE_TEXT_MAX]))
-    return (raw or "").strip().strip('"')
+    body = (raw or "").strip().strip('"')
+    # Small models write well and count badly: one compression pass before the checks refuse it.
+    if len(body) > LIMITS[platform]:
+        shorter = await complete(_SHORTEN.format(limit=LIMITS[platform], body=body))
+        body = (shorter or "").strip().strip('"') or body
+    return body
 
 
 def with_link(body: str, url: str) -> str:
