@@ -374,7 +374,7 @@
     },
     "media_pipeline": {
       "type": "object",
-      "description": "Per-platform pre-publish ffmpeg transforms. Keys are canonical platform names (tiktok, instagram, youtube, etc. \u2014 the bare targets). Values are ordered lists of transform names from src/glitch_signal/media/ffmpeg.py::registered_transforms(). Example: {\"tiktok\": [\"strip_audio\"]} to drop the audio track before TikTok publish (fixes the web-player mute on licensed-music Content ID matches).",
+      "description": "Per-platform pre-publish ffmpeg transforms. Keys are canonical platform names (tiktok, instagram, youtube, etc. — the bare targets). Values are ordered lists of transform names from src/glitch_signal/media/ffmpeg.py::registered_transforms(). Example: {\"tiktok\": [\"strip_audio\"]} to drop the audio track before TikTok publish (fixes the web-player mute on licensed-music Content ID matches).",
       "additionalProperties": {
         "type": "array",
         "items": {
@@ -383,7 +383,7 @@
             "strip_audio"
           ]
         },
-        "description": "Ordered transform chain \u2014 outputs of step N feed step N+1. Each result is cached next to the source file so rerunning the pipeline is a no-op."
+        "description": "Ordered transform chain — outputs of step N feed step N+1. Each result is cached next to the source file so rerunning the pipeline is a no-op."
       }
     },
     "caption_writer": {
@@ -420,7 +420,7 @@
     },
     "tasks": {
       "type": "object",
-      "description": "Per-brand task registry. Each key is a task name (video_uploader, comment_responder, metrics_report, \u2026) and the value describes its configuration + outputs. Adding a new brand or task = adding a new entry here; the code walks the registry at runtime.",
+      "description": "Per-brand task registry. Each key is a task name (video_uploader, comment_responder, metrics_report, …) and the value describes its configuration + outputs. Adding a new brand or task = adding a new entry here; the code walks the registry at runtime.",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": true,
@@ -543,6 +543,14 @@
       "required": [
         "publisher"
       ]
+    },
+    "caption_pool": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Pre-approved brand-voice captions for drive_to_social when a filename says nothing about the video (IMG_1234, 11, copy_<uuid>). Picked deterministically per file. No scene, no product-use narration, no claims."
     }
   }
 }

@@ -113,6 +113,37 @@ def caption_from_name(name: str) -> str:
     return (stem[:1].upper() + stem[1:]) if stem else "New from the team"
 
 
+_UNINFORMATIVE = re.compile(
+    r"^(img|dsc|mov|vid|mvi|pxl|copy|download|whatsapp video|getcrux|screen recording|untitled)\b"
+    r"|^[\d\s_\-().]+$",
+    re.I,
+)
+
+
+def is_descriptive(name: str) -> bool:
+    """Does the filename say anything about the video? `GG+ Stop wasting money on probiotics.mov`
+    does; `IMG_2643.MOV`, `11`, `copy_3AF0…mov`, `WhatsApp Video 2026-09-12….mp4` do not.
+
+    A model asked to caption an uninformative name invents a scene — the first real post narrated
+    a product ritual the clip may never show. Those files get the brand's pre-approved pool."""
+    stem = re.sub(r"\.[a-z0-9]{2,4}$", "", name.strip(), flags=re.I)
+    if _UNINFORMATIVE.search(stem):
+        return False
+    words = [w for w in re.findall(r"[A-Za-z]{3,}", stem)]
+    return len(words) >= 2
+
+
+def pool_caption(pool: list[str], file_key: str) -> str | None:
+    """A stable pick from the pool for this file — the same file always gets the same line, and
+    consecutive files spread across the pool rather than repeating."""
+    if not pool:
+        return None
+    import hashlib
+
+    idx = int(hashlib.sha256(file_key.encode()).hexdigest(), 16) % len(pool)
+    return pool[idx]
+
+
 _CAPTION_PROMPT = """Write ONE short social caption (max 2 sentences, no hashtags) for a video a
 brand is posting to Instagram and TikTok.
 
@@ -134,10 +165,17 @@ def _strip_hashtags(text: str) -> str:
     return re.sub(r"\s#\w+", "", "\n".join(lines)).strip()
 
 
-async def write_caption(brand_id: str, filename: str, *, complete: Any = None) -> str:
+async def write_caption(brand_id: str, filename: str, *, complete: Any = None,
+                        file_key: str | None = None) -> str:
     from glitch_signal.config import brand_config
 
     cfg = brand_config(brand_id)
+    hashtags = " ".join(f"#{h.lstrip('#')}" for h in (cfg.get("default_hashtags") or [])[:5])
+    if not is_descriptive(filename):
+        pooled = pool_caption(cfg.get("caption_pool") or [], file_key or filename)
+        if pooled:
+            body = scrub(pooled, _hard_stops(brand_id)) or caption_from_name(filename)
+            return f"{body}\n\n{hashtags}".strip()[:_MAX_CAPTION]
     if complete is None:
         from glitch_signal.agent.loop import llm as agent_llm
 
@@ -153,7 +191,6 @@ async def write_caption(brand_id: str, filename: str, *, complete: Any = None) -
             voice=(cfg.get("brand") or {}).get("voice", ""), filename=filename))
     except Exception as exc:  # noqa: BLE001 — a caption is not worth failing the post
         log.warning("drive_to_social.caption_failed", error=str(exc)[:160])
-    hashtags = " ".join(f"#{h.lstrip('#')}" for h in (cfg.get("default_hashtags") or [])[:5])
     body = scrub(_strip_hashtags(raw or ""), _hard_stops(brand_id)) or caption_from_name(filename)
     return f"{body}\n\n{hashtags}".strip()[:_MAX_CAPTION]
 
@@ -188,7 +225,7 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
         return {"skipped": "file_too_large", "file": file.name, "bytes": file.size}
 
     caption = (posted.get(file.id) or {}).get("caption") or await write_caption(
-        brand_id, file.name, complete=d.get("complete"))
+        brand_id, file.name, complete=d.get("complete"), file_key=file.id)
     if dry:
         return {"dry_run": True, "would_post": file.name, "platforms": [k for k, v in need.items() if v],
                 "caption": caption}
