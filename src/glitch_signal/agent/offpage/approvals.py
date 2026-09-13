@@ -16,6 +16,7 @@ Design: docs/plans/2026-09-12-offpage-seo.md § 6.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -79,10 +80,19 @@ async def offer(brand_id: str, cand: dict, *, api: Any = None) -> str:
 
 
 async def read_decision(brand_id: str, msg_id: str, *, api: Any = None) -> str | None:
-    """The operator's decision on a card, or None if none yet."""
+    """The operator's decision on a card, or None if none yet.
+
+    One GET for the message: its `reactions` carry counts, and the bot's own legend reaction makes
+    every count 1 — so only an emoji with count > 1 is worth the per-emoji users call. Four users
+    calls per card per tick was a 429 on the first real tick (Discord's reaction route is tight)."""
     s = settings_for(brand_id)
     api = api or _api
+    msg = await api("GET", f"/channels/{s['channel_id']}/messages/{msg_id}", s["token"])
+    counts = {r.get("emoji", {}).get("name"): int(r.get("count") or 0) for r in (msg or {}).get("reactions", [])}
     for emoji, status in REACTIONS.items():           # dict order = precedence
+        if counts.get(emoji, 0) < 2 and counts.get(emoji.rstrip("\ufe0f"), 0) < 2:
+            continue
+        await asyncio.sleep(0.35)                     # stay under the per-route bucket
         users = await api("GET", f"/channels/{s['channel_id']}/messages/{msg_id}/reactions/{quote(emoji)}",
                           s["token"])
         if any(str(u.get("id")) in s["approvers"] for u in (users or [])):
@@ -103,6 +113,7 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
     out["expired"] = await store.expire_stale(brand_id, LEVER, engine=engine)
     for c in await store.by_status(brand_id, LEVER, ["offered"], engine=engine):
         try:
+            await asyncio.sleep(0.35)
             status = await read(brand_id, c["discord_msg_id"])
         except Exception as exc:  # noqa: BLE001
             out["errors"].append(f"{c['id']}: {str(exc)[:120]}")

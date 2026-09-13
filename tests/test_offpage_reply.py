@@ -10,7 +10,8 @@ from glitch_signal.agent.offpage import approvals, listen, reply, standing
 NOW = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
 CFG = {"daily_candidates": 3, "min_gap_hours": 72, "max_age_hours": 48, "offer_ttl_hours": 36,
        "brand_terms": ["Glitch Executor"], "forbidden": list(reply.DEFAULT_FORBIDDEN),
-       "product_line": "Glitch Executor — tracks your account against the firm's rules."}
+       "product_line": "Glitch Executor — tracks your account against the firm's rules.",
+       "relevance_terms": reply.relevance_terms(["prop firm drawdown rule", "prop firm challenge failed rule"])}
 
 
 def _item(url, room="propfirm", age_h=3.0, title="Which prop firm has the loosest daily loss rule?",
@@ -201,6 +202,8 @@ async def test_read_decision_honours_precedence_and_only_approvers():
     seen = {"📤": [{"id": "bot"}], "✏️": [{"id": "stranger"}], "❌": [{"id": "owner"}], "✅": [{"id": "owner"}]}
 
     async def api(method, path, token, json_body=None):
+        if path.endswith("/messages/m1"):     # counts: bot legend + whoever reacted
+            return {"reactions": [{"emoji": {"name": e}, "count": 1 + len(u)} for e, u in seen.items()]}
         for emoji, users in seen.items():
             if path.endswith(approvals.quote(emoji)):
                 return users
@@ -372,3 +375,37 @@ def test_units_are_not_facts_and_trim_ends_on_a_sentence():
     body = "First point here. Second point there. Third point everywhere."
     assert reply.trim_to(body, 40) == "First point here. Second point there."
     assert reply.trim_to(body, 200) == body
+
+
+
+def test_relevance_needs_two_audience_words():
+    terms = reply.relevance_terms(["prop firm challenge failed rule", "trailing drawdown apex"])
+    assert terms == {"prop", "firm", "challenge", "trailing", "drawdown", "apex"}
+    assert reply.relevant("My golf challenge failed", "tough course", terms) is False
+    assert reply.relevant("Prop firm challenge failed", "on drawdown", terms) is True
+    assert reply.relevant("anything", "", set()) is True
+
+
+def test_pick_drops_irrelevant_threads():
+    items = [_item("https://r/golf1", room="golf", title="Golf challenge failed today", excerpt="Which club?")]
+    assert reply.pick(items, surfaces={}, existing=[], cfg=CFG, now=NOW) == []
+
+
+async def test_read_decision_makes_one_call_when_only_the_legend_is_there():
+    calls = []
+
+    async def api(method, path, token, json_body=None):
+        calls.append(path)
+        if path.endswith("/messages/m1"):
+            return {"reactions": [{"emoji": {"name": e}, "count": 1} for e in approvals.REACTIONS]}
+        return []
+
+    assert await approvals.read_decision("ge", "m1", api=api) is None and len(calls) == 1
+
+    async def api2(method, path, token, json_body=None):
+        calls.append(path)
+        if path.endswith("/messages/m1"):
+            return {"reactions": [{"emoji": {"name": "✅"}, "count": 2}, {"emoji": {"name": "❌"}, "count": 1}]}
+        return [{"id": "owner"}]
+
+    assert await approvals.read_decision("ge", "m1", api=api2) == "approved"
