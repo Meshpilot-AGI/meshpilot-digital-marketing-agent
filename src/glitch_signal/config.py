@@ -677,6 +677,38 @@ def _default_brand_config() -> dict[str, Any]:
         # `<site_url><seo.blog_path><slug>/`. A brand without one cannot syndicate (refused, not guessed).
         "site_url": "https://glitchexecutor.com",
         "seo": {"blog_path": "/blog/"},
+        # Off-page (docs/plans/2026-09-12-offpage-seo.md): what the agent listens for, what it may
+        # say about itself, and who may approve a reply. Discord ids are not secrets.
+        "offpage": {
+                "audience_queries": [
+                        "prop firm drawdown rule",
+                        "prop firm daily loss limit",
+                        "trailing drawdown apex",
+                        "ftmo rules question",
+                        "prop firm challenge failed rule",
+                        "prop firm news trading rule",
+                        "algo trading prop firm EA allowed",
+                        "prop firm minimum trading days"
+                ],
+                "brand_terms": [
+                        "Glitch Executor",
+                        "GlitchExecutor"
+                ],
+                "product_line": "Glitch Executor — a dashboard that tracks your prop-firm account against the firm's own published rules (drawdown, daily loss, news lockouts) so you see a breach before it happens.",
+                "forbidden_phrases": [
+                        "guaranteed pass",
+                        "pass rate"
+                ],
+                "reply": {
+                        "daily_candidates": 3,
+                        "min_gap_hours": 72,
+                        "reddit_username": "glitchExecutor"
+                },
+                "approvals_channel_id": "1543461330277761118",
+                "approvers": [
+                        "1240025800904933407"
+                ]
+        },
         # Per-project env-key prefix. Every credential this brand uses is read
         # as <ENV_PREFIX>_<KEY> (e.g. GE_META_APP_ID). A new project declares
         # its own prefix in its brand config; there are no global keys.

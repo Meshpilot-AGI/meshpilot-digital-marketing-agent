@@ -2670,3 +2670,16 @@ counts, run paths: post / refuse-no-row / publish-fail-skipped-row / dry run / k
 `minimum-trading-days…` with zero refusals after the two fixes the first dry run forced (4k fetch cap;
 "seven" vs `7`). **Docs:** docs/vendors/seo.md § Off-page, board. **Remains:** first live post,
 daily cron, then OFFPAGE-2.
+
+## OFFPAGE-2 — listen, draft, offer, decide, stand — 2026-09-13
+
+**Read:** design § 4 S2/S3, § 5, § 6; discovery/reddit + store, social/surfaces (TARGET-1..3 primitives,
+tables present, no rows for GE until today), comms/discord `_api`, firms distribution block.
+**Changed:** `agent/offpage/{listen,reply,approvals,standing}.py`, store views, 4 capabilities,
+`offpage` config block (default + GE file + schema), syndicate now uses `offpage.forbidden_phrases`
+instead of the ORM hard stops (GE's contains "loss" — a daily-loss post would have been refused daily,
+forever). **Verified:** 34 new tests; suite 1126 green. Live locally: listen recorded 145 Reddit
+signals + communities for 8 queries; standing measured u/glitchExecutor; reply dry run picked 3 threads
+and, after two fixes it forced (list markers as figures, `47.7` vs `47.7%`, over-length), produced an
+accepted r/Forex draft. Discord offer needs the cloud token — verified after deploy. **Remains:**
+cloud verify of an offered card + a reaction round-trip, schedules, then OFFPAGE-3.

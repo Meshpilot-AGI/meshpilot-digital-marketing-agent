@@ -1,21 +1,21 @@
 """AGENT-CRON — self-cron: schedule math, store claim/finish, self-scoped tool, capabilities."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from glitch_signal.agent.cron import capabilities, schedule as sched, service, store
-from glitch_signal.agent.cron import runctx
+from glitch_signal.agent.cron import capabilities, runctx, service, store
+from glitch_signal.agent.cron import schedule as sched
 from glitch_signal.agent.cron import tool as cron_tool
 
-NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 29, 12, 0, 0, tzinfo=UTC)
 
 
 # ── schedule math (pure) ──
 def test_compute_first_run_at_parses_iso():
     got = sched.compute_first_run({"at": "2026-09-01T16:00:00Z"}, "at", now=NOW)
-    assert got == datetime(2026, 9, 1, 16, 0, tzinfo=timezone.utc)
+    assert got == datetime(2026, 9, 1, 16, 0, tzinfo=UTC)
 
 
 def test_compute_next_at_is_none():
@@ -154,7 +154,9 @@ def test_capability_registry():
                                          "social_outcomes", "learn_performance",
                                          "surfaces_sync", "seo_publish", "seo_settle",
                                          "seo_heartbeat",
-                                         "discord_provision_alerts", "drive_to_social", "offpage_syndicate"}
+                                         "discord_provision_alerts", "drive_to_social", "offpage_syndicate",
+                                         "offpage_listen_reddit", "offpage_reply_draft", "offpage_decide",
+                                         "offpage_reply_standing"}
     assert capabilities.get("nope") is None
 
 
@@ -252,7 +254,7 @@ async def test_tool_next_check_clamps_to_pacing(monkeypatch):
     out = await cron_tool.schedule_tool({"action": "next_check", "in": "5m"}, "glitch_executor")
     assert "next check set" in out
     # requested 5m but floor is 1h → at least ~1h out
-    assert seen["next_at"] >= datetime.now(timezone.utc) + timedelta(minutes=59)
+    assert seen["next_at"] >= datetime.now(UTC) + timedelta(minutes=59)
 
 
 def test_parse_duration():

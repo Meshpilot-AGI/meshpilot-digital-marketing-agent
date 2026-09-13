@@ -177,6 +177,34 @@ async def _cap_offpage_syndicate(brand_id: str, args: dict) -> dict:
     return await run(brand_id, args)
 
 
+async def _cap_offpage_listen_reddit(brand_id: str, args: dict) -> dict:
+    """OFFPAGE-2: read-only Reddit sensing over the brand's audience queries → signal_item + surface."""
+    from glitch_signal.agent.offpage.listen import run
+
+    return await run(brand_id, args)
+
+
+async def _cap_offpage_reply_draft(brand_id: str, args: dict) -> dict:
+    """OFFPAGE-2: score recent threads, draft grounded replies, offer them in Discord. Posts nothing."""
+    from glitch_signal.agent.offpage.reply import run
+
+    return await run(brand_id, args)
+
+
+async def _cap_offpage_decide(brand_id: str, args: dict) -> dict:
+    """OFFPAGE-2: read the operator's reactions on offered cards back into the candidate rows."""
+    from glitch_signal.agent.offpage.approvals import run
+
+    return await run(brand_id, args)
+
+
+async def _cap_offpage_reply_standing(brand_id: str, args: dict) -> dict:
+    """OFFPAGE-2: measure account standing + 30-day decisions; the ladder stage is derived from it."""
+    from glitch_signal.agent.offpage.standing import run
+
+    return await run(brand_id, args)
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -192,6 +220,10 @@ _REGISTRY: dict[str, CapFn] = {
     "discord_provision_alerts": _cap_discord_provision_alerts,
     "drive_to_social": _cap_drive_to_social,
     "offpage_syndicate": _cap_offpage_syndicate,
+    "offpage_listen_reddit": _cap_offpage_listen_reddit,
+    "offpage_reply_draft": _cap_offpage_reply_draft,
+    "offpage_decide": _cap_offpage_decide,
+    "offpage_reply_standing": _cap_offpage_reply_standing,
 }
 
 
@@ -225,6 +257,10 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "discord_provision_alerts": frozenset({"publish"}),
     "drive_to_social": frozenset({"publish"}),
     "offpage_syndicate": frozenset({"publish"}),
+    "offpage_listen_reddit": frozenset({"discovery"}),
+    "offpage_reply_draft": frozenset(),
+    "offpage_decide": frozenset(),
+    "offpage_reply_standing": frozenset({"discovery"}),
 }
 
 

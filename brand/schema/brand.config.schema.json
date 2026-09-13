@@ -553,6 +553,84 @@
         "minLength": 1
       },
       "description": "Pre-approved brand-voice captions for drive_to_social when a filename says nothing about the video (IMG_1234, 11, copy_<uuid>). Picked deterministically per file. No scene, no product-use narration, no claims."
+    },
+    "offpage": {
+      "type": "object",
+      "description": "Off-page SEO levers (design docs/plans/2026-09-12-offpage-seo.md). All optional.",
+      "properties": {
+        "audience_queries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "brand_terms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "product_line": {
+          "type": "string",
+          "description": "The one sentence the agent may say about the product when a thread asks for a tool."
+        },
+        "forbidden_phrases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reply": {
+          "type": "object",
+          "properties": {
+            "daily_candidates": {
+              "type": "integer"
+            },
+            "min_gap_hours": {
+              "type": "integer"
+            },
+            "max_age_hours": {
+              "type": "integer"
+            },
+            "offer_ttl_hours": {
+              "type": "integer"
+            },
+            "reddit_username": {
+              "type": "string"
+            }
+          }
+        },
+        "approvals_channel_id": {
+          "type": "string"
+        },
+        "approvers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Discord user ids whose reactions count."
+        },
+        "tracked_prompts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expertise": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "haro": {
+          "type": "object",
+          "properties": {
+            "byline": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   }
 }
