@@ -62,7 +62,31 @@ def config_for(brand_id: str) -> dict:
     cfg["brand_terms"] = [t for t in op.get("brand_terms", []) if isinstance(t, str)]
     cfg["forbidden"] = [p.lower() for p in list(DEFAULT_FORBIDDEN) + list(op.get("forbidden_phrases", []))]
     cfg["product_line"] = str(op.get("product_line") or "").strip()
+    cfg["relevance_terms"] = relevance_terms(op.get("audience_queries") or [])
     return cfg
+
+
+_STOP = {"rule", "rules", "question", "allowed", "failed", "which", "what", "with", "your", "from",
+         "about", "that", "this", "have", "does", "best", "there", "trading"}
+
+
+def relevance_terms(queries: list[str]) -> set[str]:
+    """The words that make a thread *about* the audience — query tokens minus the generic ones.
+    "prop firm challenge failed rule" → {prop, firm, challenge}; a r/golf thread matching only
+    "challenge" still needs "prop" or "firm" somewhere (two hits), see `relevant`."""
+    out: set[str] = set()
+    for q in queries:
+        for w in re.findall(r"[a-z0-9]+", str(q).lower()):
+            if len(w) >= 3 and w not in _STOP:
+                out.add(w)
+    return out
+
+
+def relevant(title: str, excerpt: str, terms: set[str]) -> bool:
+    if not terms:
+        return True
+    words = set(re.findall(r"[a-z0-9]+", f"{title} {excerpt}".lower()))
+    return len(words & terms) >= 2
 
 
 # --------------------------------------------------------------------------- scoring
@@ -160,6 +184,8 @@ def pick(items: list[dict], *, surfaces: dict[str, dict], existing: list[dict], 
         srow = surfaces.get(room) or {}
         if srow.get("status") == "blocked":
             continue
+        if not relevant(it.get("title") or "", it.get("excerpt") or "", cfg.get("relevance_terms") or set()):
+            continue                      # a stray r/golf thread that says "challenge" is not our audience
         if room in recent_by_room:
             continue
         s, parts = score(it, now=now, surface_fit=srow.get("fit_score"), brand_terms=cfg["brand_terms"])
