@@ -29,7 +29,10 @@ SA `meshpilot-agent@capable-boulder-487806-j0.iam.gserviceaccount.com` (the unpr
 `GOOGLE_DRIVE_SA_JSON`; GE keeps its own `GE_GOOGLE_DRIVE_SA_JSON`). The `drive_to_social`
 capability posts one video per run, oldest by name, to Instagram Reels (`AP_META_*`) and TikTok
 (Buffer channel `theayurpetstore`, `AP_BUFFER_API_KEY`) together, with an agent-written caption in
-brand voice, and records the outcome per platform in `drive_post` so nothing posts twice.
+brand voice — or, for a filename that says nothing about the clip (`IMG_2643`, `11`, `copy_<uuid>`),
+one of the brand's pre-approved `caption_pool` lines, picked deterministically per file, because a
+model captioning an unseen video invents a scene — and records the outcome per platform in
+`drive_post` so nothing posts twice.
 Schedule: cron job `066773bf` — `30 10 * * *` America/New_York. First real post 2026-09-12 (file
 `11` → IG reel DdNRC2Vk8EQ + Buffer TikTok 6aa5ed4c…). Operator token `AP_JOBS_AUTH_TOKEN`
 (rotated 2026-09-12; `?brand=ayurpet`).

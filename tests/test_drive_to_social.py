@@ -278,3 +278,56 @@ async def test_a_sheet_failure_never_undoes_the_post():
     deps["record_sheet"] = boom
     out = await d2s.run("ayurpet", {}, engine=_Eng(), deps=deps)
     assert out["instagram"] and out["tiktok"] and "sheet down" in out["sheet_error"]
+
+
+@pytest.mark.parametrize("name,descriptive", [
+    ("IMG_2643.MOV", False), ("11", False), ("7", False),
+    ("copy_3AF071B6-E45B-4229-A9FE-FA28A65C3706.mov", False),
+    ("WhatsApp Video 2026-09-12 at 02.58.09 (1).mp4", False), ("download.mp4", False),
+    ("getcrux_9x16_20260601-150505.mp4", False), ("Milo 1", False),
+    ("GG+ Stop wasting money on probiotics.mov", True), ("Goodgut vet.mov", True),
+    ("CC (do u hv anxious dog)", True), ("Ad3_HOJ+_Female_Ai_Mehran.mov", True),
+])
+def test_filename_descriptiveness(name, descriptive):
+    assert d2s.is_descriptive(name) is descriptive
+
+
+async def test_uninformative_filenames_use_the_pool_never_the_model(monkeypatch):
+    pool = ["Line one 🐾", "Line two", "Line three"]
+    monkeypatch.setattr("glitch_signal.config.brand_config",
+                        lambda b: {"display_name": "AyurPet", "brand": {"voice": "warm"},
+                                   "default_hashtags": ["ayurpet"], "caption_pool": pool})
+
+    async def complete(prompt):
+        raise AssertionError("the model must not be asked")
+
+    a = await d2s.write_caption("ayurpet", "IMG_1.mov", complete=complete, file_key="f-a")
+    b = await d2s.write_caption("ayurpet", "IMG_1.mov", complete=complete, file_key="f-a")
+    assert a == b and a.split("\n\n")[0] in pool and a.endswith("#ayurpet")
+    picks = {d2s.pool_caption(pool, f"f-{i}") for i in range(30)}
+    assert picks == set(pool)
+
+
+async def test_descriptive_filenames_still_go_to_the_model(monkeypatch):
+    monkeypatch.setattr("glitch_signal.config.brand_config",
+                        lambda b: {"display_name": "AyurPet", "brand": {"voice": "warm"},
+                                   "default_hashtags": ["ayurpet"], "caption_pool": ["pooled"]})
+    asked = []
+
+    async def complete(prompt):
+        asked.append(prompt)
+        return "About probiotics, plainly."
+
+    cap = await d2s.write_caption("ayurpet", "GG+ Stop wasting money on probiotics.mov", complete=complete)
+    assert asked and cap.startswith("About probiotics, plainly.")
+
+
+async def test_no_pool_falls_back_to_the_model_for_uninformative_names(monkeypatch):
+    monkeypatch.setattr("glitch_signal.config.brand_config",
+                        lambda b: {"display_name": "AyurPet", "brand": {"voice": "warm"},
+                                   "default_hashtags": ["ayurpet"]})
+
+    async def complete(prompt):
+        return "Model line."
+
+    assert (await d2s.write_caption("ayurpet", "IMG_1.mov", complete=complete)).startswith("Model line.")
