@@ -178,3 +178,23 @@ def test_small_counts_the_page_spells_out_are_supported():
     page = "FundingPips Zero requires seven qualifying days and The5ers High Stakes three."
     assert syn.check("FundingPips Zero: 7 days. The5ers: 3.", platform="x", page_text=page, hard_stops=[]) == []
     assert syn.check("FundingPips Zero: 8 days.", platform="x", page_text=page, hard_stops=[]) == ["unsupported_figures:8"]
+
+
+async def test_drafter_falls_through_tiers_and_fails_loudly(monkeypatch):
+    seen = []
+
+    async def complete_messages(msgs, *, tier, **kw):
+        seen.append(tier)
+        if tier == "simple":
+            raise RuntimeError("empty completion from a reasoning model")
+        return "A grounded line."
+
+    monkeypatch.setattr("glitch_signal.agent.loop.llm.complete_messages", complete_messages)
+    assert await syn._default_complete("p") == "A grounded line." and seen == ["simple", "complex"]
+
+    async def always_empty(msgs, *, tier, **kw):
+        return ""
+
+    monkeypatch.setattr("glitch_signal.agent.loop.llm.complete_messages", always_empty)
+    with pytest.raises(RuntimeError):
+        await syn._default_complete("p")

@@ -187,10 +187,22 @@ async def _default_fetch(url: str, brand_id: str) -> str:
 
 
 async def _default_complete(prompt: str) -> str:
+    """A 240-char post is `simple`-tier work; the `moderate` roster's lead model spent its whole
+    budget reasoning and returned nothing on four of five cloud dry runs. Try the simple tier, then
+    the complex one, and let the caller's "no row → retry tomorrow" path handle both failing."""
     from glitch_signal.agent.loop import llm as agent_llm
 
-    return await agent_llm.complete_messages([{"role": "user", "content": prompt}],
-                                             tier="moderate", max_tokens=600, timeout_s=90)
+    last: Exception | None = None
+    for tier in ("simple", "complex"):
+        try:
+            out = await agent_llm.complete_messages([{"role": "user", "content": prompt}],
+                                                    tier=tier, max_tokens=1200, timeout_s=90)
+            if out and out.strip():
+                return out
+        except Exception as exc:  # noqa: BLE001 — try the next tier
+            last = exc
+            log.warning("offpage.syndicate.tier_failed", tier=tier, error=str(exc)[:160])
+    raise RuntimeError(f"no tier produced a draft: {str(last)[:160] if last else 'empty'}")
 
 
 async def _default_create_post(brand_id: str, platform: str, **kw: Any):
