@@ -6,7 +6,7 @@ summary dict recorded on the `scheduled_runs` row.
 """
 from __future__ import annotations
 
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 CapFn = Callable[[str, dict], Awaitable[dict]]  # (brand_id, args) -> summary
 
@@ -165,6 +165,18 @@ async def _cap_drive_to_social(brand_id: str, args: dict) -> dict:
     return await run(brand_id, args)
 
 
+async def _cap_offpage_syndicate(brand_id: str, args: dict) -> dict:
+    """OFFPAGE-1: each merged blog post → one X post (day 0) and one LinkedIn post (day 1).
+
+    At most one action per platform per run, so already-merged posts trickle out at the daily
+    cadence. The page is the only fact source; a draft with a figure the page does not carry is
+    refused, not posted.
+    """
+    from glitch_signal.agent.offpage.syndicate import run
+
+    return await run(brand_id, args)
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -179,6 +191,7 @@ _REGISTRY: dict[str, CapFn] = {
     "seo_heartbeat": _cap_seo_heartbeat,
     "discord_provision_alerts": _cap_discord_provision_alerts,
     "drive_to_social": _cap_drive_to_social,
+    "offpage_syndicate": _cap_offpage_syndicate,
 }
 
 
@@ -211,6 +224,7 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     # demands `publish` rather than passing as read-only bookkeeping.
     "discord_provision_alerts": frozenset({"publish"}),
     "drive_to_social": frozenset({"publish"}),
+    "offpage_syndicate": frozenset({"publish"}),
 }
 
 

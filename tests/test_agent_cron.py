@@ -154,7 +154,7 @@ def test_capability_registry():
                                          "social_outcomes", "learn_performance",
                                          "surfaces_sync", "seo_publish", "seo_settle",
                                          "seo_heartbeat",
-                                         "discord_provision_alerts", "drive_to_social"}
+                                         "discord_provision_alerts", "drive_to_social", "offpage_syndicate"}
     assert capabilities.get("nope") is None
 
 

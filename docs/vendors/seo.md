@@ -300,3 +300,21 @@ the right default for a brand that has published nothing yet.
 
 ⚠️ **The rot is in the live site, not just the pipeline.** Those four 404s are in published posts a
 reader can click today. Worth a pass with `links:audit` — it audits internal links, not external ones.
+
+## Off-page — OFFPAGE-1 syndication (2026-09-13)
+
+Design: `docs/plans/2026-09-12-offpage-seo.md`. The first lever: every merged `seo_publication`
+becomes one X post (day 0) and one LinkedIn post (day 1) through the Buffer publisher, capability
+`offpage_syndicate` (requires `publish`), at most one action per platform per run so the seven
+already-merged posts trickle out at the daily cadence.
+
+- **The page is the fact source.** The drafter is shown the live article (hardened `web_fetch`,
+  `max_chars` 12k — the 4k tool default cut articles mid-body); every figure in the draft must
+  appear on the page as written, or spelled out (`7` ↔ "seven"). Hard-stop phrases, URLs, hashtags
+  and over-length refuse the draft. A refused draft leaves no row → tomorrow retries; a failed
+  publish leaves a `skipped` `offpage_candidate` row + outcome error → blocks that post on both
+  platforms until a human clears it (the external side effect is unknown).
+- Rows: `offpage_candidate` (unique per brand/lever/platform/target/source),
+  `offpage_outcome`, `offpage_standing` (for the reply ladder, unused yet).
+- Config: `site_url` + `seo.blog_path` on the brand (GE default carries both; a brand without
+  `site_url` is refused with `no_site_url`, never guessed).

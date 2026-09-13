@@ -531,18 +531,20 @@
             "git",
             "shopify",
             "none"
-          ]
+          ],
+          "description": " Optional; a brand may declare only blog_path (syndication needs no publisher)."
         },
         "blog_handle": {
           "type": "string"
         },
         "note": {
           "type": "string"
+        },
+        "blog_path": {
+          "type": "string",
+          "description": "Path under site_url where blog posts live; default /blog/."
         }
-      },
-      "required": [
-        "publisher"
-      ]
+      }
     },
     "caption_pool": {
       "type": "array",

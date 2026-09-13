@@ -445,6 +445,9 @@ async def _t_web_fetch(args: dict, brand_id: str) -> str:
     url = str(args.get("url", "")).strip()
     if not url:
         return "ERROR: web_fetch requires 'url'"
+    # 4000 chars is the tool-context default; an internal caller that needs the whole article
+    # (off-page syndication drafts from the page's own facts) may ask for more, within the byte cap.
+    max_chars = max(500, min(int(args.get("max_chars", 4000) or 4000), 20_000))
     ok, why, host, ip, _port = await _web_url_resolve(url)
     if not ok:
         return f"ERROR: web_fetch refused: {why}"
@@ -473,7 +476,7 @@ async def _t_web_fetch(args: dict, brand_id: str) -> str:
         raw = b"".join(chunks).decode("utf-8", "ignore")
         text = _re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", raw, flags=_re.S | _re.I)
         text = _re.sub(r"<[^>]+>", " ", text)
-        return _re.sub(r"\s+", " ", text).strip()[:4000] or "(no readable text)"
+        return _re.sub(r"\s+", " ", text).strip()[:max_chars] or "(no readable text)"
     except Exception as exc:  # noqa: BLE001
         return f"ERROR: web_fetch failed: {str(exc)[:200]}"
 

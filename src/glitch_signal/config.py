@@ -673,6 +673,10 @@ def _default_brand_config() -> dict[str, Any]:
     return {
         "brand_id": s.default_brand_id,
         "display_name": "Glitch Social Media Agent",
+        # The public site the brand's SEO posts live on; off-page syndication links to
+        # `<site_url><seo.blog_path><slug>/`. A brand without one cannot syndicate (refused, not guessed).
+        "site_url": "https://glitchexecutor.com",
+        "seo": {"blog_path": "/blog/"},
         # Per-project env-key prefix. Every credential this brand uses is read
         # as <ENV_PREFIX>_<KEY> (e.g. GE_META_APP_ID). A new project declares
         # its own prefix in its brand config; there are no global keys.
