@@ -318,3 +318,18 @@ already-merged posts trickle out at the daily cadence.
   `offpage_outcome`, `offpage_standing` (for the reply ladder, unused yet).
 - Config: `site_url` + `seo.blog_path` on the brand (GE default carries both; a brand without
   `site_url` is refused with `no_site_url`, never guessed).
+
+## Off-page — OFFPAGE-2 listen + reply ladder R0 (2026-09-13)
+
+Four capabilities, none of which posts to Reddit: `offpage_listen_reddit` (audience queries →
+`signal_item` + `surface`, rules via Zernio; `discovery` scope), `offpage_reply_draft` (score → draft →
+`offpage_candidate` → card in Discord `#approvals`), `offpage_decide` (reactions → row status;
+expiry after 36h; re-offers drafts whose card failed), `offpage_reply_standing` (account karma/age
++ 30-day decisions → `offpage_standing`; the stage R0/R1/R2 is derived, see `standing.stage_for`).
+Config: `offpage.{audience_queries, brand_terms, product_line, forbidden_phrases, reply.*,
+approvals_channel_id, approvers}` on the brand. Reply checks: figures only from `firm_rule` facts or
+the thread (unit-insensitive; list markers ignored), no URLs, no promise phrases, brand mentioned
+at most once and only when the room allows self-promotion AND the thread asks for a tool AND
+`product_line` is set, no "as an AI". Over-length → one shorten pass → sentence-boundary trim.
+Live dry run 2026-09-13: 145 signals over 8 queries, 3 threads picked, r/Forex draft accepted first
+try. R1/R2 actors (Zernio post, veto window, removal check) are OFFPAGE-5.

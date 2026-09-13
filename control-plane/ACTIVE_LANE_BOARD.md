@@ -11,7 +11,7 @@ Done: migration in prod, 28 legacy rows seeded, dry run, first real post (IG + T
 written), daily cron 10:30 ET. Open: captions for uninformative filenames still narrate product use
 the video may not show — consider a config caption pool for those files.
 
-### OFF-PAGE — syndicate, listen, reply ladder, HARO drafts                    [IN PROGRESS — OFFPAGE-1 LIVE 2026-09-13; next OFFPAGE-2]
+### OFF-PAGE — syndicate, listen, reply ladder, HARO drafts                    [IN PROGRESS — OFFPAGE-2 built 2026-09-13; live verify next]
 Owner: claude
 OFFPAGE-1 live: first syndication posted to X (Buffer 6aa627df…, `minimum-trading-days…`), daily cron
 `b276bb61` 09:00 ET; LinkedIn for the same post follows tomorrow's run. PRs #300 #301 #302.        Opened: 2026-09-12

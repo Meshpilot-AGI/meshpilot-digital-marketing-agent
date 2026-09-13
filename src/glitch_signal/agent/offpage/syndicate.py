@@ -102,6 +102,12 @@ def figures(text_: str) -> set[str]:
     return {m.group(0).rstrip(",.") for m in _FIGURE.finditer(text_)}
 
 
+def supported(fig: str, known: set[str]) -> bool:
+    """`47.7%` is backed by a page that says `47.7 %` or `47.7 percent`; the unit is not the fact."""
+    bare = fig.rstrip("%")
+    return fig in known or bare in known or any(k.rstrip("%") == bare for k in known)
+
+
 def _spelled(fig: str, page_low: str) -> bool:
     """`7` is supported by a page that says "seven" — editors spell small counts out."""
     word = _WORDS.get(fig)
@@ -123,7 +129,7 @@ def check(draft: str, *, platform: str, page_text: str, hard_stops: list[str]) -
         problems.append("hashtag")
     page_figs = figures(page_text)
     page_low = page_text.lower()
-    invented = sorted(f for f in figures(body) if f not in page_figs and not _spelled(f, page_low))
+    invented = sorted(f for f in figures(body) if not supported(f, page_figs) and not _spelled(f, page_low))
     if invented:
         problems.append("unsupported_figures:" + ",".join(invented))
     low = body.lower()
@@ -165,10 +171,14 @@ def _on() -> bool:
 
 
 def _hard_stops(brand_id: str) -> list[str]:
+    """Phrases a syndication post may never carry: promises. NOT the ORM hard stops — GE's ORM list
+    contains "loss", which a post about daily-loss resets must say; using it here would refuse that
+    post forever, silently, one retry a day."""
     from glitch_signal.config import brand_config
 
-    return [p.lower() for p in (brand_config(brand_id).get("orm_guardrails") or {})
-            .get("hard_stop_phrases", [])]
+    op = brand_config(brand_id).get("offpage") or {}
+    base = ["guaranteed", "guarantee", "risk-free", "risk free", "cannot lose", "can't lose", "100% pass"]
+    return [p.lower() for p in base + list(op.get("forbidden_phrases") or [])]
 
 
 def post_url(brand_id: str, slug: str) -> str | None:
