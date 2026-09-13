@@ -3,11 +3,13 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### DRIVE-TO-SOCIAL — AyurPet posts existing Drive footage, IG + TikTok        [IN VERIFICATION 2026-09-12]
+### DRIVE-TO-SOCIAL — AyurPet posts existing Drive footage, IG + TikTok        [CLOSED 2026-09-12 — PRs #294 #295 #296]
 Second brand, first non-generated content source. `drive_to_social` capability (`agent/social/`),
 `drive_post` table, Drive client resolved per brand (`_client(brand_id)` — the no-arg form silently
 answered for GE). Folder verified: 112 videos, all < 300 MB, 28 already posted per the legacy sheet.
-Next: migration lands → seed the 28 → dry run → one real post → daily cron.
+Done: migration in prod, 28 legacy rows seeded, dry run, first real post (IG + TikTok, sheet row
+written), daily cron 10:30 ET. Open: captions for uninformative filenames still narrate product use
+the video may not show — consider a config caption pool for those files.
 
 ### TARGETING — sensing, surfaces, Reddit, SEO                                   [OPEN — designed]
 Owner: unassigned        Opened: 2026-09-02
