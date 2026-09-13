@@ -21,7 +21,7 @@ identifier (snake_case); the tag is the short env prefix.
 ### GE — Glitch Executor
 The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
 
-### AP — AyurPet (registered 2026-09-12, armed for Drive-to-social)
+### AP — AyurPet (registered 2026-09-12, ARMED 2026-09-12 — daily Drive-to-social)
 Natural Ayurvedic pet care for dogs — a **Shopify** store at https://theayurpet.com. `env_prefix: AP`.
 **The content is not generated.** `content_source: drive_footage`: the videos already exist in the
 Drive folder `AutoPosting_Social_AyurPet` (`AP_DRIVE_FOLDER_ID`), shared Viewer with MeshPilot's own
@@ -30,6 +30,9 @@ SA `meshpilot-agent@capable-boulder-487806-j0.iam.gserviceaccount.com` (the unpr
 capability posts one video per run, oldest by name, to Instagram Reels (`AP_META_*`) and TikTok
 (Buffer channel `theayurpetstore`, `AP_BUFFER_API_KEY`) together, with an agent-written caption in
 brand voice, and records the outcome per platform in `drive_post` so nothing posts twice.
+Schedule: cron job `066773bf` — `30 10 * * *` America/New_York. First real post 2026-09-12 (file
+`11` → IG reel DdNRC2Vk8EQ + Buffer TikTok 6aa5ed4c…). Operator token `AP_JOBS_AUTH_TOKEN`
+(rotated 2026-09-12; `?brand=ayurpet`).
 Every post is also appended to the operator sheet `AP_POSTING_SHEET_ID` (Sheet1, legacy columns +
 `instagram_url`) — the DB row is the idempotency record, the sheet is for humans.
 History: before the refactor the same job ran TikTok-only from a tracking sheet
