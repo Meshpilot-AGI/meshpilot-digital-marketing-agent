@@ -312,17 +312,19 @@ async def test_listen_records_posts_and_communities_per_query_and_survives_a_fai
     async def search_posts(q, **kw):
         if q == "bad":
             raise RuntimeError("429")
-        return {"posts": [{"id": "p1", "subreddit": "propfirm", "title": "t"}]}
+        return {"posts": [{"id": "p1", "subreddit": "propfirm", "title": "t"},
+                          {"id": "p2", "subreddit": "Forex", "title": "t2"}]}
 
     async def search_communities(q, **kw):
-        return {"communities": [{"name": "propfirm", "subscribers": 39000}]}
+        return {"communities": [{"name": "propfirm", "subscribers": 39000},
+                                {"name": "tattooadvice", "subscribers": 90000}]}
 
     async def record(b, source, kind, items, query="", engine=None):
         calls["posts"].append((source, kind, query, len(items)))
         return len(items)
 
     async def upsert(b, kind, rooms, engine=None):
-        calls["comms"].append((kind, len(rooms)))
+        calls["comms"].append((kind, sorted(r["name"].lower() for r in rooms)))
         return len(rooms)
 
     async def rescore(b, engine=None):
@@ -341,8 +343,9 @@ async def test_listen_records_posts_and_communities_per_query_and_survives_a_fai
                                                 "sync_rules": sync_rules})
     finally:
         config.brand_config = orig
-    assert out["posts"] == 1 and out["communities"] == 1 and calls["synced"]
-    assert out["errors"] == ["bad: 429"] and calls["posts"][0] == ("reddit", "post", "prop firm drawdown", 1)
+    assert out["posts"] == 2 and out["communities"] == 2 and out["dropped_communities"] == 1 and calls["synced"]
+    assert calls["comms"] == [("subreddit", ["forex", "propfirm"])]     # the thread's room counts, the junk does not
+    assert out["errors"] == ["bad: 429"] and calls["posts"][0] == ("reddit", "post", "prop firm drawdown", 2)
 
 
 def test_list_markers_are_not_figures():
