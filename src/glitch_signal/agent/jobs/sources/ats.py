@@ -39,8 +39,23 @@ def _loc(*candidates: Any) -> str | None:
     return None
 
 
+def _html_to_text(raw: str | None) -> str | None:
+    """Greenhouse returns the JD as DOUBLY-escaped HTML. Unescape twice, strip tags, collapse space."""
+    if not raw:
+        return None
+    import html as _h
+    import re as _re
+
+    t = _h.unescape(_h.unescape(raw))
+    t = _re.sub(r"<(br|/p|/div|/li|/h[1-6])[^>]*>", "\n", t, flags=_re.I)
+    t = _re.sub(r"<[^>]+>", " ", t)
+    return _re.sub(r"[ \t]+", " ", _re.sub(r"\n{3,}", "\n\n", t)).strip() or None
+
+
 async def fetch_greenhouse(slug: str, **_: Any) -> list[dict]:
-    data = await _get_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs")
+    # `content=true` returns the full JD inline. Without it every Greenhouse listing scored as
+    # "no jd_text archived" — two thirds of the pipeline was unscorable for want of a query param.
+    data = await _get_json(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true")
     out = []
     for j in (data or {}).get("jobs", []) or []:
         url = canonical_url(j.get("absolute_url") or "")
@@ -48,7 +63,8 @@ async def fetch_greenhouse(slug: str, **_: Any) -> list[dict]:
             continue
         out.append({"source": "greenhouse", "canonical_url": url, "company": slug,
                     "title": j.get("title"), "location": _loc(j.get("location")),
-                    "posted_at": j.get("updated_at"), "jd_text": None})
+                    "posted_at": j.get("updated_at"),
+                    "jd_text": _html_to_text(j.get("content"))})
     return out
 
 

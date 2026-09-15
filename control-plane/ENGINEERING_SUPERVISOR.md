@@ -3060,3 +3060,62 @@ count.
 
 **Still NOT verified:** no browser has run and nothing has been submitted. The next deploy is the
 first that can actually reach the database.
+
+### 2026-09-15 — JOBS-8 closed (the 4.0 floor was fine; the SCALE was broken)
+
+**The question:** every Canadian role scored below the 4.0 floor, so end-to-end the system would
+apply to nothing. Was the floor wrong, the sourcing too narrow, or the targeting off?
+
+**Answer: none of those — the scorer's absolute scale was miscalibrated.** Its RANKING was already
+good; the numbers just never used their range.
+
+**Evidence.** Scored 16 real Canadian marketing roles against the real CV. The top one — Later
+"Paid Media Specialist", 3.6 — had this verdict: *"strong, quantified paid-social/performance
+execution … covering most critical and high-importance requirements … deep tracking/attribution
+depth exceeding typical requirement depth."* Its gaps were LinkedIn/Pinterest ads, Tableau, and
+influencer-led paid: peripheral and learnable. A recruiter would interview that candidate. 3.6 was
+wrong for it.
+
+**Root cause:** the pass-2 prompt never said what the NUMBERS MEAN. Told only to "weight critical and
+high above preferred", the model falls back on something like fraction-of-requirements-matched,
+which systematically punishes a strong core match for missing peripheral items.
+
+**Fixed** by anchoring the scale in the prompt (5.0 exceptional / 4.5 strong / **4.0 = a hiring
+manager would interview them; core evidenced, gaps peripheral or learnable** / 3.0 something central
+missing / 2.0 wrong track / 1.0 unrelated), plus an explicit instruction NOT to compute a fraction,
+and not to let peripheral gaps drag a strong core below 4.0.
+
+**Measured before/after on the SAME 16 roles:**
+
+| | before | after |
+|---|---|---|
+| scored | 15/16 | 16/16 |
+| max | 3.6 | 4.2 |
+| median | 1.8 | 2.2 |
+| spread | 2.3 | 2.6 |
+| clearing 4.0 | **0** | **2** |
+
+**Pairwise ranking agreement: 98/105 = 93%** — the ordering survived, same top 3 (reordered). That
+is what distinguishes calibration from grade inflation, and is why the check was run at all.
+
+**Also fixed (found by the same run):** 1 of 16 postings returned unparseable JSON from pass 2 even
+at 8000 tokens — a 23-requirement posting overran the budget. Pass 2 now receives at most 18
+requirements, ranked BY IMPORTANCE: dropping the least important is a defensible loss, dropping
+whatever happened to be last is not. Budget raised to 12000. 16/16 now score.
+
+**Also fixed:** `sources/ats.py` now fetches Greenhouse with `?content=true`. Without it every
+Greenhouse listing had no `jd_text` and scored as unscorable — two thirds of the pipeline was dark
+for want of a query parameter. (Closes the JOBS-3 follow-up.)
+
+**Conclusion for the operator: KEEP the 4.0 floor.** It now means something defensible and admits
+~12% of a small pool. The binding constraint is no longer the floor — it is POOL SIZE: 16 scorable
+roles from 34 boards. With a 3/day cap, sourcing will run out long before the cap binds.
+
+**Observed, NOT fixed (queued):**
+- ⚠️ The new top score (4.2, waveapps "Senior Marketing Automation Specialist") comes from a
+  FOUR-requirement JD with zero criticals. A thin posting is easy to score high because there is
+  little to fail. Worth a guard — e.g. discount or flag any evaluation with < 8 extracted
+  requirements — before trusting a high score from a short JD.
+- `brand/configs/tejas.json` `exclude_titles` does not cover "Partner Marketing", "Content
+  Marketing" or "Product Lifecycle Marketing"; all three entered the pool and scored 1.6-2.0. The
+  scorer rejected them correctly, but they cost LLM calls that filtering would have saved.
