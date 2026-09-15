@@ -3377,3 +3377,48 @@ tool name ever enters that list — otherwise the check becomes vacuous. A plant
 **Queued:** the rewrite's effect is UNMEASURED — re-scoring the 30-role pool against the new CV is
 the test, and needs OpenRouter credit. Expect it to move borderline 3.x roles, not to manufacture
 4.5s; the B2B gap is untouched and still covers ~28% of the pool.
+
+### 2026-09-15 — JOBS-15: cost-first router (operator request), with one deliberate exemption
+
+**Operator asked for cheapest-model-first with fallback to costlier by class.** Done, with real
+pricing and one exemption that is worth knowing about.
+
+**The semantics matter and are easy to get wrong.** OpenRouter's `models` array fails over on an
+ERROR — outage, rate limit, 4xx — and NEVER on a weak answer. So cheapest-first does not mean "try
+cheap, escalate if the output is poor": it means **the cheapest model answers essentially
+everything** and the costlier entries are an availability backstop. A real cost cut and a real
+quality trade, not a free lunch.
+
+**Ordering is from live OpenRouter pricing (blended 3:1 input:output, these calls are input-heavy),
+not from guesswork:**
+
+    complex    sonnet-5 $4.00  ->  glm-5.3 $2.15        (-46%, and this is the scoring workload)
+    moderate   glm-5.2  $2.15  ->  gpt-5.6-luna $0.45   (-79%)
+    simple     haiku    $2.00  ->  glm-5.3-flash $0.12  (-94%)
+
+**⚠️ `critical` is EXEMPT and stays quality-first.** Reordering it would have silently reverted a
+previous lane's deliberate fix: `tests/test_router_in_play.py::test_the_safety_gate_runs_on_the
+_strongest_tier` exists because the conscience critic — "the last thing between the agent and the
+public" — had been running on the CHEAPEST model, pinned, with no fallback. Cost-first belongs where
+a bad answer is cheap to notice and redo, not where it IS the safety gate. The failing test is what
+caught this; it was not obvious from the change.
+
+**Made "fall back to costlier" mean something real.** Since OpenRouter cannot escalate on quality,
+the caller must — where it can detect a bad answer. `score.py` can: pass 2 must parse as JSON, and it
+failed to twice in ~50 real scorings. It now retries ONCE on the next tier up
+(`_ESCALATION_TIER`), logs `jobs.score.escalating`, and records the tier that actually answered in
+`score_parts.tier`. Tested both ways: escalates when pass 2 is unparseable, does NOT escalate when
+the cheap answer is fine — escalation must stay rare or it undoes the saving.
+
+**Four existing tests failed and each was informative rather than noise:** one guarded the safety
+tier (honoured, see above), one asserted quality-first ordering (intent updated), and two audit
+fixtures hardcoded the old primaries — rewritten so the "cheap primary idle while a costlier
+fallback serves" case is still the thing being flagged, which under cost-first is exactly the state
+that silently raises spend.
+
+**Verified:** 1350 pass; ruff clean on touched files.
+
+**Queued:** the quality effect is UNMEASURED. The honest check is to re-score the same pool on
+glm-5.3 and compare against the sonnet-5 run already stored — same method as the JOBS-8 calibration
+(compare the ranking, not just the means). If the cheap model's ranking diverges materially,
+`AGENT_ROUTER_COMPLEX` restores the old order without a code change.

@@ -40,6 +40,11 @@ MIN_JD_CHARS = 400
 # _MAX_REQS; the bigger budget was belt-and-braces that cost real money.
 _MAX_TOKENS = 8000
 _MAX_REQS = 18   # keep pass 2's JSON inside the budget; see the ranking note below
+# The router is cheapest-first, and OpenRouter only fails over on an ERROR — never on a weak answer.
+# Where a caller CAN detect a bad answer, it should escalate itself. Pass 2 is detectable: it must
+# parse as JSON. Measured 2026-09-15: unparseable pass 2 on real postings twice in ~50 scorings.
+_ESCALATION_TIER = {"simple": "moderate", "moderate": "complex", "complex": "critical"}
+
 _IMPORTANCE_ORDER = {"critical": 0, "high": 1, "meaningful": 2, "preferred": 3, "low_signal": 4}
 
 _PASS1_SYSTEM = (
@@ -199,19 +204,28 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
     # happened to be last is not.
     ranked = sorted(reqs, key=lambda r: _IMPORTANCE_ORDER.get(str(r.get("importance", "")).lower(), 9))
     sent = ranked[:_MAX_REQS]
-    p2_raw = await llm.complete_messages(
-        [{"role": "system", "content": _PASS2_SYSTEM},
-         {"role": "user", "content": _PASS2_PROMPT.format(
-             requirements=json.dumps(sent, indent=1)[:9000], cv=cv_text[:MAX_CV_CHARS])}],
-        tier=tier, max_tokens=_MAX_TOKENS)
+    p2_msgs = [{"role": "system", "content": _PASS2_SYSTEM},
+               {"role": "user", "content": _PASS2_PROMPT.format(
+                   requirements=json.dumps(sent, indent=1)[:9000], cv=cv_text[:MAX_CV_CHARS])}]
+    p2_raw = await llm.complete_messages(p2_msgs, tier=tier, max_tokens=_MAX_TOKENS)
     pass2 = _json_from(p2_raw)
+    used_tier = tier
+    if not pass2 and _ESCALATION_TIER.get(tier):
+        # The cheap model produced something unparseable. THIS is the moment to pay for a better
+        # one — not on every call. Escalating only on a detected failure keeps the cost win while
+        # removing its main downside.
+        used_tier = _ESCALATION_TIER[tier]
+        log.warning("jobs.score.escalating", frm=tier, to=used_tier, url=listing.get("canonical_url"))
+        p2_raw = await llm.complete_messages(p2_msgs, tier=used_tier, max_tokens=_MAX_TOKENS)
+        pass2 = _json_from(p2_raw)
     # A pass-2 that produced no parseable JSON must FAIL LOUDLY. Returning score=None with no error
     # reads as "scored, badly" and would silently bury every role. (Observed live: an 18-requirement
     # posting overran the default 2048-token budget, truncating the JSON mid-object.)
     if not pass2:
         return {"score": None, "score_parts": {}, "work_auth": wa["verdict"], "hard_stop": wa["hard_stop"],
-                "report_md": None, "model": None,
-                "error": f"pass 2 returned no parseable JSON ({len(p2_raw or '')} chars)"}
+                "report_md": None, "model": used_tier,
+                "error": f"pass 2 returned no parseable JSON after escalating to {used_tier} "
+                         f"({len(p2_raw or '')} chars)"}
 
     # Importance is pass 1's answer. If pass 2 changed any, restore it — the rule is the mechanism,
     # not a suggestion, and a model that silently re-rates importance has undone the whole design.
@@ -234,9 +248,10 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
              "work_auth": wa["verdict"],
              "importance_overridden": overridden}
 
+    parts["tier"] = used_tier
     return {"score": score, "score_parts": parts, "work_auth": wa["verdict"],
             "hard_stop": wa["hard_stop"], "report_md": _report_md(listing, pass1, pass2, wa, score),
-            "model": None, "error": None}
+            "model": used_tier, "error": None}
 
 
 MIN_REQUIREMENTS_FOR_CONFIDENCE = 8

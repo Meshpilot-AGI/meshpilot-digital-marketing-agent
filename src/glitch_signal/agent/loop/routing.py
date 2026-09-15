@@ -1,4 +1,4 @@
-"""Model routing (ROUTER) — pick a quality-FIRST OpenRouter model list per task tier, with native
+"""Model routing (ROUTER) — pick a COST-FIRST OpenRouter model list per task tier, with native
 fallback.
 
 This is deliberately NOT a semantic cache and NOT a sub-5ms latency layer: our brain is a stateful,
@@ -11,6 +11,18 @@ Each tier resolves to an ordered list `[primary, fallback, …]`; `llm._chat` se
 `models` array so OpenRouter itself fails over across providers when the primary errors or rate-limits
 — simpler and more reliable than a hand-rolled try/except chain. Per-tier env override:
 `AGENT_ROUTER_<TIER>` = comma-separated OpenRouter slugs.
+
+⚠️ **Ordering changed to CHEAPEST-FIRST for the working tiers (2026-09-15, operator request).
+`critical` is exempt and stays quality-first — see the note on that tier. The semantics are worth
+being precise about.** OpenRouter's `models` array fails over on an ERROR — a provider outage, a rate
+limit, a 4xx — and NEVER on a weak answer. So cheapest-first does not mean "try cheap, escalate if
+the output is poor": it means the cheapest model answers essentially everything, and the costlier
+entries are an availability backstop. That is a real cost reduction and a real quality trade, not a
+free lunch. Where a caller can DETECT a bad answer (the job scorer can: pass 2 must parse as JSON),
+it should escalate explicitly — see `agent/jobs/score.py`, which retries on a stronger tier.
+
+Ordering below is from live OpenRouter pricing (2026-09-15), blended 3:1 input:output because these
+calls are input-heavy, NOT from guesswork about which model "feels" cheaper.
 """
 from __future__ import annotations
 
@@ -41,13 +53,36 @@ import os
 # Every slug below returned real text on three consecutive live calls, 2026-09-02, WITH those
 # settings in force. Re-probe rather than trusting this comment.
 TIERS: dict[str, list[str]] = {
-    # Third entry is deliberately NOT Anthropic: every Anthropic slug here is served by
-    # amazon-bedrock, so an all-Anthropic tier fails as one unit.
-    "critical": ["anthropic/claude-opus-5", "anthropic/claude-opus-4.8", "openai/gpt-5.6-sol"],
-    "complex":  ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "anthropic/claude-sonnet-4.6"],
-    "moderate": ["z-ai/glm-5.2", "openai/gpt-5.6-luna", "deepseek/deepseek-v4-pro"],
-    "simple":   ["anthropic/claude-haiku-4.5", "z-ai/glm-5.3-flash", "google/gemini-2.5-flash"],
+    # Cheapest first. $/1M blended (3:1 input:output), measured live 2026-09-15.
+    # Third entry is deliberately NOT Anthropic where possible: every Anthropic slug here is served
+    # by amazon-bedrock, so an all-Anthropic tier fails as one unit.
+    # ⚠️ `critical` is DELIBERATELY EXEMPT from cheapest-first and stays quality-first. It is the
+    # tier for the conscience critic — "the last thing between the agent and the public" — and for
+    # irreversible work. A previous lane moved that critic OFF the cheapest model on purpose
+    # (tests/test_router_in_play.py::test_the_safety_gate_runs_on_the_strongest_tier); reordering
+    # this tier would silently revert that fix. Cost-first belongs where a bad answer is cheap to
+    # notice and redo, not where it is the safety gate.
+    "critical": ["anthropic/claude-opus-5",    # $10.00
+                 "anthropic/claude-opus-4.8",  # $10.00
+                 "openai/gpt-5.6-sol"],        # $4.00
+    "complex":  ["z-ai/glm-5.3",              # $2.15
+                 "anthropic/claude-sonnet-5",  # $4.00
+                 "anthropic/claude-sonnet-4.6"],  # $6.00
+    "moderate": ["openai/gpt-5.6-luna",       # $0.45
+                 "deepseek/deepseek-v4-pro",   # $2.00
+                 "z-ai/glm-5.2"],              # $2.15
+    "simple":   ["z-ai/glm-5.3-flash",        # $0.12
+                 "google/gemini-2.5-flash",    # $0.85
+                 "anthropic/claude-haiku-4.5"],  # $2.00
 }
+
+# The quality-first ordering this replaced, kept so it can be restored per-tier without archaeology:
+#   critical  opus-5, opus-4.8, gpt-5.6-sol
+#   complex   sonnet-5, glm-5.3, sonnet-4.6
+#   moderate  glm-5.2, gpt-5.6-luna, deepseek-v4-pro
+#   simple    haiku-4.5, glm-5.3-flash, gemini-2.5-flash
+# Restore one with e.g. AGENT_ROUTER_COMPLEX="anthropic/claude-sonnet-5,z-ai/glm-5.3".
+
 
 # Still unreachable for this account, kept by name so a future session sees they were dropped
 # deliberately rather than re-adding them from memory.
