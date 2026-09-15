@@ -39,6 +39,11 @@ MIN_JD_CHARS = 400
 # mid-sweep. The pass-2 overflow it was raised to fix is already handled by capping requirements at
 # _MAX_REQS; the bigger budget was belt-and-braces that cost real money.
 _MAX_TOKENS = 8000
+# Both passes want STRUCTURED JSON, not deliberation — and an uncapped reasoning model spends the
+# whole budget thinking and returns nothing. Measured 2026-09-15 on z-ai/glm-5.3: 1,548 reasoning
+# tokens at an 8k budget (empty), 3,340 at 20k (still worse), and 0 with effort=low — full content,
+# $0.0027 vs claude-sonnet-5's $0.0105 for the same scoring call.
+_REASONING = {"effort": "low"}
 _MAX_REQS = 18   # keep pass 2's JSON inside the budget; see the ranking note below
 # The router is cheapest-first, and OpenRouter only fails over on an ERROR — never on a weak answer.
 # Where a caller CAN detect a bad answer, it should escalate itself. Pass 2 is detectable: it must
@@ -191,7 +196,8 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
                {"role": "user", "content": _PASS1_PROMPT.format(jd=jd)}]
     used_tier = tier
     try:
-        p1_raw = await llm.complete_messages(p1_msgs, tier=tier, max_tokens=_MAX_TOKENS)
+        p1_raw = await llm.complete_messages(p1_msgs, tier=tier, max_tokens=_MAX_TOKENS,
+                                             reasoning=_REASONING)
     except Exception as exc:  # noqa: BLE001 — an empty completion raises; that is a FAILURE to escalate
         log.warning("jobs.score.pass1_failed", tier=tier, error=str(exc)[:120])
         p1_raw = ""
@@ -204,7 +210,8 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
         used_tier = _ESCALATION_TIER[tier]
         log.warning("jobs.score.escalating_pass1", frm=tier, to=used_tier,
                     url=listing.get("canonical_url"))
-        p1_raw = await llm.complete_messages(p1_msgs, tier=used_tier, max_tokens=_MAX_TOKENS)
+        p1_raw = await llm.complete_messages(p1_msgs, tier=used_tier, max_tokens=_MAX_TOKENS,
+                                             reasoning=_REASONING)
         pass1 = _json_from(p1_raw)
         reqs = pass1.get("requirements") or []
     if not reqs:
@@ -223,7 +230,8 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
                {"role": "user", "content": _PASS2_PROMPT.format(
                    requirements=json.dumps(sent, indent=1)[:9000], cv=cv_text[:MAX_CV_CHARS])}]
     try:
-        p2_raw = await llm.complete_messages(p2_msgs, tier=used_tier, max_tokens=_MAX_TOKENS)
+        p2_raw = await llm.complete_messages(p2_msgs, tier=used_tier, max_tokens=_MAX_TOKENS,
+                                             reasoning=_REASONING)
     except Exception as exc:  # noqa: BLE001 — same reason as pass 1
         log.warning("jobs.score.pass2_failed", tier=used_tier, error=str(exc)[:120])
         p2_raw = ""
@@ -234,7 +242,8 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
         # removing its main downside.
         used_tier = _ESCALATION_TIER[used_tier]
         log.warning("jobs.score.escalating", frm=tier, to=used_tier, url=listing.get("canonical_url"))
-        p2_raw = await llm.complete_messages(p2_msgs, tier=used_tier, max_tokens=_MAX_TOKENS)
+        p2_raw = await llm.complete_messages(p2_msgs, tier=used_tier, max_tokens=_MAX_TOKENS,
+                                             reasoning=_REASONING)
         pass2 = _json_from(p2_raw)
     # A pass-2 that produced no parseable JSON must FAIL LOUDLY. Returning score=None with no error
     # reads as "scored, badly" and would silently bury every role. (Observed live: an 18-requirement

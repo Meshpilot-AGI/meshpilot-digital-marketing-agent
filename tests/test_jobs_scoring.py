@@ -382,10 +382,14 @@ async def test_an_empty_completion_escalates_rather_than_failing(monkeypatch):
     assert out["score"] == 3.5
 
 
-def test_the_router_is_quality_first_after_the_measured_revert():
-    """glm-5.3 scored 0/18 on real postings as the `complex` primary. Cheapest-first is only safe
-    when the cheap model can actually complete the task."""
+def test_the_scoring_tier_is_cost_first_and_critical_is_not():
+    """glm-5.3 scored 0/18 as the `complex` primary — which was OUR bug, not the model: the
+    empty-completion retry was gated out at exactly the 8000 the scorer asks for, and nothing capped
+    reasoning effort. Both fixed; glm-5.3 completes the same scoring call for 74% less. Cheapest-first
+    is safe HERE because score_listing escalates on a detected bad answer — `critical` has no such
+    check and stays quality-first."""
     from glitch_signal.agent.loop import routing
 
-    assert routing.resolve("complex")[0] == "anthropic/claude-sonnet-5"
+    assert routing.resolve("complex")[0] == "z-ai/glm-5.3"
+    assert routing.resolve("complex")[1] == "anthropic/claude-sonnet-5"
     assert routing.resolve("critical")[0] == "anthropic/claude-opus-5"
