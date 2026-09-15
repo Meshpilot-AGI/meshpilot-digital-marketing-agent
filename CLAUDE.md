@@ -66,6 +66,10 @@ This repo has no `main` and **no `preview`** (retired 2026-08-29). One trunk, an
   lanes PR **into** it. See gateway/README.md.
 - **`submitter/`** — the job submitter (Railway, service `meshpilot-submitter`), connected to this
   same GitHub repo @ `production`. Merging to `production` ships it, exactly like the gateway.
+  ⚠️ Its builder is pinned in **`railway.json` at the REPO ROOT** (`DOCKERFILE` +
+  `submitter/Dockerfile`). `RAILWAY_DOCKERFILE_PATH` as a variable was NOT enough — railpack ignored
+  it and booted a second copy of the production API on that service (2026-09-15). The gateway is
+  unaffected: its root dir is `gateway`, so it reads `gateway/railway.json`.
   ⚠️ Its watch paths are **deliberately UNSET**: unlike the gateway it installs the agent package, so
   a `submitter/**`-only watch would leave the one process that can SEND an application running stale
   guard code from an older `src/`. Never `railway up` from a laptop — see submitter/README.md.
