@@ -2963,3 +2963,59 @@ Shopify, WORK EXPERIENCE and SKILLS all survive. 1310 pytest pass. ruff clean on
   helper, not a runtime path — keep it that way.
 
 **Rollback:** revert the lane commit; nothing persists and `render_cv` is gated with the rest.
+
+### 2026-09-15 — JOBS-7 shipped (Railway submitter: the only container with a browser)
+
+**Resolves the JOBS-6 blocker.** Submission needs a browser; FastAPI Cloud builds from Python
+standards with no way to install Chromium's system libs. So the browser lives in a SECOND RAILWAY
+service — the same platform the Discord gateway already runs on, with a Dockerfile we control. The
+image is `mcr.microsoft.com/playwright/python`, which ships Chromium AND its system deps rather than
+a long apt incantation that drifts.
+
+**Shipped:**
+- `submitter/{Dockerfile,railway.json,worker.py}` — a poll loop, no inbound HTTP. It installs the
+  agent package so the store, the submission guards and the fact verifier have exactly ONE
+  implementation; a second copy is how guards drift apart.
+- `agent/jobs/drivers/{browser,greenhouse,lever}.py` — Playwright imported INSIDE the functions, so
+  the API service still imports cleanly without it (asserted by a test).
+- Hard stops: a CAPTCHA or a password field aborts the run. No solver name appears anywhere under
+  `agent/jobs/` (tested).
+- Answers are PLACED by label, never positionally — a positional guess silently answers the wrong
+  question. An unplaceable approved answer is a hard stop, not a skipped field.
+- Confirmation must be EXPLICIT ("thank you for applying", "application received"). A page that
+  merely stopped erroring is not proof; a false positive here makes the operator believe an
+  application was sent when it was not.
+
+**Three independent switches must ALL be on before anything sends:** the operator's ✅, the policy
+gate (`agent_job_apply_enabled` + publish + the 3/day cap), and `SUBMITTER_LIVE=true` in the
+container. `SUBMITTER_LIVE` must be exactly "true" — "1"/"yes"/unset are all dry runs (tested). The
+irreversible step should take more than one mistake to happen by accident.
+
+**Verified against LIVE forms (static HTML, no browser needed):**
+- Greenhouse (`job-boards.greenhouse.io/later/...`): `#first_name`, `#last_name`, `#email`,
+  `#phone`, `input[type=file]`, `button[type=submit]` all present. `#submit_app` is the LEGACY id and
+  is absent — the fallback ordering covers it.
+- Lever (`jobs.lever.co/pointclickcare/.../apply`): `name`, `email`, `phone`, `resume`,
+  `template-btn-submit` all present.
+- 22 new tests; 1332 pytest pass total; ruff clean.
+
+**🔴 THE FINDING THAT MATTERS: Lever's apply form serves reCAPTCHA.** The hard stop therefore fires
+on EVERY Lever posting, so Lever is effectively MANUAL and Greenhouse is the only working auto-submit
+path today. This may be over-cautious — an invisible reCAPTCHA v3 is score-based and presents no
+challenge to a human either, so proceeding past one is not "solving" anything. Telling an invisible
+v3 from a real v2 challenge needs a live browser to check visibility, which has NOT been done.
+Conservative reading stands until it is: over-blocking fails toward "apply by hand", under-blocking
+fails toward a broken application submitted in the operator's name.
+
+**⛔ NOT VERIFIED — no application has been submitted, and no browser has been run.** Playwright is
+not installed locally; the drivers are proven only against the forms' static HTML. The first real
+test must be a DRY RUN on a real approved application, watched.
+
+**Observed, NOT fixed (queued):**
+- The Railway service is not created/deployed; `submitter/railway.json` is config, not a deployment.
+- ✅ CLOSED in this lane: `jobs.contact` added to `brand/configs/tejas.json`; `identity_for()` now
+  resolves Tejas Karan Agrawal / tejaskagrawalgwl@gmail.com / +1-437-605-6889.
+- Greenhouse's newer forms are React-rendered; the static-HTML check confirms the ids exist but not
+  that they are fillable before hydration. A live dry run settles it.
+
+**Rollback:** revert the lane commit and delete the Railway service; nothing else references it.
