@@ -3333,3 +3333,47 @@ thin-JD artifact. The best real match remains **3.7** (flipp, Digital Campaign/P
   for, or (b) the operator's real market is not on public ATS boards at all. Test (a) first — it is
   free, and `jd_skill_gap`-style analysis of the 3.x roles would show exactly which critical
   requirements keep coming back unmatched.
+
+### 2026-09-15 — JOBS-14: skill-gap analysis, CV rewrite, and a verifier false positive
+
+**Skill-gap analysis (zero LLM cost — the stored reports already carry per-requirement verdicts).**
+Parsed 811 verdicts from 54 scored roles, filtered to the **36 genuine marketing roles** (the
+product/engineering roles a filter bug had admitted were excluded — measuring fit against
+product-manager postings would be meaningless), leaving 523 verdicts.
+
+    critical  n=182  strong 15%  partial 45%  none 40%
+    high      n=217  strong 25%  partial 41%  none 34%
+
+**15% strong on CRITICAL requirements is the answer to "why does nothing clear 4.0".** Not the
+threshold, not the sourcing.
+
+**The gaps split cleanly, and the split is the useful part:**
+
+*Under-evidenced — the experience is on the CV, the words are not:*
+- senior stakeholder / cross-functional — **11 of 36 roles**; CV said only "vendor"/"supplier"
+- lifecycle / CRM programs — **6 of 36**; CV had retention, post-purchase, WhatsApp, LTV, never framed as lifecycle
+- people management — 2 of 36; "led a team", "4-person execution team" present but buried
+
+*Structural — wording cannot fix:*
+- **B2B / SaaS demand-gen funnel — 10 of 36 roles** (MQL/PQL, lead scoring, self-serve↔sales). Absent.
+- named platforms (Braze/Marketo/Klaviyo) — 3 of 36; CV has HubSpot only, as a certification
+- MMM / MTA / incrementality — 1 of 36
+
+**CV rewritten for the under-evidenced group only** (`~/dev/career-ops/cv.md`, synced into
+`brand/configs/tejas.json`). Reframing only — no new employers, numbers, tools or dates. The Quickads
+bullets now name the agency/client context that was always implied; Urban Classics names the vendor
+partnership and the lifecycle programs; Digistreet leads with the 4-person team. Verified against the
+ORIGINAL CV as fact base: **PASS**. Renders to an ATS-safe PDF with every new term in the text layer.
+
+**⚠️ The rewrite exposed a real verifier FALSE POSITIVE, now fixed.** `verify()` rejected the honest
+rewrite because "CRM" and "Team" are capitalised tokens absent from the source — it cannot tell
+ordinary business vocabulary from an invented company. A verifier that blocks honest prose is the
+cry-wolf failure `verify.py` already warns about, and it costs more than the fabrications it catches:
+nobody keeps a gate that is wrong about ordinary English. Added a GENERIC business-vocabulary
+stopword list (CRM, ROAS, LTV, Team, Stakeholder, Lifecycle, …) plus a test asserting no employer or
+tool name ever enters that list — otherwise the check becomes vacuous. A planted
+"Hootsuite / Braze / Marketo" is still rejected.
+
+**Queued:** the rewrite's effect is UNMEASURED — re-scoring the 30-role pool against the new CV is
+the test, and needs OpenRouter credit. Expect it to move borderline 3.x roles, not to manufacture
+4.5s; the B2B gap is untouched and still covers ~28% of the pool.

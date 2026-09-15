@@ -67,12 +67,28 @@ def _candidate_names(text: str) -> set[str]:
     return {w for w in out if w and w not in _STOPWORDS}
 
 
-# Still excluded even mid-sentence: CV furniture and months, which are capitalised by convention.
+# Still excluded even mid-sentence: CV furniture, months, and ordinary business vocabulary that is
+# capitalised by convention rather than because it names anything.
+#
+# The third group was added after a real false positive: a CV rewrite that introduced the words
+# "CRM" and "Team leadership" — both plainly reframings of experience already on the page — was
+# REJECTED as containing unsupported entities. A verifier that blocks honest prose is the cry-wolf
+# failure this file already warns about, and it costs more than the fabrications it would catch:
+# nobody keeps using a gate that is wrong about ordinary English.
+#
+# These are deliberately GENERIC terms with no proper-noun sense. A real employer or tool name must
+# never be added here — that is what would make the check vacuous.
 _STOPWORDS = frozenset("""
 January February March April May June July August September October November December
 Jan Feb Mar Apr Jun Jul Aug Sep Sept Oct Nov Dec
 Summary Experience Education Skills Projects Certifications Present Current Remote Contact
 CV Resume Profile Objective References Available Upon Request Achievements Highlights
+CRM CRO SEO SEM PPC ROAS ROI AOV LTV CAC CPA CTR KPI KPIs GTM TOF MOF BOF DTC B2B B2C SaaS
+API APIs SQL UTM AB CMS CDP ESP
+Team Teams Client Clients Vendor Vendors Supplier Suppliers Stakeholder Stakeholders
+Lifecycle Retention Acquisition Analytics Automation Campaign Campaigns Creative Growth
+Marketing Media Paid Organic Performance Product Sales Social Email Search Web Mobile
+Leadership Management Strategy Operations Reporting Testing Tracking Attribution
 """.split())
 
 
