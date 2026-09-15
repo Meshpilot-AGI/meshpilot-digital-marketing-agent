@@ -154,3 +154,32 @@ def test_a_sentence_final_invented_company_is_rejected_end_to_end():
     r = verify("Led paid media for Udemy at Nexolytics Corp.", FACTS)
     assert not r.ok
     assert any("Nexolytics" in f.value for f in r.findings)
+
+
+# --- business vocabulary is not an "entity" (JOBS-14) -----------------------------------
+
+def test_ordinary_business_vocabulary_is_not_flagged_as_an_invented_company():
+    """A real CV rewrite that introduced "CRM" and "Team leadership" — both plainly reframings of
+    experience already on the page — was REJECTED as containing unsupported entities. A verifier
+    that blocks honest prose is the cry-wolf failure that gets it switched off."""
+    doc = ("Owns the full growth loop: acquisition, CRM and post-purchase lifecycle. "
+           "Team leadership and stakeholder management across Client accounts.")
+    r = verify(doc, FACTS)
+    assert r.ok, r.reasons()
+
+
+def test_the_stopword_list_did_not_make_the_check_vacuous():
+    """Adding generic vocabulary must not let a real employer or tool through."""
+    r = verify("Led demand generation at Hootsuite using Braze and Marketo.", FACTS)
+    assert not r.ok
+    vals = " ".join(f.value for f in r.findings)
+    assert "Hootsuite" in vals and "Braze" in vals and "Marketo" in vals
+
+
+def test_no_employer_or_tool_name_leaked_into_the_stopwords():
+    """Guard the guard: the list must stay generic. A company name here would silently exempt it."""
+    from glitch_signal.agent.jobs.verify import _STOPWORDS
+
+    for banned in ("Shopify", "Meta", "Google", "Udemy", "Quickads", "Braze", "Marketo",
+                   "HubSpot", "Klaviyo", "TikTok", "Amazon", "Hootsuite"):
+        assert banned not in _STOPWORDS, f"{banned} must never be a stopword"
