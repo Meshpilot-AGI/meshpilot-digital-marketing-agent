@@ -187,15 +187,30 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
                          "this is a listing SUMMARY, not a job description"}
 
     # PASS 1 — JD only. The CV is deliberately absent from this call's context.
-    p1_raw = await llm.complete_messages(
-        [{"role": "system", "content": _PASS1_SYSTEM},
-         {"role": "user", "content": _PASS1_PROMPT.format(jd=jd)}],
-        tier=tier, max_tokens=_MAX_TOKENS)
+    p1_msgs = [{"role": "system", "content": _PASS1_SYSTEM},
+               {"role": "user", "content": _PASS1_PROMPT.format(jd=jd)}]
+    used_tier = tier
+    try:
+        p1_raw = await llm.complete_messages(p1_msgs, tier=tier, max_tokens=_MAX_TOKENS)
+    except Exception as exc:  # noqa: BLE001 — an empty completion raises; that is a FAILURE to escalate
+        log.warning("jobs.score.pass1_failed", tier=tier, error=str(exc)[:120])
+        p1_raw = ""
     pass1 = _json_from(p1_raw)
     reqs = pass1.get("requirements") or []
+    if not reqs and _ESCALATION_TIER.get(tier):
+        # Measured 2026-09-15: a cheap primary can return an EMPTY completion (budget spent on
+        # internal reasoning) or no requirements at all, and OpenRouter does NOT fail over because
+        # neither is an HTTP error. Escalating here is the only thing that catches it.
+        used_tier = _ESCALATION_TIER[tier]
+        log.warning("jobs.score.escalating_pass1", frm=tier, to=used_tier,
+                    url=listing.get("canonical_url"))
+        p1_raw = await llm.complete_messages(p1_msgs, tier=used_tier, max_tokens=_MAX_TOKENS)
+        pass1 = _json_from(p1_raw)
+        reqs = pass1.get("requirements") or []
     if not reqs:
         return {"score": None, "score_parts": {}, "work_auth": wa["verdict"], "hard_stop": wa["hard_stop"],
-                "report_md": None, "model": None, "error": "pass 1 extracted no requirements"}
+                "report_md": None, "model": used_tier,
+                "error": f"pass 1 extracted no requirements (escalated to {used_tier})"}
 
     # PASS 2 — CV against requirements whose importance is already fixed.
     # A 23-requirement posting overran even an 8000-token pass 2 and returned unparseable JSON
@@ -207,14 +222,17 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
     p2_msgs = [{"role": "system", "content": _PASS2_SYSTEM},
                {"role": "user", "content": _PASS2_PROMPT.format(
                    requirements=json.dumps(sent, indent=1)[:9000], cv=cv_text[:MAX_CV_CHARS])}]
-    p2_raw = await llm.complete_messages(p2_msgs, tier=tier, max_tokens=_MAX_TOKENS)
+    try:
+        p2_raw = await llm.complete_messages(p2_msgs, tier=used_tier, max_tokens=_MAX_TOKENS)
+    except Exception as exc:  # noqa: BLE001 — same reason as pass 1
+        log.warning("jobs.score.pass2_failed", tier=used_tier, error=str(exc)[:120])
+        p2_raw = ""
     pass2 = _json_from(p2_raw)
-    used_tier = tier
-    if not pass2 and _ESCALATION_TIER.get(tier):
+    if not pass2 and _ESCALATION_TIER.get(used_tier):
         # The cheap model produced something unparseable. THIS is the moment to pay for a better
         # one — not on every call. Escalating only on a detected failure keeps the cost win while
         # removing its main downside.
-        used_tier = _ESCALATION_TIER[tier]
+        used_tier = _ESCALATION_TIER[used_tier]
         log.warning("jobs.score.escalating", frm=tier, to=used_tier, url=listing.get("canonical_url"))
         p2_raw = await llm.complete_messages(p2_msgs, tier=used_tier, max_tokens=_MAX_TOKENS)
         pass2 = _json_from(p2_raw)
