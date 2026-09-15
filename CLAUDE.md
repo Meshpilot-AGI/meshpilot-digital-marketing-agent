@@ -64,6 +64,12 @@ This repo has no `main` and **no `preview`** (retired 2026-08-29). One trunk, an
   ran on that push. No manual step to ship the gateway — merging to `production`
   is the ship. Protected: never commit directly, never author a commit on it —
   lanes PR **into** it. See gateway/README.md.
+- **`submitter/`** — the job submitter (Railway, service `meshpilot-submitter`), connected to this
+  same GitHub repo @ `production`. Merging to `production` ships it, exactly like the gateway.
+  ⚠️ Its watch paths are **deliberately UNSET**: unlike the gateway it installs the agent package, so
+  a `submitter/**`-only watch would leave the one process that can SEND an application running stale
+  guard code from an older `src/`. Never `railway up` from a laptop — see submitter/README.md.
+
 - **`web-production`** — the **web** deploy branch (the Next.js `web/` app).
   Cloudflare Pages deploys it (root dir `web`, already configured). Fast-forwarded
   from `production`, never developed on. See docs/vendors + web/README.
