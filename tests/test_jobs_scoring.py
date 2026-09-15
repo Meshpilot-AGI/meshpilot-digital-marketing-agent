@@ -127,7 +127,8 @@ async def test_importance_from_pass1_survives_pass2(monkeypatch):
     monkeypatch.setattr(llm, "complete_messages", fake_complete)
     out = await score.score_listing(
         {"title": "Perf Marketing Manager", "company": "Acme", "location": "Toronto, Canada",
-         "canonical_url": "https://x.com/1", "jd_text": "manage $1M+ budgets"}, "CV text", CFG)
+         "canonical_url": "https://x.com/1",
+         "jd_text": "manage $1M+ budgets. " * 40}, "CV text", CFG)
 
     assert out["score_parts"]["importance_overridden"] == 1, "the downgrade must be detected"
     assert "| critical |" in out["report_md"], "pass 1's importance must win in the report"
@@ -154,7 +155,7 @@ async def test_pass1_never_sees_the_cv(monkeypatch):
     monkeypatch.setattr(llm, "complete_messages", fake_complete)
     await score.score_listing(
         {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
-         "jd_text": "the posting text"}, "SECRET_CV_MARKER", CFG)
+         "jd_text": "the posting text. " * 40}, "SECRET_CV_MARKER", CFG)
     assert "SECRET_CV_MARKER" not in seen["pass1_prompt"]
 
 
@@ -164,7 +165,7 @@ async def test_no_jd_text_returns_no_score_rather_than_guessing(monkeypatch):
     out = await score.score_listing(
         {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
          "jd_text": ""}, "cv", CFG)
-    assert out["score"] is None and "no jd_text" in out["error"]
+    assert out["score"] is None and "too short to score" in out["error"]
 
 
 def test_score_is_clamped_to_the_scale():
@@ -226,3 +227,49 @@ def test_the_gate_is_confidence_not_a_penalty():
     `parts` keeps the old behaviour, so this cannot silently change anything that has not opted in."""
     assert score.meets_floor(4.0, False, CFG) is True
     assert score.MIN_REQUIREMENTS_FOR_CONFIDENCE == 8
+
+
+# --- thin JD TEXT guard (JOBS-13) ------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_a_listing_summary_is_refused_before_any_model_call(monkeypatch):
+    """Job Bank's RSS gives "Job number / Location / Employer / Salary" (~120 chars), not a job
+    description. Scoring one produced a 4.0 off ONE requirement — the top score in the whole pool,
+    from a posting the model could not fail anyone on."""
+    from glitch_signal.agent.loop import llm
+
+    called = []
+
+    async def spy(*a, **kw):
+        called.append(1)
+        return "{}"
+
+    monkeypatch.setattr(llm, "complete_messages", spy)
+    out = await score.score_listing(
+        {"title": "marketing manager", "company": "X", "location": "Milton (ON), Canada",
+         "canonical_url": "u",
+         "jd_text": "Job number: 10263948001 Location: Boucherville (QC) Salary: $39,991.00"},
+        "cv text", CFG)
+    assert out["score"] is None
+    assert "too short to score" in out["error"]
+    assert called == [], "must refuse BEFORE paying for a model call"
+
+
+@pytest.mark.asyncio
+async def test_a_real_posting_is_not_refused(monkeypatch):
+    import json as _json
+
+    from glitch_signal.agent.loop import llm
+
+    async def fake(messages, **kw):
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        if "NOT seen any candidate" in system:
+            return _json.dumps({"role_summary": "r", "requirements": [
+                {"requirement": "paid media", "jd_signal": "x", "importance": "critical"}]})
+        return _json.dumps({"requirements": [], "score": 4.0, "verdict": "", "strengths": [], "gaps": []})
+
+    monkeypatch.setattr(llm, "complete_messages", fake)
+    out = await score.score_listing(
+        {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
+         "jd_text": "x" * 5000}, "cv", CFG)
+    assert out["score"] == 4.0

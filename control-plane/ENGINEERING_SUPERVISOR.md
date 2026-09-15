@@ -3285,3 +3285,51 @@ the more promising half.
 
 **Next:** score the expanded pool (the real test), and only then judge whether the Job Bank half earns
 its keep.
+
+### 2026-09-15 — JOBS-13: correcting JOBS-12. The pool did NOT grow to 53; it grew to 30.
+
+**Scored the expansion and the previous lane's headline does not survive contact.** JOBS-12 reported
+"pool 28 → 53". Scoring those additions shows ~23 of the 25 were noise or unscorable:
+
+    pool claimed in JOBS-12        53
+      dropped: product/eng/ops     12   false positives from word-order matching
+      skipped: Job Bank summaries  11   unscorable — not job descriptions at all
+      ACTUALLY SCORABLE            30   (was 28 before the lane)
+
+**Two regressions I introduced, both found only by scoring:**
+
+1. **Word-order matching was too loose.** Order-independent matching of a generic 2-word target let
+   PRODUCT and ENGINEERING roles through: "Senior Product Manager, Growth" matched the target
+   "Growth Manager". Twelve such roles entered the pool — Growth Product Manager, Engineering
+   Manager Growth, Staff Product Manager Organic Growth, Marketing Financial Operations Manager,
+   Account Manager Influencer Marketing. **Every one scored 1.5-2.8**, so the scorer caught what the
+   filter did not, but each cost two model calls to reject. Fixed by adding 12 exclusions
+   (Product/Engineering/Program/Project Manager, Financial Operations, Customer Analytics, Business
+   Operations, Account Manager, Revenue & Analytics, Growth Strategy, Data Analyst).
+   The word-order feature itself is KEPT — "Manager, Marketing" is still correctly matched. It was
+   the missing exclusions, not the matching, that was wrong.
+
+2. **Job Bank's `jd_text` is the RSS SUMMARY, not a job description.** Measured: 105-137 characters
+   ("Job number / Location / Employer / Salary") against ~7,400 for a real ATS posting. Scoring them
+   produced **two 4.0s off ONE and TWO extracted requirements** — the highest scores in the entire
+   pool, from postings the model had nothing to fail anyone on. Had the JOBS-11 confidence gate not
+   existed, those would have been the top opportunities offered to the operator.
+   Fixed with `MIN_JD_CHARS = 400`, checked BEFORE pass 1 — so an unscorable listing costs nothing
+   rather than two calls and a false 4.0.
+
+**The JOBS-11 thin-JD confidence gate was vindicated on real data.** It was written from a single
+suspicious 4-requirement result; this lane produced 1- and 2-requirement results that would have
+ranked first. Worth remembering: that guard was speculative when written and turned out to be load-
+bearing within a day.
+
+**⛔ STILL ZERO genuinely qualifying roles — now across ~50 scored.** Every 4.0 seen so far has been a
+thin-JD artifact. The best real match remains **3.7** (flipp, Digital Campaign/Performance Marketing).
+
+**Queued — the honest next step is NOT more sourcing:**
+- Job Bank needs a real JD fetcher (fetch the posting page per listing, 5s crawl delay) before its
+  listings are worth anything. Until then it contributes nothing but noise.
+- Three lanes of sourcing work (boards 34→92, Job Bank, filter widening) have produced **no**
+  qualifying role. The remaining hypotheses are (a) the CV under-evidences what these postings ask
+  for, or (b) the operator's real market is not on public ATS boards at all. Test (a) first — it is
+  free, and `jd_skill_gap`-style analysis of the 3.x roles would show exactly which critical
+  requirements keep coming back unmatched.

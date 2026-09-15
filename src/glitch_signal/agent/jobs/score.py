@@ -28,6 +28,11 @@ log = structlog.get_logger()
 
 MAX_JD_CHARS = 12000
 MAX_CV_CHARS = 8000
+# A job description shorter than this is not a job description. Job Bank's RSS gives a SUMMARY —
+# "Job number / Location / Employer / Salary", 105-137 chars measured — while a real ATS posting runs
+# ~7,400. Scoring the former produced 4.0s off ONE extracted requirement: the model had nothing to
+# fail the candidate on. Refusing early also stops us paying for a call that cannot inform anything.
+MIN_JD_CHARS = 400
 # A 12-18 requirement posting with verbatim evidence does NOT fit the 2048-token default.
 # 8000, not 12000. OpenRouter RESERVES credit against max_tokens per request, so a larger budget
 # drains the balance faster than the tokens actually used — that is what brought a 402 forward
@@ -167,11 +172,14 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
     jd = (listing.get("jd_text") or "")[:MAX_JD_CHARS]
     wa = workauth.classify(jd, listing.get("location"), cfg)
 
-    if not jd.strip():
-        # No JD text means nothing to score against. Returning a low score would be a fabricated
-        # judgement; return None and let the caller re-fetch or skip.
+    if len(jd.strip()) < MIN_JD_CHARS:
+        # Nothing to score against. A low score would be a fabricated judgement and a HIGH score is
+        # worse — measured: a 1-requirement Job Bank summary scored 4.0 and would have been the top
+        # opportunity in the whole pool. Return None and let the caller fetch the real posting.
         return {"score": None, "score_parts": {}, "work_auth": wa["verdict"], "hard_stop": wa["hard_stop"],
-                "report_md": None, "model": None, "error": "no jd_text archived for this listing"}
+                "report_md": None, "model": None,
+                "error": f"jd_text too short to score ({len(jd.strip())} chars < {MIN_JD_CHARS}) — "
+                         "this is a listing SUMMARY, not a job description"}
 
     # PASS 1 — JD only. The CV is deliberately absent from this call's context.
     p1_raw = await llm.complete_messages(
