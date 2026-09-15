@@ -22,6 +22,8 @@ from glitch_signal.agent.jobs.sources import REGISTRY
 
 log = structlog.get_logger()
 
+_MAX_JOBBANK_KEYWORDS = 20
+
 
 def jobs_config(brand_id: str) -> dict:
     from glitch_signal.config import brand_config
@@ -34,7 +36,10 @@ def _enabled_sources(cfg: dict) -> dict:
     src = cfg.get("sources") or {}
     out = {}
     if src.get("jobbank_ca"):
-        out["jobbank_ca"] = cfg.get("target_titles") or []
+        # Prefer an explicit keyword list. `target_titles` is a FILTER vocabulary — precise phrases
+        # meant to match a title we already have — and it makes a poor SEARCH vocabulary: Job Bank
+        # does free-text matching, so narrow phrases return almost nothing.
+        out["jobbank_ca"] = cfg.get("jobbank_keywords") or cfg.get("target_titles") or []
     if src.get("ats_boards"):
         out["ats"] = cfg.get("ats_boards") or []
     return out
@@ -62,7 +67,9 @@ async def discover(brand_id: str, *, dry_run: bool = False, engine: Any = None) 
 
     coros = []
     used: list[str] = []
-    for kw in enabled.get("jobbank_ca", [])[:8]:   # bounded: each keyword is its own paged sweep
+    # Bounded, but generously: Job Bank is free and national, and each keyword honours a 5s crawl
+    # delay, so the cost of breadth here is wall-clock rather than money or rate-limit risk.
+    for kw in enabled.get("jobbank_ca", [])[:_MAX_JOBBANK_KEYWORDS]:
         coros.append(REGISTRY["jobbank_ca"](kw))
         used.append("jobbank_ca")
     for board in enabled.get("ats", []):

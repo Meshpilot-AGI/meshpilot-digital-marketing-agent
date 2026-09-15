@@ -3119,3 +3119,50 @@ roles from 34 boards. With a 3/day cap, sourcing will run out long before the ca
 - `brand/configs/tejas.json` `exclude_titles` does not cover "Partner Marketing", "Content
   Marketing" or "Product Lifecycle Marketing"; all three entered the pool and scored 1.6-2.0. The
   scorer rejected them correctly, but they cost LLM calls that filtering would have saved.
+
+### 2026-09-15 — JOBS-9 (sourcing): pool 16 → 22, and the real targeting finding
+
+**Shipped:**
+- Probed **191** Canadian/Canada-hiring employer slugs across the three free ATS APIs → **59 live
+  boards** (was 34). New ones include StackAdapt, Wattpad, Shakepay, Clearco, Mistplay, Zensurance,
+  Procurify, RelayFi, Top Hat, Elastic.
+- `discover.py` now reads `jobs.jobbank_keywords` (20 terms) instead of reusing `target_titles`.
+  Those are a FILTER vocabulary — precise phrases for matching a title we already have — and make a
+  poor SEARCH vocabulary against Job Bank's free-text matching. Cap raised 8 → 20; Job Bank is free
+  and national, so breadth costs wall-clock (5s crawl delay) rather than money.
+- `exclude_titles` widened by 9 (Partner/Content/Product-Lifecycle/Customer Marketing, Community,
+  PR, Events, Intern). Each of those had entered the pool and burned two LLM calls to be correctly
+  rejected. Filtering is free; scoring is not.
+
+**Measured:** scorable Canadian roles 16 → **22**, and the composition improved — the new pool
+surfaced Director of Performance Marketing, Performance Marketing Manager, Senior Demand Generation
+Manager and Lifecycle Marketing Lead, all Toronto, none of which were visible before.
+
+**🔴 THE FINDING THAT MATTERS MORE THAN THE COUNT.** Scoring the expanded pool shows the operator
+scores HIGH at consumer/ecommerce companies and LOW at B2B SaaS/fintech, consistently:
+
+    3.8  flipp (retail/ecommerce)        Digital Campaign/Performance Marketing Specialist
+    3.2  jane / wealthsimple (B2B, fintech)
+    2.7  relayfi (B2B fintech)           Performance Marketing Manager
+    2.3  relayfi                         Director of Performance Marketing
+    2.0  relayfi                         Senior Demand Generation Manager/Specialist
+
+The board list is **heavily B2B SaaS**, because that is what public ATS boards over-represent. His
+evidenced experience is DTC/ecommerce paid acquisition. So adding more B2B SaaS boards adds roles
+that will keep scoring 2-3. **The next sourcing effort should target DTC / retail / ecommerce /
+agency employers specifically**, not more of the same. That is a targeting insight, not a scoring bug
+— the scorer is reading the mismatch correctly.
+
+**⛔ RUN CUT SHORT — OpenRouter credit exhausted mid-scoring.** 11 of 22 scored, then
+`402: This request would exceed your available credit`. Balance: **$1.76 of $20 remaining**.
+⚠️ Contributing cause: `_MAX_TOKENS` was raised 8000 → 12000 in JOBS-8 to fix a pass-2 overflow, and
+OpenRouter RESERVES headroom against max_tokens per request — so the larger budget brought the 402
+forward. Worth reconsidering: a 12000 reservation on the `complex` tier is expensive for a scoring
+call, and capping requirements at 18 may already have solved the overflow on its own.
+🔴 **MeshPilot's whole brain runs on OpenRouter** — GE's pipelines and every agent run share this
+balance. Top it up before the next scoring sweep.
+
+**Observed, NOT fixed (queued):**
+- Job Bank is configured with 20 keywords but was NOT included in this measurement (the gather script
+  covers ATS boards only). It is national and free — likely the single largest untapped source.
+- The thin-JD guard from JOBS-8 is still unbuilt.
