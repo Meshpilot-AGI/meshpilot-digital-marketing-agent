@@ -12,7 +12,8 @@ The injected `llm` has the `complete_tools` shape: async (messages, *, tools, sy
 """
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import structlog
 
@@ -177,7 +178,7 @@ async def run(
                 if not active_scope.allows(name):
                     obs = f"DENIED: tool {name!r} is out of scope ({active_scope.name})"
                 else:
-                    allowed, reason = policy.allow(name, args, brand_id, counts=counts)
+                    allowed, reason = await policy.allow_async(name, args, brand_id, counts=counts)
                     if allowed:
                         obs = await dispatch(name, args, brand_id)
                         counts[name] = counts.get(name, 0) + 1  # only count what actually ran

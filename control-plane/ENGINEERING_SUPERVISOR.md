@@ -3019,3 +3019,44 @@ test must be a DRY RUN on a real approved application, watched.
   that they are fillable before hydration. A live dry run settles it.
 
 **Rollback:** revert the lane commit and delete the Railway service; nothing else references it.
+
+### 2026-09-15 — JOBS-7f (async store): the bug 1332 tests did not catch
+
+**The submitter built and booted, then failed on its first poll:**
+
+    TypeError: '_AsyncGeneratorContextManager' object does not support the context manager protocol
+      agent/jobs/store.py:200  with eng.begin() as conn:
+
+Every function in `agent/jobs/store.py` used the SYNC SQLAlchemy protocol (`def`, `with
+eng.begin()`, `conn.execute(...)`) against this project's ASYNC engine. Not one of them could ever
+have executed. `agent/offpage/store.py` — the file this was modelled on — is `async def` +
+`async with … .begin()` + `await conn.execute(…)`; the async-ness did not survive the copy.
+
+**Why the tests were green:** every test that touched the store monkeypatched it. 1332 tests
+exercised the logic ABOVE the database and none exercised the database layer, so a whole module that
+could not run looked fully covered. Running it once in a container found it in 10 seconds. Coverage
+of the callers is not coverage of the call.
+
+**Fixed:** all 14 store functions converted to async; `await` added at 20 call sites across
+`jobs/approvals.py`, `jobs/discover.py`, `loop/tools.py` and `submitter/worker.py`. `offpage/store.py`
+was deliberately NOT touched — it has its own module with the same function names and was already
+correct.
+
+**The policy gate had to split, and that is a real design change:**
+`policy.allow()` is SYNC and was calling `store.submitted_today()` — now async — so it would have
+compared a coroutine to an int and silently never tripped the 3/day cap.
+- `allow()` stays sync and now DENIES `job_apply` outright, pointing at the async path. Failing
+  closed is the only safe option: silently permitting would leave the one irreversible action in the
+  system uncapped.
+- `allow_async()` fetches the real count (ONLY for the submitting tool) and fails CLOSED if it cannot
+  be read — an unknown count must never be treated as zero, because zero is the value that always
+  permits.
+- `runner.py` now awaits `allow_async`, so the agent loop keeps its existing behaviour for every
+  other tool and gains a correctly-capped `job_apply`.
+
+**Verified:** 1333 pytest pass; ruff clean on every touched file. Four new tests cover the split,
+including that the sync gate refuses `job_apply` and that non-submitting tools never pay for the
+count.
+
+**Still NOT verified:** no browser has run and nothing has been submitted. The next deploy is the
+first that can actually reach the database.

@@ -55,73 +55,6 @@ _RECENT = text(
 )
 
 
-def upsert_listing(brand_id: str, listing: dict, *, engine: Any = None) -> tuple[str, bool]:
-    """Insert or refresh one listing. Returns (id, was_newly_inserted)."""
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        row = conn.execute(_UPSERT, {
-            "b": brand_id,
-            "source": listing["source"],
-            "url": listing["canonical_url"],
-            "company": listing.get("company"),
-            "title": listing.get("title"),
-            "location": listing.get("location"),
-            "posted_at": listing.get("posted_at"),
-            "jd": listing.get("jd_text"),
-        }).first()
-    return (str(row[0]), bool(row[1])) if row else ("", False)
-
-
-def upsert_many(brand_id: str, listings: list[dict], *, engine: Any = None) -> dict:
-    """Upsert a batch. Returns {'seen', 'inserted', 'updated'} — 'inserted' is what's actually new."""
-    seen = inserted = 0
-    for lst in listings:
-        if not lst.get("canonical_url"):
-            continue
-        seen += 1
-        _, was_new = upsert_listing(brand_id, lst, engine=engine)
-        inserted += 1 if was_new else 0
-    return {"seen": seen, "inserted": inserted, "updated": seen - inserted}
-
-
-def counts_by_source(brand_id: str, *, engine: Any = None) -> dict[str, int]:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        return {r[0]: int(r[1]) for r in conn.execute(_COUNT_BY_SOURCE, {"b": brand_id})}
-
-
-def recent(brand_id: str, limit: int = 25, *, engine: Any = None) -> list[dict]:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        rows = conn.execute(_RECENT, {"b": brand_id, "lim": limit}).mappings().all()
-    return [dict(r) for r in rows]
-
-
-def record_evaluation(brand_id: str, listing_id: str, result: dict, *, engine: Any = None) -> str:
-    """Persist one evaluation. Re-evaluation is allowed — the latest row by evaluated_at wins."""
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        row = conn.execute(_INSERT_EVAL, {
-            "lid": listing_id, "b": brand_id,
-            "score": result.get("score"),
-            "parts": json.dumps(result.get("score_parts") or {}),
-            "wa": result.get("work_auth"),
-            "report": result.get("report_md"),
-            "model": result.get("model"),
-        }).first()
-    return str(row[0]) if row else ""
-
-
-def unscored(brand_id: str, limit: int = 10, *, engine: Any = None) -> list[dict]:
-    """Listings with no evaluation yet, newest first."""
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        rows = conn.execute(_UNSCORED, {"b": brand_id, "lim": limit}).mappings().all()
-    return [dict(r) for r in rows]
-
-
-# --- JOBS-5: applications + the approval lifecycle ------------------------------------
-
 _UPSERT_APP = text(
     "INSERT INTO job_application (listing_id, brand_id, status, tailored_cv_path, answers) "
     "VALUES (:lid, :b, :status, :cv, CAST(:answers AS jsonb)) "
@@ -151,7 +84,8 @@ _EXPIRE = text(
 )
 
 _BY_STATUS = text(
-    "SELECT a.id, a.status, a.discord_msg_id, a.answers, a.tailored_cv_path, a.created_at, "
+    "SELECT a.id, a.listing_id, a.status, a.discord_msg_id, a.answers, a.tailored_cv_path, "
+    "       a.submitted_at, a.created_at, "
     "       l.canonical_url, l.company, l.title, l.location "
     "FROM job_application a JOIN job_listing l ON l.id = a.listing_id "
     "WHERE a.brand_id = :b AND a.status = ANY(:statuses) ORDER BY a.created_at"
@@ -163,53 +97,6 @@ _SUBMITTED_TODAY = text(
     "WHERE brand_id = :b AND submitted_at IS NOT NULL AND submitted_at >= date_trunc('day', now())"
 )
 
-
-def upsert_application(brand_id: str, listing_id: str, *, status: str = "drafted",
-                       cv_path: str | None = None, answers: dict | None = None,
-                       engine: Any = None) -> str:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        row = conn.execute(_UPSERT_APP, {"lid": listing_id, "b": brand_id, "status": status,
-                                         "cv": cv_path, "answers": json.dumps(answers or {})}).first()
-    return str(row[0]) if row else ""
-
-
-def mark_offered(app_id: str, msg_id: str, ttl_hours: int = 48, *, engine: Any = None) -> None:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        conn.execute(_MARK_OFFERED, {"id": app_id, "mid": msg_id, "ttl": ttl_hours})
-
-
-def set_application_status(app_id: str, status: str, *, approved: bool = False,
-                           by: str | None = None, reason: str | None = None,
-                           engine: Any = None) -> None:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        conn.execute(_SET_APP_STATUS, {"id": app_id, "status": status, "approved": approved,
-                                       "by": by, "reason": reason})
-
-
-def expire_stale(brand_id: str, *, engine: Any = None) -> list[str]:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        return [str(r[0]) for r in conn.execute(_EXPIRE, {"b": brand_id})]
-
-
-def applications_by_status(brand_id: str, statuses: list[str], *, engine: Any = None) -> list[dict]:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        rows = conn.execute(_BY_STATUS, {"b": brand_id, "statuses": statuses}).mappings().all()
-    return [dict(r) for r in rows]
-
-
-def submitted_today(brand_id: str, *, engine: Any = None) -> int:
-    eng = _engine_or(engine)
-    with eng.begin() as conn:
-        return int(conn.execute(_SUBMITTED_TODAY, {"b": brand_id}).scalar() or 0)
-
-
-# --- JOBS-6: answer bank + submission bookkeeping -------------------------------------
-
 _ANSWER_BANK = text("SELECT question, answer FROM job_answer_bank WHERE brand_id = :b")
 
 _MARK_SUBMITTED = text(
@@ -218,17 +105,139 @@ _MARK_SUBMITTED = text(
 )
 
 
-def answer_bank(brand_id: str, *, engine: Any = None) -> dict[str, str]:
+async def upsert_listing(brand_id: str, listing: dict, *, engine: Any = None) -> tuple[str, bool]:
+    """Insert or refresh one listing. Returns (id, was_newly_inserted)."""
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_UPSERT, {
+            "b": brand_id,
+            "source": listing["source"],
+            "url": listing["canonical_url"],
+            "company": listing.get("company"),
+            "title": listing.get("title"),
+            "location": listing.get("location"),
+            "posted_at": listing.get("posted_at"),
+            "jd": listing.get("jd_text"),
+        })
+        row = res.first()
+    return (str(row[0]), bool(row[1])) if row else ("", False)
+
+
+async def upsert_many(brand_id: str, listings: list[dict], *, engine: Any = None) -> dict:
+    """Upsert a batch. Returns {'seen', 'inserted', 'updated'} — 'inserted' is what's actually new."""
+    seen = inserted = 0
+    for lst in listings:
+        if not lst.get("canonical_url"):
+            continue
+        seen += 1
+        _, was_new = await upsert_listing(brand_id, lst, engine=engine)
+        inserted += 1 if was_new else 0
+    return {"seen": seen, "inserted": inserted, "updated": seen - inserted}
+
+
+async def counts_by_source(brand_id: str, *, engine: Any = None) -> dict[str, int]:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_COUNT_BY_SOURCE, {"b": brand_id})
+        return {r[0]: int(r[1]) for r in res}
+
+
+async def recent(brand_id: str, limit: int = 25, *, engine: Any = None) -> list[dict]:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_RECENT, {"b": brand_id, "lim": limit})
+        return [dict(r) for r in res.mappings().all()]
+
+
+async def record_evaluation(brand_id: str, listing_id: str, result: dict, *,
+                            engine: Any = None) -> str:
+    """Persist one evaluation. Re-evaluation is allowed — the latest row by evaluated_at wins."""
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_INSERT_EVAL, {
+            "lid": listing_id, "b": brand_id,
+            "score": result.get("score"),
+            "parts": json.dumps(result.get("score_parts") or {}),
+            "wa": result.get("work_auth"),
+            "report": result.get("report_md"),
+            "model": result.get("model"),
+        })
+        row = res.first()
+    return str(row[0]) if row else ""
+
+
+async def unscored(brand_id: str, limit: int = 10, *, engine: Any = None) -> list[dict]:
+    """Listings with no evaluation yet, newest first."""
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_UNSCORED, {"b": brand_id, "lim": limit})
+        return [dict(r) for r in res.mappings().all()]
+
+
+async def upsert_application(brand_id: str, listing_id: str, *, status: str = "drafted",
+                             cv_path: str | None = None, answers: dict | None = None,
+                             engine: Any = None) -> str:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_UPSERT_APP, {
+            "lid": listing_id, "b": brand_id, "status": status,
+            "cv": cv_path, "answers": json.dumps(answers or {})})
+        row = res.first()
+    return str(row[0]) if row else ""
+
+
+async def mark_offered(app_id: str, msg_id: str, ttl_hours: int = 48, *,
+                       engine: Any = None) -> None:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        await conn.execute(_MARK_OFFERED, {"id": app_id, "mid": msg_id, "ttl": ttl_hours})
+
+
+async def set_application_status(app_id: str, status: str, *, approved: bool = False,
+                                 by: str | None = None, reason: str | None = None,
+                                 engine: Any = None) -> None:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        await conn.execute(_SET_APP_STATUS, {"id": app_id, "status": status, "approved": approved,
+                                             "by": by, "reason": reason})
+
+
+async def expire_stale(brand_id: str, *, engine: Any = None) -> list[str]:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_EXPIRE, {"b": brand_id})
+        return [str(r[0]) for r in res]
+
+
+async def applications_by_status(brand_id: str, statuses: list[str], *,
+                                 engine: Any = None) -> list[dict]:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_BY_STATUS, {"b": brand_id, "statuses": statuses})
+        return [dict(r) for r in res.mappings().all()]
+
+
+async def submitted_today(brand_id: str, *, engine: Any = None) -> int:
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_SUBMITTED_TODAY, {"b": brand_id})
+        return int(res.scalar() or 0)
+
+
+async def answer_bank(brand_id: str, *, engine: Any = None) -> dict[str, str]:
     """The operator's answer bank, keyed by NORMALIZED question. Exact match only (decision 4)."""
     eng = _engine_or(engine)
-    with eng.begin() as conn:
-        return {r[0]: r[1] for r in conn.execute(_ANSWER_BANK, {"b": brand_id})}
+    async with eng.begin() as conn:
+        res = await conn.execute(_ANSWER_BANK, {"b": brand_id})
+        return {r[0]: r[1] for r in res}
 
 
-def mark_submitted(app_id: str, evidence: dict, *, engine: Any = None) -> bool:
+async def mark_submitted(app_id: str, evidence: dict, *, engine: Any = None) -> bool:
     """Record a submission. Returns False if the row was ALREADY submitted — the guard against a
     double submission racing through two workers. `submitted_at IS NULL` makes it atomic."""
     eng = _engine_or(engine)
-    with eng.begin() as conn:
-        row = conn.execute(_MARK_SUBMITTED, {"id": app_id, "evidence": json.dumps(evidence or {})}).first()
+    async with eng.begin() as conn:
+        res = await conn.execute(_MARK_SUBMITTED,
+                                 {"id": app_id, "evidence": json.dumps(evidence or {})})
+        row = res.first()
     return bool(row)

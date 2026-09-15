@@ -193,18 +193,33 @@ def from_config() -> Policy:
 
 def allow(tool_name: str, args: dict, brand_id: str, *,
           counts: Mapping[str, int] | None = None) -> tuple[bool, str]:
-    """Back-compat wrapper: check against the config-derived policy, return (allowed, reason)."""
+    """Synchronous gate. Correct for every tool EXCEPT the submitting one.
+
+    The 3/day application cap needs a number only the database has, and that read is async. A sync
+    caller cannot await it, so `job_apply` is DENIED here and must go through `allow_async`.
+    Failing closed is the only safe choice: silently allowing it would mean the cap is not enforced
+    on the one irreversible action in the system.
+    """
+    if tool_name in JOB_APPLY_TOOLS:
+        return False, ("job_apply must be checked via allow_async — the daily cap requires a "
+                       "database read this sync path cannot perform")
+    return from_config().check(tool_name, args, brand_id, counts=counts).as_tuple()
+
+
+async def allow_async(tool_name: str, args: dict, brand_id: str, *,
+                      counts: Mapping[str, int] | None = None) -> tuple[bool, str]:
+    """The gate for async callers. Identical to `allow`, plus the real daily-application count.
+
+    The count is fetched ONLY for the submitting tool — every other call would pay a database
+    round-trip for nothing. If it cannot be read we fail CLOSED: an unknown count must never be
+    treated as zero, because zero is the one value that always permits.
+    """
     policy = from_config()
-    # The per-DAY application cap needs a number only the DB has. Query it ONLY when the tool under
-    # check is the submitting one — every other tool call would pay a round-trip for nothing.
-    # Without this the cap reads 0 forever and never trips, which is the quiet kind of broken: the
-    # switch exists, the tests pass, and it silently enforces nothing in production.
     if tool_name in JOB_APPLY_TOOLS and policy.job_apply_enabled:
         try:
             from glitch_signal.agent.jobs import store as _jobstore
 
-            policy = replace(policy, job_applications_today=_jobstore.submitted_today(brand_id))
+            policy = replace(policy, job_applications_today=await _jobstore.submitted_today(brand_id))
         except Exception as exc:  # noqa: BLE001
-            # Fail CLOSED: if we cannot count today's submissions we must not assume zero.
             return False, f"cannot verify the daily application cap ({str(exc)[:80]})"
     return policy.check(tool_name, args, brand_id, counts=counts).as_tuple()

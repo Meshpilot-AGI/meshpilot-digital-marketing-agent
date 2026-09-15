@@ -549,12 +549,12 @@ async def _t_score_job(args: dict, brand_id: str) -> str:
         return _json.dumps({"error": "no CV in the fact base — set jobs.cv_markdown or jobs.cv_path"})
 
     limit = max(1, min(int(args.get("limit") or 5), 25))
-    rows = _store.unscored(brand_id, limit)
+    rows = await _store.unscored(brand_id, limit)
     out = []
     for r in rows:
         res = await _score.score_listing(r, cv, cfg)
         if res.get("report_md"):
-            _store.record_evaluation(brand_id, str(r["id"]), res)
+            await _store.record_evaluation(brand_id, str(r["id"]), res)
         out.append({"title": r.get("title"), "company": r.get("company"),
                     "score": res.get("score"), "work_auth": res.get("work_auth"),
                     "hard_stop": res.get("hard_stop"),
@@ -643,10 +643,10 @@ async def _t_offer_job(args: dict, brand_id: str) -> str:
 
     data["tailored_cv"] = args.get("tailored_cv") or ""
     data["answers"] = args.get("answers") or {}
-    app_id = _store.upsert_application(brand_id, str(data["listing_id"]),
+    app_id = await _store.upsert_application(brand_id, str(data["listing_id"]),
                                        status="drafted", answers=data["answers"])
     mid = await _appr.offer(brand_id, data)
-    _store.mark_offered(app_id, mid, ttl_hours=_appr.settings_for(brand_id)["ttl_hours"])
+    await _store.mark_offered(app_id, mid, ttl_hours=_appr.settings_for(brand_id)["ttl_hours"])
     return _json.dumps({"offered": True, "application_id": app_id, "discord_msg_id": mid,
                         "canonical_url": url}, default=str)
 
@@ -669,23 +669,23 @@ async def _t_job_apply(args: dict, brand_id: str) -> str:
     if not url:
         return _json.dumps({"error": "a valid listing url is required"})
 
-    rows = [a for a in _store.applications_by_status(brand_id, ["approved", "edited"])
+    rows = [a for a in await _store.applications_by_status(brand_id, ["approved", "edited"])
             if a.get("canonical_url") == url]
     if not rows:
         return _json.dumps({"submitted": False, "outcome": "refused",
                             "reason": "no APPROVED application for this url"})
     app = rows[0]
     questions = list(args.get("questions") or [])
-    bank = _store.answer_bank(brand_id)
+    bank = await _store.answer_bank(brand_id)
 
     res = await _submit.submit(app, questions, bank)
     if res.get("submitted"):
         # mark_submitted is the atomic double-submit guard; False means another worker won the race.
-        if not _store.mark_submitted(str(app["id"]), res.get("evidence") or {}):
+        if not await _store.mark_submitted(str(app["id"]), res.get("evidence") or {}):
             return _json.dumps({"submitted": False, "outcome": "refused",
                                 "reason": "already submitted by another worker"})
     elif res.get("outcome") in ("manual_required", "failed"):
-        _store.set_application_status(str(app["id"]), res["outcome"], reason=res.get("reason"))
+        await _store.set_application_status(str(app["id"]), res["outcome"], reason=res.get("reason"))
     return _json.dumps({k: v for k, v in res.items() if k != "package"}, default=str)
 
 
@@ -724,11 +724,11 @@ async def _t_render_cv(args: dict, brand_id: str) -> str:
 
     url = canonical_url(str(args.get("url") or ""))
     if url:
-        rows = [a for a in _store.applications_by_status(
+        rows = [a for a in await _store.applications_by_status(
             brand_id, ["drafted", "awaiting_approval", "approved", "edited"])
             if a.get("canonical_url") == url]
         if rows:
-            _store.upsert_application(brand_id, str(rows[0].get("listing_id") or ""),
+            await _store.upsert_application(brand_id, str(rows[0].get("listing_id") or ""),
                                       status=rows[0]["status"], cv_path=str(path))
             out["application_updated"] = True
     return _json.dumps(out, default=str)

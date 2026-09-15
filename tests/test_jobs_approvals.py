@@ -138,11 +138,11 @@ async def test_expiry_runs_before_reading_so_a_late_yes_cannot_resurrect():
 
     order = []
 
-    def fake_expire(brand_id, *, engine=None):
+    async def fake_expire(brand_id, *, engine=None):
         order.append("expire")
         return ["app-expired"]
 
-    def fake_by_status(brand_id, statuses, *, engine=None):
+    async def fake_by_status(brand_id, statuses, *, engine=None):
         order.append("read")
         return []   # the expired row is no longer 'awaiting_approval'
 
@@ -196,9 +196,18 @@ async def test_one_unreadable_card_does_not_stop_the_rest():
 
     orig_e, orig_b, orig_s = (jobstore.expire_stale, jobstore.applications_by_status,
                               jobstore.set_application_status)
-    jobstore.expire_stale = lambda b, **kw: []
-    jobstore.applications_by_status = lambda b, s, **kw: rows
-    jobstore.set_application_status = lambda *a, **kw: None
+    async def _none(*a, **kw):
+        return None
+
+    async def _empty(*a, **kw):
+        return []
+
+    async def _rows(*a, **kw):
+        return rows
+
+    jobstore.expire_stale = _empty
+    jobstore.applications_by_status = _rows
+    jobstore.set_application_status = _none
     try:
         out = await appr.run(BRAND, deps={"read_decision": flaky})
     finally:
