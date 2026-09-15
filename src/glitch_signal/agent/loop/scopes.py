@@ -23,6 +23,12 @@ CAPABILITIES: dict[str, frozenset[str]] = {
     "web": frozenset({"web_search", "web_fetch"}),
     "schedule": frozenset({"schedule"}),
     "publish": frozenset({"publish", "send_email"}),
+    # JOBS (JOBS-1) — split so discovery/scoring can run WITHOUT the apply tool ever being offered.
+    # `jobs_apply` is deliberately its own capability: a scope that scores roles must not be able to
+    # reach submission just because it can reach the rest of the job pipeline.
+    "jobs_read": frozenset({"search_jobs", "fetch_jd", "score_job"}),
+    "jobs_draft": frozenset({"tailor_cv", "render_cv", "offer_job"}),
+    "jobs_apply": frozenset({"job_apply"}),
     "mcp:heygen": frozenset({"mcp__heygen__*"}),
     "mcp:higgsfield": frozenset({"mcp__higgsfield__*"}),
 }
@@ -34,6 +40,9 @@ SCOPES: dict[str, frozenset[str]] = {
     "content_draft": frozenset({"memory", "knowledge", "quality"}),              # caption-first content (no media)
     "content": frozenset({"memory", "knowledge", "quality", "media", "mcp:higgsfield"}),
     "orm": frozenset({"memory", "knowledge", "quality", "web"}),
+    "job_discovery": frozenset({"memory", "knowledge", "jobs_read", "web"}),
+    "job_draft": frozenset({"memory", "knowledge", "quality", "jobs_read", "jobs_draft"}),
+    "job_apply": frozenset({"memory", "knowledge", "jobs_read", "jobs_draft", "jobs_apply"}),
     "full": frozenset(CAPABILITIES),                                             # everything
 }
 

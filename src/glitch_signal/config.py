@@ -314,6 +314,17 @@ class Settings(BaseSettings):
     # OFF until deliberately enabled — the ability ships inert (#191).
     agent_web_search_enabled: bool = False
     agent_web_fetch_enabled: bool = False
+    # --- JOBS (JOBS-1) — the job-application capability ---
+    # Four kill-switches, all default False, mirroring agent_publish_enabled. The last one
+    # (agent_job_apply_enabled) is the one that spends the operator's reputation: it gates actual
+    # submission into a third-party ATS. Design: docs/plans/2026-09-15-job-application-agent.md § 9.
+    agent_jobs_enabled: bool = False          # the whole capability
+    agent_job_discovery_enabled: bool = False # outbound source pulls (Apify is credit-metered)
+    agent_job_tailor_enabled: bool = False    # LLM CV generation
+    agent_job_apply_enabled: bool = False     # SUBMISSION — the outward, irreversible one
+    # Operator decisions, 2026-09-15 (design § 11). A precision instrument, not a volume one.
+    agent_job_max_applications_per_day: int = 3   # per-brand/day; 0 = unlimited
+    agent_job_min_score: float = 4.0              # below this a role is SKIPPED, never even offered
     # SCOPE: default toolset for an un-specified run (Discord/bare). `chat` = safe read+plan only;
     # a pipeline/operator run passes a broader scope (discovery/content/orm/full).
     agent_default_scope: str = "chat"

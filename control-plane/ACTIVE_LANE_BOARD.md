@@ -25,8 +25,8 @@ an oversight — do not add later without an operator decision written into the 
 
 ✅ **`APIFY_KEY` is held and unwired** (see TARGETING lane). JOBS-2 is a legitimate first consumer.
 
-**Blocked on 4 operator decisions** (design § 11): daily cap, auto-apply score floor, per-application
-vs. batched approval, and whether free-text screening answers may ever go unattended.
+✅ **Operator decisions ANSWERED 2026-09-15** (design § 11): 3 applications/day · 4.0/5 floor ·
+approve EACH application · free-text screening answers are ALWAYS manual_required (no unattended composition).
 
 ### DRIVE-TO-SOCIAL — AyurPet posts existing Drive footage, IG + TikTok        [CLOSED 2026-09-12 — PRs #294 #295 #296]
 Second brand, first non-generated content source. `drive_to_social` capability (`agent/social/`),

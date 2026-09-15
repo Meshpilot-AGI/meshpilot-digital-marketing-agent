@@ -191,11 +191,27 @@ semantics for free. Per-run caps: max applications/day, max/company.
 
 Each lane ships live before the next starts — the OFFPAGE discipline.
 
-## 11. Open operator decisions
+## 11. Operator decisions — ANSWERED 2026-09-15
 
-1. **Daily application cap?** Volume vs. precision. Recommend starting at 3/day.
-2. **Auto-apply floor** — career-ops uses 4.0/5. Same here, or higher?
-3. **Approve-per-application, or approve-a-batch once a day?** Per-application is
-   safer; batch is less work for the operator.
-4. **Does the agent ever answer free-text screening questions unattended**, or is
-   any question outside a known-answer bank always `manual_required`?
+All four resolved by the operator. These are settled; do not re-ask.
+
+| # | Decision | Value | Consequence for the build |
+|---|---|---|---|
+| 1 | Daily application cap | **3/day** | `jobs.max_applications_per_day = 3`, enforced in the policy gate as a per-day cap, not just per-run |
+| 2 | Auto-apply score floor | **4.0/5** | Below 4.0 never reaches an approval card — it is not surfaced for a yes/no, it is skipped |
+| 3 | Approval granularity | **per application** | No batching. One card, one role, one decision |
+| 4 | Free-text screening answers | **always `manual_required`** | The agent NEVER composes an unattended answer to a screening question. Any question outside a known-answer bank routes to the operator |
+
+Decision 4 is the strongest constraint and simplifies `JOBS-6` considerably: the
+submitter fills only **known, structured fields** (name, email, phone, location,
+work authorization yes/no, links, CV upload). The moment a form presents a
+free-text question with no exact match in the answer bank, the application becomes
+`manual_required` and goes back to Discord. No "reasonable guess" path exists.
+
+The answer bank is operator-authored, stored per-brand, and matched by exact
+question identity — never by an LLM deciding two questions "mean the same thing."
+A near-match is a miss, and a miss is `manual_required`.
+
+Combined effect: with a 4.0 floor and 3/day, this is a precision instrument, not a
+volume one — roughly 15 applications a week, each seen in full by the operator
+before it goes. That is the intended shape.
