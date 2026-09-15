@@ -118,3 +118,91 @@ def unscored(brand_id: str, limit: int = 10, *, engine: Any = None) -> list[dict
     with eng.begin() as conn:
         rows = conn.execute(_UNSCORED, {"b": brand_id, "lim": limit}).mappings().all()
     return [dict(r) for r in rows]
+
+
+# --- JOBS-5: applications + the approval lifecycle ------------------------------------
+
+_UPSERT_APP = text(
+    "INSERT INTO job_application (listing_id, brand_id, status, tailored_cv_path, answers) "
+    "VALUES (:lid, :b, :status, :cv, CAST(:answers AS jsonb)) "
+    "ON CONFLICT (listing_id) DO UPDATE SET "
+    "  status = EXCLUDED.status, tailored_cv_path = COALESCE(EXCLUDED.tailored_cv_path, "
+    "    job_application.tailored_cv_path), answers = EXCLUDED.answers "
+    "RETURNING id"
+)
+
+_MARK_OFFERED = text(
+    "UPDATE job_application SET status = 'awaiting_approval', discord_msg_id = :mid, "
+    "  offered_at = now(), expires_at = now() + make_interval(hours => :ttl) WHERE id = :id"
+)
+
+_SET_APP_STATUS = text(
+    "UPDATE job_application SET status = :status, "
+    "  approved_at = CASE WHEN :approved THEN now() ELSE approved_at END, "
+    "  approved_by = COALESCE(:by, approved_by), "
+    "  failure_reason = COALESCE(:reason, failure_reason) WHERE id = :id"
+)
+
+# Expiry is NOT approval. A card nobody reacted to becomes `expired` and is never submitted.
+_EXPIRE = text(
+    "UPDATE job_application SET status = 'expired' "
+    "WHERE brand_id = :b AND status = 'awaiting_approval' "
+    "  AND expires_at IS NOT NULL AND expires_at < now() RETURNING id"
+)
+
+_BY_STATUS = text(
+    "SELECT a.id, a.status, a.discord_msg_id, a.answers, a.tailored_cv_path, a.created_at, "
+    "       l.canonical_url, l.company, l.title, l.location "
+    "FROM job_application a JOIN job_listing l ON l.id = a.listing_id "
+    "WHERE a.brand_id = :b AND a.status = ANY(:statuses) ORDER BY a.created_at"
+)
+
+# The 3/day cap counts SUBMITTED rows in the brand's own day, not per loop run.
+_SUBMITTED_TODAY = text(
+    "SELECT count(*) FROM job_application "
+    "WHERE brand_id = :b AND submitted_at IS NOT NULL AND submitted_at >= date_trunc('day', now())"
+)
+
+
+def upsert_application(brand_id: str, listing_id: str, *, status: str = "drafted",
+                       cv_path: str | None = None, answers: dict | None = None,
+                       engine: Any = None) -> str:
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        row = conn.execute(_UPSERT_APP, {"lid": listing_id, "b": brand_id, "status": status,
+                                         "cv": cv_path, "answers": json.dumps(answers or {})}).first()
+    return str(row[0]) if row else ""
+
+
+def mark_offered(app_id: str, msg_id: str, ttl_hours: int = 48, *, engine: Any = None) -> None:
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        conn.execute(_MARK_OFFERED, {"id": app_id, "mid": msg_id, "ttl": ttl_hours})
+
+
+def set_application_status(app_id: str, status: str, *, approved: bool = False,
+                           by: str | None = None, reason: str | None = None,
+                           engine: Any = None) -> None:
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        conn.execute(_SET_APP_STATUS, {"id": app_id, "status": status, "approved": approved,
+                                       "by": by, "reason": reason})
+
+
+def expire_stale(brand_id: str, *, engine: Any = None) -> list[str]:
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        return [str(r[0]) for r in conn.execute(_EXPIRE, {"b": brand_id})]
+
+
+def applications_by_status(brand_id: str, statuses: list[str], *, engine: Any = None) -> list[dict]:
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        rows = conn.execute(_BY_STATUS, {"b": brand_id, "statuses": statuses}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def submitted_today(brand_id: str, *, engine: Any = None) -> int:
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        return int(conn.execute(_SUBMITTED_TODAY, {"b": brand_id}).scalar() or 0)

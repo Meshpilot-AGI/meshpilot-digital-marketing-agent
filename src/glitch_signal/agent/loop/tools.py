@@ -597,7 +597,62 @@ async def _t_tailor_cv(args: dict, brand_id: str) -> str:
                         "canonical_url": url}, default=str)
 
 
+
+async def _t_offer_job(args: dict, brand_id: str) -> str:
+    """JOBS-5 — post ONE approval card for a scored, tailored listing.
+
+    Gated on the 4.0 floor BEFORE the card exists: below it a role is skipped outright, never
+    surfaced for a yes/no (operator decision 2). Surfacing a sub-floor role would quietly turn the
+    floor into a suggestion.
+    """
+    import json as _json
+
+    from sqlalchemy import text as _sql
+
+    from glitch_signal.agent.jobs import approvals as _appr, score as _score, store as _store
+    from glitch_signal.agent.jobs.canonical import canonical_url
+    from glitch_signal.agent.jobs.discover import jobs_config
+    from glitch_signal.db.session import _engine
+
+    url = canonical_url(str(args.get("url") or ""))
+    if not url:
+        return _json.dumps({"error": "a valid listing url is required"})
+    cfg = jobs_config(brand_id)
+
+    with _engine().begin() as conn:
+        row = conn.execute(_sql(
+            "SELECT l.id AS listing_id, l.canonical_url, l.company, l.title, l.location, "
+            "       e.score, e.score_parts, e.work_auth "
+            "FROM job_listing l LEFT JOIN LATERAL ("
+            "  SELECT score, score_parts, work_auth FROM job_evaluation "
+            "  WHERE listing_id = l.id ORDER BY evaluated_at DESC LIMIT 1) e ON true "
+            "WHERE l.brand_id = :b AND l.canonical_url = :u"), {"b": brand_id, "u": url}).mappings().first()
+    if not row:
+        return _json.dumps({"error": "listing not found", "canonical_url": url})
+
+    data = dict(row)
+    hard_stop = (data.get("work_auth") == "no_sponsorship")
+    if not _score.meets_floor(data.get("score"), hard_stop, cfg):
+        return _json.dumps({"offered": False, "reason": "below the score floor or work-auth blocked",
+                            "score": str(data.get("score")), "work_auth": data.get("work_auth")})
+
+    data["tailored_cv"] = args.get("tailored_cv") or ""
+    data["answers"] = args.get("answers") or {}
+    app_id = _store.upsert_application(brand_id, str(data["listing_id"]),
+                                       status="drafted", answers=data["answers"])
+    mid = await _appr.offer(brand_id, data)
+    _store.mark_offered(app_id, mid, ttl_hours=_appr.settings_for(brand_id)["ttl_hours"])
+    return _json.dumps({"offered": True, "application_id": app_id, "discord_msg_id": mid,
+                        "canonical_url": url}, default=str)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
+    "offer_job": {"fn": _t_offer_job,
+                  "description": "Post ONE Discord approval card for a scored, tailored listing. "
+                                 "Roles below the score floor are skipped, never offered.",
+                  "input_schema": _obj({"url": {"type": "string"},
+                                        "tailored_cv": {"type": "string"},
+                                        "answers": {"type": "object"}}, ["url"], closed=False)},
     "tailor_cv": {"fn": _t_tailor_cv, "strict": True,
                   "description": "Tailor the master CV to one stored listing and verify every claim "
                                  "against the fact base. Rejects any draft containing an unsupported "

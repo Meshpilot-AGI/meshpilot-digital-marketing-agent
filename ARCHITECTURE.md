@@ -236,8 +236,10 @@ encrypted OAuth tokens), `orm_response`, `comment_reply`, `strategic_reply`.
 arrives from several sources, and two different reqs at one company often share a title),
 `job_evaluation`, `job_application` (UNIQUE on `listing_id`; submitting twice to one req is
 worse than not submitting), `job_answer_bank` (EXACT question match only — the agent never
-composes a screening answer). Sources: `jobbank_ca`, `greenhouse`, `lever`, `ashby`. Tools:
-`search_jobs`, `fetch_jd`, `tailor_cv` (fails closed: a draft
+composes a screening answer). Sources: `jobbank_ca`, `greenhouse`, `lever`, `ashby`. Approval is a Discord card per application (`jobs/approvals.py`,
+reusing the OFF-PAGE pattern): reactions ❌ ⏸️ ✏️ ✅ in that precedence, only `jobs.approvers` count,
+and **expiry is never approval**. Tools:
+`search_jobs`, `fetch_jd`, `offer_job`, `tailor_cv` (fails closed: a draft
 with an unsupported metric or employer is REJECTED, never returned to the loop), `score_job`
 (two-pass: JD-only requirements+importance, then CV
 match; work authorization decided deterministically in `jobs/workauth.py`, never by the model). All gated by `agent_jobs_enabled` + a per-tier switch; `job_apply`
