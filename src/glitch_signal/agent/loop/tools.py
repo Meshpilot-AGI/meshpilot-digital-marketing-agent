@@ -689,6 +689,51 @@ async def _t_job_apply(args: dict, brand_id: str) -> str:
     return _json.dumps({k: v for k, v in res.items() if k != "package"}, default=str)
 
 
+
+async def _t_render_cv(args: dict, brand_id: str) -> str:
+    """JOBS-4b — tailored markdown → an ATS-safe PDF, recorded on the application.
+
+    Re-verifies against the fact base before rendering. The markdown may have been edited by hand
+    between tailoring and rendering, and an unverified claim must not acquire a PDF just because it
+    reached a later step.
+    """
+    import json as _json
+
+    from glitch_signal.agent.jobs import factbase
+    from glitch_signal.agent.jobs import store as _store
+    from glitch_signal.agent.jobs import verify as _verify
+    from glitch_signal.agent.jobs.canonical import canonical_url
+    from glitch_signal.agent.jobs.discover import jobs_config
+    from glitch_signal.agent.jobs.render import render_cv_pdf
+
+    md = str(args.get("markdown") or "")
+    if not md.strip():
+        return _json.dumps({"error": "markdown is required"})
+    cfg = jobs_config(brand_id)
+    cv = factbase.cv_text(brand_id, cfg)
+    if not cv:
+        return _json.dumps({"error": "no CV in the fact base"})
+
+    result = _verify.verify(md, cv)
+    if not result.ok:
+        return _json.dumps({"rendered": False, "reason": "failed fact verification",
+                            "findings": result.reasons()[:10]})
+
+    path = render_cv_pdf(md)
+    out = {"rendered": True, "path": str(path), "kb": path.stat().st_size // 1024}
+
+    url = canonical_url(str(args.get("url") or ""))
+    if url:
+        rows = [a for a in _store.applications_by_status(
+            brand_id, ["drafted", "awaiting_approval", "approved", "edited"])
+            if a.get("canonical_url") == url]
+        if rows:
+            _store.upsert_application(brand_id, str(rows[0].get("listing_id") or ""),
+                                      status=rows[0]["status"], cv_path=str(path))
+            out["application_updated"] = True
+    return _json.dumps(out, default=str)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "job_apply": {"fn": _t_job_apply,
                   "description": "Submit ONE approved job application. Requires operator approval, "
@@ -703,6 +748,12 @@ TOOLS: dict[str, dict[str, Any]] = {
                   "input_schema": _obj({"url": {"type": "string"},
                                         "tailored_cv": {"type": "string"},
                                         "answers": {"type": "object"}}, ["url"], closed=False)},
+    "render_cv": {"fn": _t_render_cv,
+                  "description": "Render tailored CV markdown to an ATS-safe PDF. Re-verifies every "
+                                 "claim against the fact base first; refuses to render an "
+                                 "unverified draft.",
+                  "input_schema": _obj({"markdown": {"type": "string"},
+                                        "url": {"type": "string"}}, ["markdown"], closed=False)},
     "tailor_cv": {"fn": _t_tailor_cv, "strict": True,
                   "description": "Tailor the master CV to one stored listing and verify every claim "
                                  "against the fact base. Rejects any draft containing an unsupported "

@@ -5,10 +5,13 @@
 
 ### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [IN PROGRESS — JOBS-0..6 shipped 2026-09-15. ⛔ NOT APPLYING YET — 2 operator decisions block it]
 Owner: claude        Opened: 2026-09-15
-Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery (#309) · JOBS-3 scoring (#310) · JOBS-4 tailoring+verifier (#311) · JOBS-5 approval cards (#312) · JOBS-6 submission guards.
-⛔ TWO BLOCKERS, both operator decisions:
-1. `jobs.approvals_channel_id` + `jobs.approvers` unset — no card has ever been posted to a real
-   channel, so the Discord half of JOBS-5 is UNVERIFIED and nothing can be approved.
+Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery (#309) · JOBS-3 scoring (#310) · JOBS-4 tailoring+verifier (#311) · JOBS-5 approval cards (#312) · JOBS-6 submission guards (#313) · JOBS-4b render_cv.
+✅ `brand/configs/tejas.json` now EXISTS (channel 1549291706548092959, approver
+1240025800904933407, CV inline, 34 ATS boards). ✅ `render_cv` ships — ATS-safe PDF via the Chrome
+binary html_render already needs.
+⛔ REMAINING BLOCKERS:
+1. `DISCORD_BOT_TOKEN` is absent from the local env, so no card has yet been posted to the real
+   channel — the Discord half of JOBS-5 is still UNVERIFIED end to end.
 2. NO SUBMISSION DRIVER, and it cannot be written as designed: **neither Greenhouse nor Lever
    exposes a candidate-side application API** (both require the EMPLOYER's key — verified against
    Greenhouse's own docs 2026-09-15). Submission must drive the public web form, which needs a

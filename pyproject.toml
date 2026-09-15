@@ -93,6 +93,7 @@ dev = [
   "aiosqlite>=0.20",   # in-memory async DB for tests — never used at runtime
   "ruff>=0.7",
   "mypy>=1.13",
+  "pypdf>=5.0",        # test-only: proves the rendered CV has a machine-readable text layer
 ]
 
 # NOTE: [project.urls] MUST come after `dependencies` and
