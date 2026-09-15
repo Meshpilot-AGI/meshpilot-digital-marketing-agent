@@ -1,6 +1,6 @@
 {
   "brand_id": "tejas",
-  "display_name": "Tejas Karan Agrawal — job search",
+  "display_name": "Tejas Karan Agrawal \u2014 job search",
   "timezone": "America/Toronto",
   "env_prefix": "TKA",
   "brand": {
@@ -8,30 +8,72 @@
     "voice": "direct, evidence-first, no marketing hype"
   },
   "jobs": {
-    "_comment": "JOBS capability. Operator decisions 2026-09-15 — design § 11.",
+    "_comment": "JOBS capability. Operator decisions 2026-09-15 \u2014 design \u00a7 11.",
     "approvals_channel_id": "REPLACE_WITH_DISCORD_CHANNEL_ID",
-    "approvers": ["REPLACE_WITH_DISCORD_USER_ID"],
+    "approvers": [
+      "REPLACE_WITH_DISCORD_USER_ID"
+    ],
     "offer_ttl_hours": 48,
     "max_applications_per_day": 3,
     "min_score": 4.0,
     "track": "single-track performance / growth marketing; production AI is the DIFFERENTIATOR, never the target role",
     "target_titles": [
-      "Performance Marketing", "Paid Media", "Paid Social", "Growth Marketing",
-      "Demand Generation", "Lifecycle Marketing", "Marketing Technologist",
-      "Marketing Operations", "Growth Engineer", "Ecommerce Marketing"
+      "Performance Marketing",
+      "Paid Media",
+      "Paid Social",
+      "Paid Search",
+      "Media Buyer",
+      "PPC",
+      "SEM",
+      "Growth Marketing",
+      "Growth Manager",
+      "Head of Growth",
+      "Demand Generation",
+      "User Acquisition",
+      "Lifecycle Marketing",
+      "Retention Marketing",
+      "CRM Marketing",
+      "Conversion Rate",
+      "Marketing Technologist",
+      "Marketing Technology",
+      "MarTech",
+      "Marketing Operations",
+      "Marketing Automation",
+      "Growth Engineer",
+      "Marketing Analytics",
+      "Ecommerce Marketing",
+      "E-commerce Marketing",
+      "Digital Marketing",
+      "Marketing Manager",
+      "Campaign Manager"
     ],
     "exclude_titles": [
-      "Product Marketing", "Field Marketing", "Brand Manager", "Copywriter",
-      "Software Engineer", "Data Engineer", "Machine Learning Engineer",
-      "Account Executive", "Coordinator", "Intern"
+      "Product Marketing",
+      "Field Marketing",
+      "Brand Manager",
+      "Copywriter",
+      "Software Engineer",
+      "Data Engineer",
+      "Machine Learning Engineer",
+      "Account Executive",
+      "Coordinator",
+      "Intern"
     ],
     "work_authorization": {
-      "authorized_in": ["Canada"],
+      "authorized_in": [
+        "Canada"
+      ],
       "needs_sponsorship_outside": true,
-      "note": "PGWP — an OPEN work permit, not employer sponsorship. No Canadian employer files anything."
+      "note": "PGWP \u2014 an OPEN work permit, not employer sponsorship. No Canadian employer files anything."
     },
     "locations": {
-      "allow": ["Canada", "Toronto", "Ontario", "Remote - Canada", "North America"],
+      "allow": [
+        "Canada",
+        "Toronto",
+        "Ontario",
+        "Remote - Canada",
+        "North America"
+      ],
       "base": "Toronto, ON"
     },
     "compensation": {
@@ -48,7 +90,10 @@
     },
     "submission": {
       "_comment": "Decision 4: free-text screening answers are ALWAYS manual_required. The agent never composes one.",
-      "ats_allowed": ["greenhouse", "lever"],
+      "ats_allowed": [
+        "greenhouse",
+        "lever"
+      ],
       "free_text_answers": "manual_required",
       "captcha": "manual_required",
       "may_create_accounts": false

@@ -493,7 +493,53 @@ def _obj(properties: dict, required: list[str], *, closed: bool = True) -> dict:
 # whose schema is fully closed (no free-form nested objects) — the model's input is then
 # guaranteed schema-valid, eliminating the missing/extra-arg retry loop. Tools with free-form
 # nested payloads (generate_media inputs, edit_image ops, schedule) omit strict but still validate.
+
+async def _t_search_jobs(args: dict, brand_id: str) -> str:
+    """JOBS-2 — run the brand's enabled job sources, filter, dedup, store."""
+    import json as _json
+
+    from glitch_signal.agent.jobs.discover import discover
+
+    summary = await discover(brand_id, dry_run=bool(args.get("dry_run")))
+    return _json.dumps(summary, default=str)
+
+
+async def _t_fetch_jd(args: dict, brand_id: str) -> str:
+    """JOBS-2 — the archived JD text for a stored listing.
+
+    Reads what discovery already stored rather than re-fetching: a posting's URL rots once the
+    posting closes, and by then the archived text is the only remaining record of what was applied
+    to. Returns a miss rather than reaching out, so this tool cannot become a scraping path.
+    """
+    import json as _json
+
+    from sqlalchemy import text as _sql
+
+    from glitch_signal.agent.jobs.canonical import canonical_url
+    from glitch_signal.db.session import _engine
+
+    url = canonical_url(str(args.get("url") or ""))
+    if not url:
+        return _json.dumps({"error": "a valid url is required"})
+    with _engine().begin() as conn:
+        row = conn.execute(_sql(
+            "SELECT company, title, location, jd_text FROM job_listing "
+            "WHERE brand_id = :b AND canonical_url = :u"), {"b": brand_id, "u": url}).mappings().first()
+    if not row:
+        return _json.dumps({"found": False, "canonical_url": url})
+    d = dict(row)
+    d.update({"found": True, "canonical_url": url})
+    return _json.dumps(d, default=str)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
+    "search_jobs": {"fn": _t_search_jobs, "strict": True,
+                    "description": "Run the brand's enabled job sources, filter by the brand's target "
+                                   "titles/locations, dedup by canonical URL, and store new listings.",
+                    "input_schema": _obj({"dry_run": {"type": "boolean", "default": False}}, [])},
+    "fetch_jd": {"fn": _t_fetch_jd, "strict": True,
+                 "description": "Return the archived job-description text for a stored listing URL.",
+                 "input_schema": _obj({"url": {"type": "string"}}, ["url"])},
     "recall": {"fn": _t_recall, "strict": True,
                "description": "Search the brand's memory for what you already know.",
                "input_schema": _obj({"query": {"type": "string"},
