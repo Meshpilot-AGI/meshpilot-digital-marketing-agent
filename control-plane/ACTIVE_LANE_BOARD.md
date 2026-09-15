@@ -3,9 +3,11 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [IN PROGRESS — JOBS-0..4 shipped 2026-09-15; JOBS-5 approval cards next]
+### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [IN PROGRESS — JOBS-0..5 shipped 2026-09-15; JOBS-6 submission next. BLOCKED on operator Discord ids]
 Owner: claude        Opened: 2026-09-15
-Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery (#309) · JOBS-3 scoring (#310) · JOBS-4 tailoring+verifier.
+Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery (#309) · JOBS-3 scoring (#310) · JOBS-4 tailoring+verifier (#311) · JOBS-5 approval cards.
+⚠️ BLOCKED: `jobs.approvals_channel_id` + `jobs.approvers` are unset, so no card has been posted to a
+real channel. The Discord half of JOBS-5 is UNVERIFIED against the live API.
 Live-verified 2026-09-15: greenhouse/later, lever/pointclickcare, ashby/wealthsimple and
 jobbank_ca each returned real Canadian marketing roles through the brand filters.
 Operator goal, verbatim: "meshpilot should be applying for jobs for me."

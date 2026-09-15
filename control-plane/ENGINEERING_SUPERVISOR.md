@@ -2823,3 +2823,42 @@ Both halves are needed — prompting alone is not a control.
   offered. Cheap to add in JOBS-5 where the offer decision lives.
 
 **Rollback:** revert the lane commit; nothing is persisted by this lane.
+
+### 2026-09-15 — JOBS-5 closed (approval cards; Discord half UNVERIFIED — operator ids missing)
+
+**Shipped:**
+- `agent/jobs/approvals.py` — one card per application (operator decision 3: no batching). Reactions
+  ❌ ⏸️ ✏️ ✅, dict order IS the precedence: a no beats a yes, an explicit hold beats an approval.
+- `store.py` — the application lifecycle: upsert, mark_offered, set_status, expire_stale,
+  applications_by_status, submitted_today.
+- `offer_job` tool — gated on the 4.0 floor BEFORE a card exists. A sub-floor role is skipped
+  outright, never surfaced for a yes/no; surfacing it would quietly turn the floor into a suggestion.
+  This also closes the JOBS-4 follow-up about tailoring un-offerable roles.
+
+**Safety properties, tested:**
+- All four reactions read back correctly; precedence pinned by an explicit test (a casual dict
+  reorder would let a stray ✅ outrank a ❌).
+- A stranger's reaction does NOT approve. An EMPTY approvers list means NOBODY can approve — a
+  misconfigured brand fails safe rather than becoming "anyone may approve".
+- The bot's own legend reaction (count 1) is never a decision.
+- **Expiry runs BEFORE reading**, so a late reaction cannot resurrect an expired card. Treating a
+  late yes as consent would mean submitting long after the operator stopped watching that role.
+- `_EXPIRE` only touches `awaiting_approval`, so it can never reach an approved or submitted row.
+- One unreadable card does not stop the tick.
+- 1266 pytest pass, 1 skipped. ruff clean on this lane's files.
+
+**⚠️ NOT VERIFIED — the operator must supply two ids:**
+`brand/configs/tejas.json` needs `jobs.approvals_channel_id` and `jobs.approvers`. Until then **no
+card has ever been posted to a real Discord channel**, and the network half of this lane is proven
+only against a fake API. Reaction *semantics* are tested; the Discord *round-trip* is not. Do not
+report JOBS-5 as live-verified.
+
+**Observed, NOT fixed (queued):**
+- `render_cv` still unimplemented; JOBS-6 needs a PDF to upload.
+- Nothing yet calls `approvals.run()` on a cron — decisions are read only when the tick is invoked.
+- `submitted_today()` exists but nothing feeds it into `Policy.job_applications_today`; JOBS-6 must
+  wire that or the 3/day cap is inert in practice.
+- `offer_job` takes `tailored_cv` as an argument rather than reading the stored draft — JOBS-4
+  persists no CV artifact yet (`tailored_cv_path` is never written).
+
+**Rollback:** revert the lane commit; no rows are written while `agent_jobs_enabled` is False.
