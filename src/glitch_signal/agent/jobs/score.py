@@ -29,7 +29,9 @@ log = structlog.get_logger()
 MAX_JD_CHARS = 12000
 MAX_CV_CHARS = 8000
 # A 12-18 requirement posting with verbatim evidence does NOT fit the 2048-token default.
-_MAX_TOKENS = 8000
+_MAX_TOKENS = 12000
+_MAX_REQS = 18   # keep pass 2's JSON inside the budget; see the ranking note below
+_IMPORTANCE_ORDER = {"critical": 0, "high": 1, "meaningful": 2, "preferred": 3, "low_signal": 4}
 
 _PASS1_SYSTEM = (
     "You are reading a job posting to extract what THE EMPLOYER is asking for. "
@@ -73,8 +75,23 @@ For each requirement, add:
   match     — one of: strong | partial | none
   evidence  — what in the CV supports it, or the gap if none. Quote the CV; never invent.
 
-Then give an overall score from 1.0 to 5.0 (one decimal) weighing CRITICAL and HIGH requirements far
-above preferred/low_signal ones, and a two-sentence verdict.
+Then give an overall score from 1.0 to 5.0 (one decimal) and a two-sentence verdict.
+
+SCORING ANCHORS — use these, and do NOT compute a fraction of requirements matched:
+  5.0  Exceptional fit. Strong on every critical requirement; would be top of the stack.
+  4.5  Strong fit. Every critical requirement evidenced; gaps are peripheral.
+  4.0  CREDIBLE CANDIDATE — a hiring manager would interview them. The core of the job is
+       evidenced; remaining gaps are peripheral or learnable (one ad platform, a reporting tool,
+       a named process, domain familiarity).
+  3.0  Partial fit. Something genuinely CENTRAL to the role is missing or unevidenced.
+  2.0  Wrong track. Adjacent discipline; the core of this job is not what they do.
+  1.0  Unrelated.
+
+Weight CRITICAL and HIGH requirements far above preferred/low_signal ones. A candidate who is strong
+on the core of the job must NOT be dragged below 4.0 by peripheral gaps — missing one ad platform
+among several, an unnamed dashboard tool, or a process they have plainly done under another name is
+not evidence against them. Conversely, do not inflate: a missing CRITICAL requirement is worth more
+than several matched preferred ones.
 
 Return STRICT JSON only:
 {{"requirements": [{{"requirement": "...", "importance": "...", "match": "...", "evidence": "..."}}],
@@ -164,10 +181,16 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
                 "report_md": None, "model": None, "error": "pass 1 extracted no requirements"}
 
     # PASS 2 — CV against requirements whose importance is already fixed.
+    # A 23-requirement posting overran even an 8000-token pass 2 and returned unparseable JSON
+    # (measured on a real listing). Cap the list by IMPORTANCE rather than truncating the JSON
+    # mid-object: dropping the least important requirements is a defensible loss; dropping whatever
+    # happened to be last is not.
+    ranked = sorted(reqs, key=lambda r: _IMPORTANCE_ORDER.get(str(r.get("importance", "")).lower(), 9))
+    sent = ranked[:_MAX_REQS]
     p2_raw = await llm.complete_messages(
         [{"role": "system", "content": _PASS2_SYSTEM},
          {"role": "user", "content": _PASS2_PROMPT.format(
-             requirements=json.dumps(reqs, indent=1)[:9000], cv=cv_text[:MAX_CV_CHARS])}],
+             requirements=json.dumps(sent, indent=1)[:9000], cv=cv_text[:MAX_CV_CHARS])}],
         tier=tier, max_tokens=_MAX_TOKENS)
     pass2 = _json_from(p2_raw)
     # A pass-2 that produced no parseable JSON must FAIL LOUDLY. Returning score=None with no error
