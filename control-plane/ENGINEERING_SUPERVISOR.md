@@ -2780,3 +2780,46 @@ is False (its default), so no data migration is needed.
 
 **Rollback:** revert the lane commit; `job_evaluation` rows are additive and unread while
 `agent_jobs_enabled` is False.
+
+### 2026-09-15 — JOBS-4 closed (CV tailoring behind a fail-closed fact verifier)
+
+**Shipped:**
+- `agent/jobs/verify.py` — `verify_cv_facts`, deterministic and fail-closed. Checks every QUANTITY
+  and every NAME in a generated document against the fact base. Prose, framing, ordering and
+  emphasis are deliberately NOT checked — that is what tailoring is for.
+- `agent/jobs/tailor.py` — tailors the master CV to one listing, verifies the result, and on failure
+  hands the model its own findings for ONE retry. A second failure is a rejection: no third try, no
+  "close enough". A retry loop that eventually ships is just a slower way to ship a fabrication.
+- `tailor_cv` tool. On failure the markdown is deliberately NOT returned to the loop, so an
+  unverified draft cannot become context a later step quotes back.
+
+**Why deterministic:** an LLM asked whether a claim is "supported" rationalises. A regex cannot be
+talked into anything. Prompting makes compliance likely; the verifier makes violation unshippable.
+Both halves are needed — prompting alone is not a control.
+
+**Verified live (real CV, real JD, real model calls):**
+- Tailored the operator's CV for wealthsimple "Manager, Demand Generation" → **verified clean on
+  attempt 1**, 5148 chars.
+- ACCEPTANCE (design § 10): a planted fabrication — "14+ years", "$250K/day", "Nexolytics Corp" —
+  is **REJECTED**, each claim itemised.
+- 1249 pytest pass, 1 skipped. ruff clean.
+
+**Two verifier bugs found by running it on a REAL tailored CV, not by review:**
+1. **Bullet-initial words were flagged as invented companies.** A CV is mostly bullets, and
+   "- Managed a $30K/day account" made "Managed" look like a proper noun. This is the cry-wolf
+   failure that gets a verifier switched off — strictly worse than no verifier. Line leads
+   (bullets, numbering, headings, bold) are now stripped and the first word skipped.
+2. **`_CAP` had `\b` anchors and was used with `fullmatch`**, so a token ending in punctuation
+   ("Corp.", "Udemy.") never matched — silently exempting any company name that ENDED a sentence.
+   That is the quiet direction of failure: it passed fabrications rather than flagging good text.
+   Caught because "Nexolytics Corp." was not in the planted-fabrication findings.
+
+**Observed, NOT fixed (queued):**
+- `render_cv` (markdown → PDF) is gated but NOT implemented. JOBS-6 needs a PDF to upload.
+- The entity check is a heuristic. It will miss an invented company that only ever appears
+  line-initial, and it cannot detect a fabricated CLAIM carrying no number and no name ("led a team
+  of engineers"). The numeric check carries most of the load; do not oversell this as complete.
+- Tailoring is not yet wired to the 4.0 floor — nothing stops tailoring a role that will never be
+  offered. Cheap to add in JOBS-5 where the offer decision lives.
+
+**Rollback:** revert the lane commit; nothing is persisted by this lane.

@@ -561,7 +561,48 @@ async def _t_score_job(args: dict, brand_id: str) -> str:
     return _json.dumps({"scored": len(out), "results": out}, default=str)
 
 
+
+async def _t_tailor_cv(args: dict, brand_id: str) -> str:
+    """JOBS-4 — tailor the master CV to one listing, then VERIFY it. Fails closed."""
+    import json as _json
+
+    from sqlalchemy import text as _sql
+
+    from glitch_signal.agent.jobs import factbase, tailor as _tailor
+    from glitch_signal.agent.jobs.canonical import canonical_url
+    from glitch_signal.agent.jobs.discover import jobs_config
+    from glitch_signal.db.session import _engine
+
+    url = canonical_url(str(args.get("url") or ""))
+    if not url:
+        return _json.dumps({"error": "a valid listing url is required"})
+    cfg = jobs_config(brand_id)
+    cv = factbase.cv_text(brand_id, cfg)
+    if not cv:
+        return _json.dumps({"error": "no CV in the fact base — set jobs.cv_markdown or jobs.cv_path"})
+
+    with _engine().begin() as conn:
+        row = conn.execute(_sql(
+            "SELECT company, title, location, jd_text, canonical_url FROM job_listing "
+            "WHERE brand_id = :b AND canonical_url = :u"), {"b": brand_id, "u": url}).mappings().first()
+    if not row:
+        return _json.dumps({"error": "listing not found", "canonical_url": url})
+
+    res = await _tailor.tailor_cv(dict(row), cv)
+    # The markdown is deliberately NOT returned to the loop on failure — an unverified draft must not
+    # become context the model can quote back into a later step.
+    return _json.dumps({"ok": res["ok"], "attempts": res["attempts"],
+                        "findings": res["findings"][:10],
+                        "markdown": res["markdown"] if res["ok"] else None,
+                        "canonical_url": url}, default=str)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
+    "tailor_cv": {"fn": _t_tailor_cv, "strict": True,
+                  "description": "Tailor the master CV to one stored listing and verify every claim "
+                                 "against the fact base. Rejects any draft containing an unsupported "
+                                 "metric or employer.",
+                  "input_schema": _obj({"url": {"type": "string"}}, ["url"])},
     "score_job": {"fn": _t_score_job, "strict": True,
                   "description": "Two-pass score unscored job listings: extract the posting's "
                                  "requirements and their importance from the JD alone, then match the "
