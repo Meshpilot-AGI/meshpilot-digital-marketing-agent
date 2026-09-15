@@ -3,8 +3,11 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [OPEN — JOBS-0 design written 2026-09-15]
+### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [IN PROGRESS — JOBS-0/1/2 shipped 2026-09-15; JOBS-3 scoring next]
 Owner: claude        Opened: 2026-09-15
+Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery (this lane).
+Live-verified 2026-09-15: greenhouse/later, lever/pointclickcare, ashby/wealthsimple and
+jobbank_ca each returned real Canadian marketing roles through the brand filters.
 Operator goal, verbatim: "meshpilot should be applying for jobs for me."
 Reading: docs/plans/2026-09-15-job-application-agent.md (the design; open operator decisions in its
 § 11), docs/VISION.md (Projects × Capabilities — this is a new Project `tejas` + a `jobs` capability),

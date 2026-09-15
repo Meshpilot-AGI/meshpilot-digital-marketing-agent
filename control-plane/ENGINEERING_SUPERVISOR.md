@@ -2683,3 +2683,55 @@ signals + communities for 8 queries; standing measured u/glitchExecutor; reply d
 and, after two fixes it forced (list markers as figures, `47.7` vs `47.7%`, over-length), produced an
 accepted r/Forex draft. Discord offer needs the cloud token — verified after deploy. **Remains:**
 cloud verify of an offered card + a reaction round-trip, schedules, then OFFPAGE-3.
+
+### 2026-09-15 — JOBS-0/1/2 shipped (design, foundation, and live discovery from 4 sources)
+
+Operator goal, verbatim: "meshpilot should be applying for jobs for me." Cut the JOBS lane, wrote
+its design, built the foundation, and got real Canadian roles flowing in from four sources. The
+agent does NOT yet apply — JOBS-3..6 remain.
+
+**Shipped (PRs #307, #308, and this lane):**
+- `docs/plans/2026-09-15-job-application-agent.md` — the design. Records what is deliberately OUT of
+  scope (authenticated LinkedIn/Indeed scraping, CAPTCHA solving, account creation) so a later
+  session does not add it as an obvious improvement.
+- `supabase/migrations/20260915020000_jobs.sql` — job_listing / job_evaluation / job_application /
+  job_answer_bank.
+- `agent/loop/policy.py` — 4 tiered kill-switches, all default False. `job_apply` ALSO joins
+  PUBLISH_TOOLS, so submission needs two switches. The 3/day cap counts SUBMITTED ROWS, not per-run
+  calls, so a restarting loop cannot reset it.
+- `agent/loop/scopes.py` — jobs_read / jobs_draft / jobs_apply as separate capabilities.
+- `agent/jobs/` — canonical.py (dedup key), filters.py, store.py, discover.py, sources/{ats,jobbank_ca}.
+- `brand/schema/brand.config.schema.json` — `jobs` block (additionalProperties was false).
+
+**Verified (live, not asserted):**
+- greenhouse/later → "Paid Media Specialist"; lever/pointclickcare → "Marketing Automation Architect
+  (CA) | Remote, Canada"; ashby/wealthsimple → "Manager, Demand Generation | Remote (Canada)";
+  jobbank_ca → 25 fetched / 3 kept incl. "digital marketing specialist | Fortify Services |
+  Vancouver (BC)". Independently cross-checked: career-ops found the same PointClickCare,
+  Wealthsimple and Fortify roles in its own scan an hour earlier.
+- 1205 pytest pass, 1 skipped. ruff clean.
+
+**Three bugs found BY live verification, each now a regression test:**
+1. `canonical_url` prepended `https://` to anything without `://`, laundering `javascript:alert(1)`
+   into a valid-looking URL. Now: declared non-http schemes are rejected and the host must match a
+   real hostname pattern. Found by a test, not in review.
+2. Job Bank feed path `/jobsearch/feed/rss` 404s — the live path is `/jobsearch/feed/jobSearchRSSfeed`.
+3. `<![CDATA[...]]>` was eaten by the tag-stripper (it opens `<` and closes `>`), silently emptying
+   EVERY title. Unwrap CDATA first, then strip tags.
+
+**Process note, recorded because it cost time:** the Job Bank source appeared to be an httpx-only
+TLS incompatibility. It was not — I had rate-limited myself by hammering the host with curl, node
+and httpx back-to-back while diagnosing. The 5s crawl-delay the source already honours is the
+correct behaviour; my *diagnostics* violated it. A clean retest returned 200.
+
+**Observed, NOT fixed (queued):**
+- `apify_indeed` and `linkedin_alert` sources are designed but NOT built. APIFY_KEY is held and
+  still unwired; LinkedIn alerts need the operator to create alerts and authorize Gmail.
+- `brand/configs/tejas.json` (the real one, private repo) does not exist — needs the operator's
+  Discord channel id + user id before any approval card can be posted.
+- Discovery is not yet on cron; `search_jobs` runs only when called.
+- The 4.0 floor and the per-day cap are enforced in the gate but nothing yet COUNTS submissions —
+  JOBS-6 must supply `job_applications_today` from `job_application`.
+
+**Rollback:** revert the lane commit; the tables are additive and unused while `agent_jobs_enabled`
+is False (its default), so no data migration is needed.

@@ -232,6 +232,14 @@ write goes through the service-role backend. Timestamps are naive-UTC
 `metrics_snapshot`, `scout_checkpoint`, `mention_event`, `platform_auth` (Fernet-
 encrypted OAuth tokens), `orm_response`, `comment_reply`, `strategic_reply`.
 
+**JOBS (JOBS-1/2):** `job_listing` (deduped on `(brand_id, canonical_url)` — the same posting
+arrives from several sources, and two different reqs at one company often share a title),
+`job_evaluation`, `job_application` (UNIQUE on `listing_id`; submitting twice to one req is
+worse than not submitting), `job_answer_bank` (EXACT question match only — the agent never
+composes a screening answer). Sources: `jobbank_ca`, `greenhouse`, `lever`, `ashby`. Tools:
+`search_jobs`, `fetch_jd`. All gated by `agent_jobs_enabled` + a per-tier switch; `job_apply`
+additionally joins `PUBLISH_TOOLS`. Design: docs/plans/2026-09-15-job-application-agent.md.
+
 Migrations are **Supabase-native SQL** (`supabase/migrations/*.sql`, Alembic
 retired), applied by the Supabase↔GitHub integration on merge. **Additive
 migrations ship before the code that needs them; removals ship after.**
