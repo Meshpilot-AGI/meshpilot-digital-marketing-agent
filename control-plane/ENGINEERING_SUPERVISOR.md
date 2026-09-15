@@ -3246,3 +3246,42 @@ this pipeline currently reads. Three lanes of board-adding (34 → 59 → 92 boa
 so the larger budget drained the balance faster than the tokens actually used and brought a 402
 forward mid-sweep. Capping requirements at `_MAX_REQS` already solved the overflow it was raised for.
 28/28 scored on the smaller budget, confirming the raise was unnecessary.
+
+### 2026-09-15 — JOBS-12 (Job Bank + the filter fix): pool 28 → 53
+
+**Two findings, and the second one mattered far more than the first.**
+
+**1. Job Bank is NOC-INDEXED — it wants OCCUPATIONAL titles, not industry jargon.** Measured at the
+source: `performance marketing` → **0 entries**, `paid media` → **0**, while `marketing` → 34 and
+`advertising` → 36. The 20 jargon keywords configured in JOBS-9 were nearly all dead. Replaced with
+8 broad occupational terms and let `title_filter` do the narrowing — which is the right division of
+labour anyway: a national board should return the category, not the niche.
+
+**2. THE REAL BOTTLENECK WAS OUR OWN FILTER, not the market.** Diagnosing why 407 fetched became 4
+kept showed two defects:
+- **Word-order variants were invisible.** "Manager, Marketing" is the same job as "Marketing
+  Manager", and substring matching cannot see it. Job Bank's NOC-style titles are full of
+  inversions. `filters.py` now also matches when every word of a MULTI-word target appears in any
+  order. Order-independence is only safe because exclusions are checked FIRST and win — a test pins
+  that ("Manager, Product Marketing" is still rejected).
+- **`Marketing Specialist` was not a target title at all**, along with Social Media Manager,
+  Ecommerce Manager and others. Added 7.
+
+**Measured effect — the filter fix, not the new source, did the heavy lifting:**
+
+    ATS pool        28 -> 43   (same 92 boards; pure filter fix)
+    Job Bank         0 -> 10   (new source, all unique, no overlap with ATS)
+    TOTAL           28 -> 53
+
+That is worth recording against the JOBS-11 conclusion: "stop adding ATS boards" was right, but for
+a sharper reason than stated — the constraint was never the number of boards, it was that the
+pipeline could not RECOGNISE roles it was already fetching. Three lanes of board-adding moved the
+pool 16→22→28; one afternoon of filter debugging moved it 28→43 on the SAME boards.
+
+**⛔ The 53 are NOT scored.** 106 model calls would be needed and credit is limited. The 10 Job Bank
+roles are visibly SMB/regional (Winnipeg, Sarnia, Charlottetown, Kelowna) and likely junior — their
+value to this operator is unproven and should not be assumed. The 15 newly-recognised ATS roles are
+the more promising half.
+
+**Next:** score the expanded pool (the real test), and only then judge whether the Job Bank half earns
+its keep.
