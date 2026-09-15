@@ -234,3 +234,34 @@ def test_jobbank_feed_path_is_the_working_one():
     from glitch_signal.agent.jobs.sources import jobbank_ca
 
     assert jobbank_ca.FEED_URL.endswith("/jobsearch/feed/jobSearchRSSfeed")
+
+
+# --- word-order variants (JOBS-12) -----------------------------------------------------
+
+def test_inverted_titles_match():
+    """"Manager, Marketing" is the same job as "Marketing Manager". Substring matching cannot see
+    that, and Job Bank's NOC-style titles are full of inversions."""
+    cfg = dict(CFG, target_titles=["Marketing Manager"], exclude_titles=[])
+    assert title_ok("Manager, Marketing", cfg)[0]
+    assert title_ok("Marketing Manager", cfg)[0]
+    assert title_ok("Manager - Marketing Operations", cfg)[0]
+
+
+def test_exclusions_still_beat_word_order_matches():
+    """Order-independence is only safe because exclusions are checked FIRST."""
+    cfg = dict(CFG, target_titles=["Marketing Manager"], exclude_titles=["Product Marketing"])
+    assert not title_ok("Product Marketing Manager", cfg)[0]
+    assert not title_ok("Manager, Product Marketing", cfg)[0]
+
+
+def test_single_word_targets_do_not_become_promiscuous():
+    """A one-word target must NOT gain order-independent matching — it would match everything."""
+    from glitch_signal.agent.jobs.filters import _all_words_present
+
+    assert not _all_words_present("senior software engineer", "marketing")
+
+
+def test_unrelated_titles_still_rejected_with_word_order_on():
+    cfg = dict(CFG, target_titles=["Marketing Manager"], exclude_titles=[])
+    assert not title_ok("Chief Human Resource Officer", cfg)[0]
+    assert not title_ok("Student Recruiter", cfg)[0]

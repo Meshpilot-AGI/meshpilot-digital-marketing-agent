@@ -23,6 +23,23 @@ def _norm(s: str | None) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip().lower()
 
 
+def _all_words_present(haystack: str, needle: str) -> bool:
+    """Every word of a MULTI-word needle appears in the haystack, in any order.
+
+    Substring matching cannot see word-order variants, and job titles are full of them:
+    "Manager, Marketing" is the same job as "Marketing Manager" and was being dropped. Measured on
+    Job Bank, where inverted NOC-style titles are common.
+
+    Order-independence is safe here because exclusions are checked FIRST and win — "Product
+    Marketing Manager" is rejected by the exclude list before this ever runs.
+    """
+    words = [w for w in _norm(needle).split() if w]
+    if len(words) < 2:
+        return False
+    hay = f" {haystack} "
+    return all(_contains(hay, w) for w in words)
+
+
 def _contains(haystack: str, needle: str) -> bool:
     """Case-insensitive substring, but whole-word for short needles.
 
@@ -55,6 +72,9 @@ def title_ok(title: str | None, cfg: dict) -> tuple[bool, str]:
     for good in includes:
         if _contains(t, good):
             return True, f"matched: {good}"
+    for good in includes:
+        if _all_words_present(t, good):
+            return True, f"matched (word-order variant): {good}"
     return False, "no target title matched"
 
 
