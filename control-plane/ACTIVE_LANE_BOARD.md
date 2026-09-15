@@ -3,11 +3,16 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
-### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [IN PROGRESS — JOBS-0..5 shipped 2026-09-15; JOBS-6 submission next. BLOCKED on operator Discord ids]
+### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [IN PROGRESS — JOBS-0..6 shipped 2026-09-15. ⛔ NOT APPLYING YET — 2 operator decisions block it]
 Owner: claude        Opened: 2026-09-15
-Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery (#309) · JOBS-3 scoring (#310) · JOBS-4 tailoring+verifier (#311) · JOBS-5 approval cards.
-⚠️ BLOCKED: `jobs.approvals_channel_id` + `jobs.approvers` are unset, so no card has been posted to a
-real channel. The Discord half of JOBS-5 is UNVERIFIED against the live API.
+Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery (#309) · JOBS-3 scoring (#310) · JOBS-4 tailoring+verifier (#311) · JOBS-5 approval cards (#312) · JOBS-6 submission guards.
+⛔ TWO BLOCKERS, both operator decisions:
+1. `jobs.approvals_channel_id` + `jobs.approvers` unset — no card has ever been posted to a real
+   channel, so the Discord half of JOBS-5 is UNVERIFIED and nothing can be approved.
+2. NO SUBMISSION DRIVER, and it cannot be written as designed: **neither Greenhouse nor Lever
+   exposes a candidate-side application API** (both require the EMPLOYER's key — verified against
+   Greenhouse's own docs 2026-09-15). Submission must drive the public web form, which needs a
+   browser this service does not have. Architecture decision required — see JOBS-6 supervisor entry.
 Live-verified 2026-09-15: greenhouse/later, lever/pointclickcare, ashby/wealthsimple and
 jobbank_ca each returned real Canadian marketing roles through the brand filters.
 Operator goal, verbatim: "meshpilot should be applying for jobs for me."

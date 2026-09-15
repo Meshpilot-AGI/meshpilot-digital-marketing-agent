@@ -537,7 +537,9 @@ async def _t_score_job(args: dict, brand_id: str) -> str:
     """JOBS-3 — two-pass score for unscored listings (JD first, CV second)."""
     import json as _json
 
-    from glitch_signal.agent.jobs import factbase, score as _score, store as _store
+    from glitch_signal.agent.jobs import factbase
+    from glitch_signal.agent.jobs import score as _score
+    from glitch_signal.agent.jobs import store as _store
     from glitch_signal.agent.jobs.discover import jobs_config
 
     cfg = jobs_config(brand_id)
@@ -568,7 +570,8 @@ async def _t_tailor_cv(args: dict, brand_id: str) -> str:
 
     from sqlalchemy import text as _sql
 
-    from glitch_signal.agent.jobs import factbase, tailor as _tailor
+    from glitch_signal.agent.jobs import factbase
+    from glitch_signal.agent.jobs import tailor as _tailor
     from glitch_signal.agent.jobs.canonical import canonical_url
     from glitch_signal.agent.jobs.discover import jobs_config
     from glitch_signal.db.session import _engine
@@ -609,7 +612,9 @@ async def _t_offer_job(args: dict, brand_id: str) -> str:
 
     from sqlalchemy import text as _sql
 
-    from glitch_signal.agent.jobs import approvals as _appr, score as _score, store as _store
+    from glitch_signal.agent.jobs import approvals as _appr
+    from glitch_signal.agent.jobs import score as _score
+    from glitch_signal.agent.jobs import store as _store
     from glitch_signal.agent.jobs.canonical import canonical_url
     from glitch_signal.agent.jobs.discover import jobs_config
     from glitch_signal.db.session import _engine
@@ -646,7 +651,52 @@ async def _t_offer_job(args: dict, brand_id: str) -> str:
                         "canonical_url": url}, default=str)
 
 
+
+async def _t_job_apply(args: dict, brand_id: str) -> str:
+    """JOBS-6 — submit ONE approved application. Gated twice (own switch + publish) and capped 3/day.
+
+    Returns manual_required rather than guessing whenever anything is unresolved. Today that is
+    always, because no submission driver is installed: neither Greenhouse nor Lever exposes a
+    candidate-side application API.
+    """
+    import json as _json
+
+    from glitch_signal.agent.jobs import store as _store
+    from glitch_signal.agent.jobs import submit as _submit
+    from glitch_signal.agent.jobs.canonical import canonical_url
+
+    url = canonical_url(str(args.get("url") or ""))
+    if not url:
+        return _json.dumps({"error": "a valid listing url is required"})
+
+    rows = [a for a in _store.applications_by_status(brand_id, ["approved", "edited"])
+            if a.get("canonical_url") == url]
+    if not rows:
+        return _json.dumps({"submitted": False, "outcome": "refused",
+                            "reason": "no APPROVED application for this url"})
+    app = rows[0]
+    questions = list(args.get("questions") or [])
+    bank = _store.answer_bank(brand_id)
+
+    res = await _submit.submit(app, questions, bank)
+    if res.get("submitted"):
+        # mark_submitted is the atomic double-submit guard; False means another worker won the race.
+        if not _store.mark_submitted(str(app["id"]), res.get("evidence") or {}):
+            return _json.dumps({"submitted": False, "outcome": "refused",
+                                "reason": "already submitted by another worker"})
+    elif res.get("outcome") in ("manual_required", "failed"):
+        _store.set_application_status(str(app["id"]), res["outcome"], reason=res.get("reason"))
+    return _json.dumps({k: v for k, v in res.items() if k != "package"}, default=str)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
+    "job_apply": {"fn": _t_job_apply,
+                  "description": "Submit ONE approved job application. Requires operator approval, "
+                                 "respects the daily cap, and returns manual_required rather than "
+                                 "guessing at an unanswered screening question.",
+                  "input_schema": _obj({"url": {"type": "string"},
+                                        "questions": {"type": "array", "items": {"type": "string"}}},
+                                       ["url"], closed=False)},
     "offer_job": {"fn": _t_offer_job,
                   "description": "Post ONE Discord approval card for a scored, tailored listing. "
                                  "Roles below the score floor are skipped, never offered.",

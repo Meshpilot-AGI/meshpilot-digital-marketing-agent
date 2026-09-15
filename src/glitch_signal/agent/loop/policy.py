@@ -16,8 +16,8 @@ one from settings, and `allow()` is a thin back-compat wrapper over the default 
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 # Tools that perform an outward-facing publish.
 PUBLISH_TOOLS = frozenset({"publish", "post", "publish_facebook", "publish_instagram", "buffer_post",
@@ -194,4 +194,17 @@ def from_config() -> Policy:
 def allow(tool_name: str, args: dict, brand_id: str, *,
           counts: Mapping[str, int] | None = None) -> tuple[bool, str]:
     """Back-compat wrapper: check against the config-derived policy, return (allowed, reason)."""
-    return from_config().check(tool_name, args, brand_id, counts=counts).as_tuple()
+    policy = from_config()
+    # The per-DAY application cap needs a number only the DB has. Query it ONLY when the tool under
+    # check is the submitting one — every other tool call would pay a round-trip for nothing.
+    # Without this the cap reads 0 forever and never trips, which is the quiet kind of broken: the
+    # switch exists, the tests pass, and it silently enforces nothing in production.
+    if tool_name in JOB_APPLY_TOOLS and policy.job_apply_enabled:
+        try:
+            from glitch_signal.agent.jobs import store as _jobstore
+
+            policy = replace(policy, job_applications_today=_jobstore.submitted_today(brand_id))
+        except Exception as exc:  # noqa: BLE001
+            # Fail CLOSED: if we cannot count today's submissions we must not assume zero.
+            return False, f"cannot verify the daily application cap ({str(exc)[:80]})"
+    return policy.check(tool_name, args, brand_id, counts=counts).as_tuple()
