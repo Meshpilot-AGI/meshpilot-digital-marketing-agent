@@ -374,7 +374,7 @@
     },
     "media_pipeline": {
       "type": "object",
-      "description": "Per-platform pre-publish ffmpeg transforms. Keys are canonical platform names (tiktok, instagram, youtube, etc. — the bare targets). Values are ordered lists of transform names from src/glitch_signal/media/ffmpeg.py::registered_transforms(). Example: {\"tiktok\": [\"strip_audio\"]} to drop the audio track before TikTok publish (fixes the web-player mute on licensed-music Content ID matches).",
+      "description": "Per-platform pre-publish ffmpeg transforms. Keys are canonical platform names (tiktok, instagram, youtube, etc. \u2014 the bare targets). Values are ordered lists of transform names from src/glitch_signal/media/ffmpeg.py::registered_transforms(). Example: {\"tiktok\": [\"strip_audio\"]} to drop the audio track before TikTok publish (fixes the web-player mute on licensed-music Content ID matches).",
       "additionalProperties": {
         "type": "array",
         "items": {
@@ -383,7 +383,7 @@
             "strip_audio"
           ]
         },
-        "description": "Ordered transform chain — outputs of step N feed step N+1. Each result is cached next to the source file so rerunning the pipeline is a no-op."
+        "description": "Ordered transform chain \u2014 outputs of step N feed step N+1. Each result is cached next to the source file so rerunning the pipeline is a no-op."
       }
     },
     "caption_writer": {
@@ -420,7 +420,7 @@
     },
     "tasks": {
       "type": "object",
-      "description": "Per-brand task registry. Each key is a task name (video_uploader, comment_responder, metrics_report, …) and the value describes its configuration + outputs. Adding a new brand or task = adding a new entry here; the code walks the registry at runtime.",
+      "description": "Per-brand task registry. Each key is a task name (video_uploader, comment_responder, metrics_report, \u2026) and the value describes its configuration + outputs. Adding a new brand or task = adding a new entry here; the code walks the registry at runtime.",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": true,
@@ -629,6 +629,87 @@
               "type": "string"
             }
           }
+        }
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "description": "JOBS capability \u2014 the job-application agent (design docs/plans/2026-09-15-job-application-agent.md). All optional; the capability itself is gated by agent_jobs_enabled.",
+      "additionalProperties": true,
+      "properties": {
+        "approvals_channel_id": {
+          "type": "string",
+          "description": "Discord channel for approval cards. One card per application (operator decision 3)."
+        },
+        "approvers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Discord user ids whose reactions count. Nobody else's does."
+        },
+        "offer_ttl_hours": {
+          "type": "integer",
+          "description": "Card lifetime. Expiry is NOT an approval \u2014 an aged-out card is skipped, never auto-sent."
+        },
+        "max_applications_per_day": {
+          "type": "integer",
+          "description": "Per-brand/day submission cap. Operator decision 1: 3."
+        },
+        "min_score": {
+          "type": "number",
+          "description": "Below this a role is skipped outright and never offered. Operator decision 2: 4.0."
+        },
+        "track": {
+          "type": "string"
+        },
+        "target_titles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_titles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "work_authorization": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "authorized_in": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "needs_sponsorship_outside": {
+              "type": "boolean"
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "locations": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "compensation": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Per-source enable flags. Authenticated scraping of LinkedIn/Indeed is deliberately absent \u2014 see design \u00a7 4."
+        },
+        "submission": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Operator decision 4: free_text_answers is always manual_required. The agent never composes a screening answer."
         }
       }
     }

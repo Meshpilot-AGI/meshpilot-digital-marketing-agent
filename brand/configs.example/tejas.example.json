@@ -1,0 +1,57 @@
+{
+  "brand_id": "tejas",
+  "display_name": "Tejas Karan Agrawal — job search",
+  "timezone": "America/Toronto",
+  "env_prefix": "TKA",
+  "brand": {
+    "name": "Tejas Karan Agrawal",
+    "voice": "direct, evidence-first, no marketing hype"
+  },
+  "jobs": {
+    "_comment": "JOBS capability. Operator decisions 2026-09-15 — design § 11.",
+    "approvals_channel_id": "REPLACE_WITH_DISCORD_CHANNEL_ID",
+    "approvers": ["REPLACE_WITH_DISCORD_USER_ID"],
+    "offer_ttl_hours": 48,
+    "max_applications_per_day": 3,
+    "min_score": 4.0,
+    "track": "single-track performance / growth marketing; production AI is the DIFFERENTIATOR, never the target role",
+    "target_titles": [
+      "Performance Marketing", "Paid Media", "Paid Social", "Growth Marketing",
+      "Demand Generation", "Lifecycle Marketing", "Marketing Technologist",
+      "Marketing Operations", "Growth Engineer", "Ecommerce Marketing"
+    ],
+    "exclude_titles": [
+      "Product Marketing", "Field Marketing", "Brand Manager", "Copywriter",
+      "Software Engineer", "Data Engineer", "Machine Learning Engineer",
+      "Account Executive", "Coordinator", "Intern"
+    ],
+    "work_authorization": {
+      "authorized_in": ["Canada"],
+      "needs_sponsorship_outside": true,
+      "note": "PGWP — an OPEN work permit, not employer sponsorship. No Canadian employer files anything."
+    },
+    "locations": {
+      "allow": ["Canada", "Toronto", "Ontario", "Remote - Canada", "North America"],
+      "base": "Toronto, ON"
+    },
+    "compensation": {
+      "currency": "CAD",
+      "target_min": 110000,
+      "target_max": 140000,
+      "walk_away": 95000
+    },
+    "sources": {
+      "jobbank_ca": true,
+      "ats_boards": true,
+      "apify_indeed": false,
+      "linkedin_alert_email": false
+    },
+    "submission": {
+      "_comment": "Decision 4: free-text screening answers are ALWAYS manual_required. The agent never composes one.",
+      "ats_allowed": ["greenhouse", "lever"],
+      "free_text_answers": "manual_required",
+      "captcha": "manual_required",
+      "may_create_accounts": false
+    }
+  }
+}

@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 # Tools that perform an outward-facing publish.
-PUBLISH_TOOLS = frozenset({"publish", "post", "publish_facebook", "publish_instagram", "buffer_post"})
+PUBLISH_TOOLS = frozenset({"publish", "post", "publish_facebook", "publish_instagram", "buffer_post",
+                           "job_apply"})
 
 # Tools that send email (EMAIL-1) — gated by their own kill-switch, separate from publishing.
 EMAIL_TOOLS = frozenset({"send_email"})
@@ -33,6 +34,14 @@ DISCOVERY_TOOLS = frozenset({"discover_trending", "discover_conversations", "dis
 # search/fetch + LLM-plugin cost stay OFF until deliberately enabled, so the ability ships inert.
 WEB_SEARCH_TOOLS = frozenset({"web_search"})
 WEB_FETCH_TOOLS = frozenset({"web_fetch"})
+
+# JOBS tools (JOBS-1) — three tiers, each with its own kill-switch. `job_apply` ALSO joins
+# PUBLISH_TOOLS below, so it inherits the publish kill-switch: submitting an application is an
+# outward, irreversible act in the operator's name, and one switch for it is not enough.
+JOB_DISCOVERY_TOOLS = frozenset({"search_jobs", "fetch_jd"})
+JOB_TAILOR_TOOLS = frozenset({"tailor_cv", "render_cv"})
+JOB_APPLY_TOOLS = frozenset({"job_apply"})
+JOB_TOOLS = JOB_DISCOVERY_TOOLS | JOB_TAILOR_TOOLS | JOB_APPLY_TOOLS | frozenset({"score_job", "offer_job"})
 
 # External MCP tools default-DENY (#93): we can't know an arbitrary MCP tool's blast radius, so a
 # tool is allowed only if it is explicitly allowlisted per brand, has a read-only verb prefix, or
@@ -57,6 +66,12 @@ class Policy:
     discovery_enabled: bool = False
     web_search_enabled: bool = False
     web_fetch_enabled: bool = False
+    jobs_enabled: bool = False
+    job_discovery_enabled: bool = False
+    job_tailor_enabled: bool = False
+    job_apply_enabled: bool = False
+    job_applications_today: int = 0      # already SUBMITTED today for this brand (caller supplies)
+    max_job_applications_per_day: int = 3
     max_media_per_run: int = 3
     max_emails_per_run: int = 5
     max_discovery_per_run: int = 5
@@ -109,6 +124,25 @@ class Policy:
         if tool_name in WEB_FETCH_TOOLS and not self.web_fetch_enabled:
             return Decision(False, "web_fetch is disabled (agent_web_fetch_enabled is off)")
 
+        # 3e. JOBS kill-switches (JOBS-1). Tiered: the capability, then the tier, then the daily cap.
+        #     Checked innermost-last so the denial reason names the switch the operator must flip.
+        if tool_name in JOB_TOOLS:
+            if not self.jobs_enabled:
+                return Decision(False, "jobs capability is disabled (agent_jobs_enabled is off)")
+            if tool_name in JOB_DISCOVERY_TOOLS and not self.job_discovery_enabled:
+                return Decision(False, "job discovery is disabled (agent_job_discovery_enabled is off)")
+            if tool_name in JOB_TAILOR_TOOLS and not self.job_tailor_enabled:
+                return Decision(False, "CV tailoring is disabled (agent_job_tailor_enabled is off)")
+            if tool_name in JOB_APPLY_TOOLS:
+                if not self.job_apply_enabled:
+                    return Decision(False, "applying is disabled (agent_job_apply_enabled is off)")
+                # Per-DAY cap, not per-run: a runaway that restarts its loop would reset a per-run
+                # counter and keep applying. The count is of rows already submitted today.
+                if (self.max_job_applications_per_day
+                        and self.job_applications_today >= self.max_job_applications_per_day):
+                    return Decision(False, f"daily application cap reached "
+                                           f"({self.max_job_applications_per_day}/day for {brand_id})")
+
         # 4. per-run media budget (cost control)
         if tool_name == "generate_media" and counts.get("generate_media", 0) >= self.max_media_per_run:
             return Decision(False, f"media budget exhausted ({self.max_media_per_run} per run)")
@@ -148,6 +182,11 @@ def from_config() -> Policy:
         max_media_per_run=int(getattr(s, "agent_max_media_per_run", 3)),
         max_emails_per_run=int(getattr(s, "agent_max_emails_per_run", 5)),
         max_discovery_per_run=int(getattr(s, "agent_max_discovery_per_run", 5)),
+        jobs_enabled=bool(getattr(s, "agent_jobs_enabled", False)),
+        job_discovery_enabled=bool(getattr(s, "agent_job_discovery_enabled", False)),
+        job_tailor_enabled=bool(getattr(s, "agent_job_tailor_enabled", False)),
+        job_apply_enabled=bool(getattr(s, "agent_job_apply_enabled", False)),
+        max_job_applications_per_day=int(getattr(s, "agent_job_max_applications_per_day", 3)),
         mcp_allow=mcp_allow,
     )
 
