@@ -204,3 +204,25 @@ def test_scorer_uses_the_budgeted_call_not_the_2048_default():
     assert "complete_messages" in src
     assert "llm.complete(" not in src, "must not use the 2048-token default"
     assert "_MAX_TOKENS" in src
+
+
+# --- thin-JD confidence gate (JOBS-11) -------------------------------------------------
+
+def test_a_thin_posting_cannot_clear_the_floor():
+    """The top score in a real 28-role sweep (4.0) came from a JD yielding FOUR requirements and
+    zero criticals. That score describes the posting's length, not the candidate."""
+    thin = {"requirements": 4, "critical": 0}
+    assert not score.meets_floor(4.0, False, CFG, parts=thin)
+    assert not score.meets_floor(5.0, False, CFG, parts=thin)
+
+
+def test_a_substantive_posting_still_clears():
+    fat = {"requirements": 18, "critical": 6}
+    assert score.meets_floor(4.0, False, CFG, parts=fat)
+
+
+def test_the_gate_is_confidence_not_a_penalty():
+    """The score itself is untouched — only the OFFER decision changes. A caller that does not pass
+    `parts` keeps the old behaviour, so this cannot silently change anything that has not opted in."""
+    assert score.meets_floor(4.0, False, CFG) is True
+    assert score.MIN_REQUIREMENTS_FOR_CONFIDENCE == 8

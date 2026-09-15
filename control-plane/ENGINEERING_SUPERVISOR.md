@@ -3197,3 +3197,52 @@ POOL, and the hypothesis that better-targeted employers score better is still a 
 2. Score the 28 and check whether the DTC roles do clear 4.0. That is the real test of the JOBS-9
    targeting finding.
 3. Run Job Bank (20 keywords, national, free) — still the largest completely unmeasured source.
+
+### 2026-09-15 — JOBS-11: the DTC hypothesis was WRONG; the discriminator is ROLE KIND
+
+**Scored all 28 roles (28/28, no failures).** The JOBS-9/10 hypothesis — that the operator scores
+high at consumer/ecommerce employers and low at B2B SaaS, so DTC boards would yield qualifying roles
+— is **disproved**. The 33 DTC/retail/agency boards added roles scoring **2.0–2.6**. The top three
+are unchanged from before they were added.
+
+**What the data actually says — group by ROLE KIND, not employer segment:**
+
+    paid media / performance     n=5  mean 2.9  max 3.7
+    demand generation            n=3  mean 2.5  max 3.2
+    CRM / lifecycle / campaign   n=7  mean 2.3  max 2.6
+    martech / automation         n=7  mean 2.3  max 4.0*
+    other                        n=6  mean 2.2  max 2.8
+
+The earlier "consumer vs B2B" reading was an artifact of a small sample: flipp happened to be a
+**paid-media** role that also happened to be at a retail company. With 28 roles the segment signal
+disappears and the role-kind signal is clean. Recorded so the next session does not re-run the DTC
+theory.
+
+*The 4.0 is a THIN-JD ARTIFACT: a posting yielding four requirements and zero criticals. Fixed in
+this lane — `meets_floor` now takes `score_parts` and refuses to offer any evaluation with fewer than
+`MIN_REQUIREMENTS_FOR_CONFIDENCE = 8` requirements. Deliberately a CONFIDENCE gate, not a penalty:
+the score is reported honestly, but a posting we could not really evaluate is not offered. `offer_job`
+passes `score_parts` through, or the gate would have been inert. A caller that omits `parts` keeps
+the old behaviour, so nothing silently changed.
+
+**⛔ THE HONEST BOTTOM LINE: zero genuinely qualifying roles in 28.** With the thin-JD artifact
+excluded, the best real match is 3.7. The pipeline works end to end and the scorer is consistent —
+the market visible through these boards simply does not currently contain Canadian paid-media roles
+that strongly match this CV.
+
+**Why, and what to do about it — the source TYPE is wrong, not the employer segment.** Greenhouse,
+Lever and Ashby skew heavily to VC-backed tech. A performance marketer's real Canadian market is
+agencies, SMBs and ecommerce brands that post on **Job Bank, Indeed and LinkedIn** — none of which
+this pipeline currently reads. Three lanes of board-adding (34 → 59 → 92 boards) moved the pool
+16 → 22 → 28 and did not produce a single qualifying role. **Stop adding ATS boards.**
+
+**Next, in priority order:**
+1. **Job Bank** — 20 keywords configured, national, free, and still never measured. Highest value.
+2. **LinkedIn job-alert emails** — designed, unbuilt; needs the operator to create alerts + Gmail auth.
+3. **Apify/Indeed** — designed, unbuilt; APIFY_KEY held.
+4. Only then revisit the CV, if the broader sources still yield nothing above 4.0.
+
+**Also fixed this lane:** `_MAX_TOKENS` 12000 → 8000. OpenRouter reserves credit against max_tokens,
+so the larger budget drained the balance faster than the tokens actually used and brought a 402
+forward mid-sweep. Capping requirements at `_MAX_REQS` already solved the overflow it was raised for.
+28/28 scored on the smaller budget, confirming the raise was unnecessary.
