@@ -532,7 +532,41 @@ async def _t_fetch_jd(args: dict, brand_id: str) -> str:
     return _json.dumps(d, default=str)
 
 
+
+async def _t_score_job(args: dict, brand_id: str) -> str:
+    """JOBS-3 — two-pass score for unscored listings (JD first, CV second)."""
+    import json as _json
+
+    from glitch_signal.agent.jobs import factbase, score as _score, store as _store
+    from glitch_signal.agent.jobs.discover import jobs_config
+
+    cfg = jobs_config(brand_id)
+    cv = factbase.cv_text(brand_id, cfg)
+    if not cv:
+        # Fail loudly. Scoring against an empty fact base would produce confident nonsense.
+        return _json.dumps({"error": "no CV in the fact base — set jobs.cv_markdown or jobs.cv_path"})
+
+    limit = max(1, min(int(args.get("limit") or 5), 25))
+    rows = _store.unscored(brand_id, limit)
+    out = []
+    for r in rows:
+        res = await _score.score_listing(r, cv, cfg)
+        if res.get("report_md"):
+            _store.record_evaluation(brand_id, str(r["id"]), res)
+        out.append({"title": r.get("title"), "company": r.get("company"),
+                    "score": res.get("score"), "work_auth": res.get("work_auth"),
+                    "hard_stop": res.get("hard_stop"),
+                    "meets_floor": _score.meets_floor(res.get("score"), res.get("hard_stop"), cfg),
+                    "error": res.get("error"), "url": r.get("canonical_url")})
+    return _json.dumps({"scored": len(out), "results": out}, default=str)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
+    "score_job": {"fn": _t_score_job, "strict": True,
+                  "description": "Two-pass score unscored job listings: extract the posting's "
+                                 "requirements and their importance from the JD alone, then match the "
+                                 "CV against them. Writes an A-H report per listing.",
+                  "input_schema": _obj({"limit": {"type": "integer", "default": 5}}, [])},
     "search_jobs": {"fn": _t_search_jobs, "strict": True,
                     "description": "Run the brand's enabled job sources, filter by the brand's target "
                                    "titles/locations, dedup by canonical URL, and store new listings.",
