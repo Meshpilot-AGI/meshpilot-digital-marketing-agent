@@ -134,8 +134,8 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
     read = d.get("read_decision") or read_decision
     out: dict[str, Any] = {"ran": "jobs_decide", "decided": [], "expired": [], "errors": []}
 
-    out["expired"] = store.expire_stale(brand_id, engine=engine)
-    for app in store.applications_by_status(brand_id, ["awaiting_approval"], engine=engine):
+    out["expired"] = await store.expire_stale(brand_id, engine=engine)
+    for app in await store.applications_by_status(brand_id, ["awaiting_approval"], engine=engine):
         if not app.get("discord_msg_id"):
             continue
         try:
@@ -148,10 +148,10 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
             continue
         if status == "hold":
             # Keep it queued and push the window out; a hold is explicitly NOT a decision.
-            store.mark_offered(str(app["id"]), app["discord_msg_id"],
+            await store.mark_offered(str(app["id"]), app["discord_msg_id"],
                                ttl_hours=settings_for(brand_id)["ttl_hours"], engine=engine)
         else:
-            store.set_application_status(str(app["id"]), status,
+            await store.set_application_status(str(app["id"]), status,
                                          approved=(status in ("approved", "edited")), engine=engine)
         out["decided"].append({"id": str(app["id"]), "status": status, "url": app.get("canonical_url")})
         log.info("jobs.decided", application=str(app["id"]), status=status)

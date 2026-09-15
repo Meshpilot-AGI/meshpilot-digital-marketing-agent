@@ -43,7 +43,7 @@ async def test_a_captcha_stops_the_run():
 
         def locator(self, sel):
             class L:
-                async def count(_self):
+                async def count(self):  # noqa: N805
                     return 1 if "recaptcha" in sel else 0
             return L()
 
@@ -59,7 +59,7 @@ async def test_a_password_field_stops_the_run():
 
         def locator(self, sel):
             class L:
-                async def count(_self):
+                async def count(self):  # noqa: N805
                     return 1 if "password" in sel else 0
             return L()
 
@@ -138,7 +138,7 @@ def test_submitter_asks_the_policy_gate_rather_than_its_own_counter():
     import submitter.worker as w
 
     src = inspect.getsource(w.one_pass)
-    assert 'policy.allow("job_apply"' in src
+    assert 'policy.allow_async("job_apply"' in src
     assert "break" in src, "a blocked policy check must stop the pass, not just skip one row"
 
 

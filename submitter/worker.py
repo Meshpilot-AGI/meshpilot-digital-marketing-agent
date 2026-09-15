@@ -56,11 +56,11 @@ async def one_pass() -> dict:
     cfg = jobs_config(BRAND)
     out = {"considered": 0, "submitted": 0, "manual": 0, "skipped": 0, "errors": []}
 
-    approved = store.applications_by_status(BRAND, ["approved", "edited"])
+    approved = await store.applications_by_status(BRAND, ["approved", "edited"])
     if not approved:
         return out
 
-    bank = store.answer_bank(BRAND)
+    bank = await store.answer_bank(BRAND)
     identity = identity_for(cfg)
     pathlib.Path(SHOT_DIR).mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +69,7 @@ async def one_pass() -> dict:
 
         # The policy gate owns the daily cap and both kill-switches. Asking it here means the
         # submitter cannot outrun a limit the rest of the system believes is in force.
-        allowed, reason = policy.allow("job_apply", {}, BRAND)
+        allowed, reason = await policy.allow_async("job_apply", {}, BRAND)
         if not allowed:
             log.info("submitter.blocked_by_policy reason=%s", reason)
             out["skipped"] += 1
@@ -78,7 +78,7 @@ async def one_pass() -> dict:
         ats = submit.ats_of(app.get("canonical_url") or "")
         driver_cls = for_ats(ats or "")
         if not driver_cls:
-            store.set_application_status(str(app["id"]), "manual_required",
+            await store.set_application_status(str(app["id"]), "manual_required",
                                          reason=f"no driver for ats={ats}")
             out["manual"] += 1
             continue
@@ -94,7 +94,7 @@ async def one_pass() -> dict:
             submit.register_driver(None)
 
         if res.get("submitted"):
-            if store.mark_submitted(str(app["id"]), res.get("evidence") or {}):
+            if await store.mark_submitted(str(app["id"]), res.get("evidence") or {}):
                 out["submitted"] += 1
                 log.info("submitter.submitted app=%s url=%s", app["id"], app.get("canonical_url"))
             else:
@@ -106,7 +106,7 @@ async def one_pass() -> dict:
                 if not LIVE and "dry run" in (res.get("reason") or ""):
                     log.info("submitter.dry_run app=%s reason=%s", app["id"], res.get("reason"))
                 else:
-                    store.set_application_status(str(app["id"]), outcome, reason=res.get("reason"))
+                    await store.set_application_status(str(app["id"]), outcome, reason=res.get("reason"))
                     out["manual"] += 1
             log.info("submitter.not_submitted app=%s outcome=%s reason=%s",
                      app["id"], outcome, (res.get("reason") or "")[:160])

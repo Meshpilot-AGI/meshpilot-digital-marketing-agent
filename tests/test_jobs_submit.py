@@ -178,8 +178,9 @@ def test_captcha_and_account_creation_stay_out_of_scope():
 
 # --- the daily cap is no longer inert -------------------------------------------------
 
-def test_allow_counts_real_submissions_for_the_apply_tool(monkeypatch):
-    """The cap read 0 forever until `allow()` supplied the count — the switch existed, the tests
+@pytest.mark.asyncio
+async def test_allow_async_counts_real_submissions_for_the_apply_tool(monkeypatch):
+    """The cap read 0 forever until the gate supplied the count — the switch existed, the tests
     passed, and it enforced nothing in production."""
     from glitch_signal.agent.jobs import store as jobstore
     from glitch_signal.agent.loop import policy as pol
@@ -187,34 +188,55 @@ def test_allow_counts_real_submissions_for_the_apply_tool(monkeypatch):
     monkeypatch.setattr(pol, "from_config", lambda: pol.Policy(
         jobs_enabled=True, job_apply_enabled=True, publish_enabled=True,
         max_job_applications_per_day=3))
-    monkeypatch.setattr(jobstore, "submitted_today", lambda b, **kw: 3)
-    ok, reason = pol.allow("job_apply", {}, "tejas")
+
+    async def three(b, **kw):
+        return 3
+
+    monkeypatch.setattr(jobstore, "submitted_today", three)
+    ok, reason = await pol.allow_async("job_apply", {}, "tejas")
     assert not ok and "daily application cap" in reason
 
 
-def test_allow_fails_closed_when_the_count_cannot_be_read(monkeypatch):
-    """If we cannot count today's submissions we must NOT assume zero."""
+@pytest.mark.asyncio
+async def test_allow_async_fails_closed_when_the_count_cannot_be_read(monkeypatch):
+    """If we cannot count today's submissions we must NOT assume zero — zero always permits."""
     from glitch_signal.agent.jobs import store as jobstore
     from glitch_signal.agent.loop import policy as pol
 
     monkeypatch.setattr(pol, "from_config", lambda: pol.Policy(
         jobs_enabled=True, job_apply_enabled=True, publish_enabled=True))
 
-    def boom(b, **kw):
+    async def boom(b, **kw):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(jobstore, "submitted_today", boom)
-    ok, reason = pol.allow("job_apply", {}, "tejas")
+    ok, reason = await pol.allow_async("job_apply", {}, "tejas")
     assert not ok and "cannot verify the daily application cap" in reason
 
 
-def test_other_tools_do_not_pay_for_the_count(monkeypatch):
-    """Only the submitting tool queries the DB."""
+def test_sync_allow_refuses_job_apply_outright():
+    """The sync gate cannot perform the async count, so it must DENY rather than silently permit —
+    that would leave the one irreversible action in the system uncapped."""
+    from glitch_signal.agent.loop import policy as pol
+
+    ok, reason = pol.allow("job_apply", {}, "tejas")
+    assert not ok and "allow_async" in reason
+
+
+@pytest.mark.asyncio
+async def test_other_tools_do_not_pay_for_the_count(monkeypatch):
+    """Only the submitting tool queries the database."""
     from glitch_signal.agent.jobs import store as jobstore
     from glitch_signal.agent.loop import policy as pol
 
     called = []
-    monkeypatch.setattr(jobstore, "submitted_today", lambda b, **kw: called.append(b) or 0)
-    monkeypatch.setattr(pol, "from_config", lambda: pol.Policy(jobs_enabled=True, job_discovery_enabled=True))
-    pol.allow("search_jobs", {}, "tejas")
+
+    async def spy(b, **kw):
+        called.append(b)
+        return 0
+
+    monkeypatch.setattr(jobstore, "submitted_today", spy)
+    monkeypatch.setattr(pol, "from_config",
+                        lambda: pol.Policy(jobs_enabled=True, job_discovery_enabled=True))
+    await pol.allow_async("search_jobs", {}, "tejas")
     assert called == []

@@ -89,7 +89,7 @@ async def discover(brand_id: str, *, dry_run: bool = False, engine: Any = None) 
 
     stored = {"seen": 0, "inserted": 0, "updated": 0}
     if kept and not dry_run:
-        stored = store.upsert_many(brand_id, kept, engine=engine)
+        stored = await store.upsert_many(brand_id, kept, engine=engine)
 
     summary = {"brand": brand_id, "sources": sorted(set(used)), "fetched": len(raw),
                "kept": len(kept), "filtered_out": dropped, "stored": stored, "dry_run": dry_run}
