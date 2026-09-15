@@ -2919,3 +2919,47 @@ the count cannot be read.
 
 **Rollback:** revert the lane commit; nothing submits and no rows are written while
 `agent_jobs_enabled` is False.
+
+### 2026-09-15 — JOBS-4b closed (render_cv: tailored markdown → an ATS-safe PDF)
+
+**Shipped:**
+- `agent/jobs/render.py` — markdown → HTML → PDF via `--print-to-pdf`, reusing the Chrome binary
+  `media/html_render.py` already depends on. **No new runtime dependency**: this repo's
+  design-as-code path is already "inline CSS, headless Chrome, deterministic output"; a CV is the
+  same problem with a different output format.
+- ATS-safety is enforced structurally, not stylistically: single column, no tables/text-boxes/
+  page-header-footer, real selectable text, standard font stack, plain `<h2>` section headings. A
+  test asserts no `<table>`, `column-count`, `display:grid`, `float:` or `position:absolute`
+  reaches the HTML.
+- The markdown converter is hand-written and tiny on purpose — a CV is headings, bullets, bold and
+  paragraphs, and controlling the exact HTML matters because the HTML is what the ATS reads. It also
+  ESCAPES markup: tailored markdown comes from a model and must never inject into the CV.
+- `render_cv` tool RE-VERIFIES against the fact base before rendering (markdown can be hand-edited
+  between tailoring and rendering; an unverified claim must not acquire a PDF by reaching a later
+  step) and writes `tailored_cv_path` — closing the JOBS-5 gap where that column was never set.
+- `pypdf` added to the **dev** extra only, so the text-layer proof is a real test rather than a skip.
+
+**Verified live:** rendered the actual tailored CV (Wealthsimple Demand Gen) → 3-page, 75 KB PDF.
+Extracted the text layer with pypdf: name, email, phone, Toronto, "$30K/day", Quickads, Udemy,
+Shopify, WORK EXPERIENCE and SKILLS all survive. 1310 pytest pass. ruff clean on touched files.
+
+**Two real bugs in `media/html_render.py`, found by using it:**
+1. `_CHROME_CANDIDATES` was **Linux-only** — every render raised `HtmlRenderError` on a developer
+   machine, which made the whole design-as-code path untestable off a container. macOS and
+   Playwright-cache paths added (additive; a Linux box resolves exactly as before).
+2. macOS's full `Google Chrome.app` with `--headless=new` **HANGS to the 120s timeout**, even with
+   an isolated `--user-data-dir`. Playwright's `chrome-headless-shell` returns instantly, so
+   discovery now prefers it and treats a desktop Chrome app as a last resort. My first glob patterns
+   for the Playwright cache were also wrong (`chrome-mac/headless_shell`); the real layout is
+   `chrome-headless-shell-mac-arm64/chrome-headless-shell`.
+
+**Observed, NOT fixed (queued):**
+- ⚠️ The rendered CV is **3 pages**; 2 is the norm for a marketing CV. The tailorer is told to keep
+  "roughly the same length" and the master CV is already long — worth a length budget in JOBS-4.
+- Whether a Chrome binary exists in the FastAPI Cloud container is **still unverified**. Every
+  `html_render` caller shares that assumption, so if it is absent, `render_cv` and the existing
+  card renderer fail together in prod.
+- `pdf_text()` imports pypdf lazily and will raise in prod (dev-only dep). It is a verification
+  helper, not a runtime path — keep it that way.
+
+**Rollback:** revert the lane commit; nothing persists and `render_cv` is gated with the rest.

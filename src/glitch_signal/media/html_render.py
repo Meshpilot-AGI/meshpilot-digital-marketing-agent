@@ -30,7 +30,7 @@ import subprocess
 import tempfile
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
 
 import structlog
 
@@ -46,10 +46,41 @@ _DIMS: dict[str, tuple[int, int]] = {
     "9:16": (1080, 1920),
 }
 
+# Linux container paths first (that is where this runs in prod), then macOS and Playwright's
+# cache so the same code renders on a developer machine. Additive only — a Linux box resolves
+# exactly as before; without the macOS entries every render raised HtmlRenderError locally, which
+# made the whole design-as-code path untestable off a container.
 _CHROME_CANDIDATES = (
     "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
     "/snap/bin/chromium", "/usr/bin/google-chrome", "/usr/bin/chromium-browser",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
 )
+
+
+def _playwright_chromium() -> str | None:
+    """Playwright's cached Chromium, if a local install put one there.
+
+    `chrome-headless-shell` is preferred over a full Chromium/Chrome app: it is purpose-built for
+    exactly this (screenshot / print-to-pdf) and starts immediately, whereas macOS's full
+    `Google Chrome.app` with `--headless=new` was measured HANGING until the 120s timeout even with
+    an isolated `--user-data-dir`.
+    """
+    import glob
+
+    pats = (
+        # headless shell — macOS (arm64/x64) and Linux
+        "~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-*/chrome-headless-shell",
+        "~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
+        # full chromium as a fallback
+        "~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+        "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+    )
+    for pat in pats:
+        hits = sorted(glob.glob(pathlib.Path(pat).expanduser().as_posix()))
+        if hits:
+            return hits[-1]
+    return None
 
 
 class HtmlRenderError(RuntimeError):
@@ -155,11 +186,19 @@ background:{theme.accent}}}
 
 
 def _chrome_bin() -> str:
+    # A Linux container resolves here first and behaves exactly as before.
     for c in _CHROME_CANDIDATES:
-        if shutil.which(c) or pathlib.Path(c).exists():
+        if not c.startswith("/Applications/") and (shutil.which(c) or pathlib.Path(c).exists()):
+            return c
+    # Then Playwright's headless shell — preferred over a desktop Chrome app, which hangs headless.
+    pw = _playwright_chromium()
+    if pw:
+        return pw
+    for c in _CHROME_CANDIDATES:
+        if pathlib.Path(c).exists():
             return c
     raise HtmlRenderError(
-        f"no Chrome/Chromium binary found (tried {_CHROME_CANDIDATES})"
+        f"no Chrome/Chromium binary found (tried {_CHROME_CANDIDATES} and the Playwright cache)"
     )
 
 
