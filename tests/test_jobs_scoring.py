@@ -393,3 +393,15 @@ def test_the_scoring_tier_is_cost_first_and_critical_is_not():
     assert routing.resolve("complex")[0] == "z-ai/glm-5.3"
     assert routing.resolve("complex")[1] == "anthropic/claude-sonnet-5"
     assert routing.resolve("critical")[0] == "anthropic/claude-opus-5"
+
+
+def test_the_default_floor_is_4_3_because_the_scorer_changed():
+    """The operator chose 4.0 against claude-sonnet-5. Moving `complex` to z-ai/glm-5.3 shifted the
+    same 18-posting pool UP by a mean of +0.37 with the same CV and nothing scoring lower, so 4.0
+    on the new scorer is a LOOSER gate than the one he set. 4.3 holds his actual bar.
+
+    This offset belongs to the sonnet-5 → glm-5.3 pair. Re-derive it if the scoring model changes
+    again rather than carrying 4.3 forward as if it were the operator's number."""
+    assert score.meets_floor(4.3, False, {})
+    assert not score.meets_floor(4.2, False, {})
+    assert not score.meets_floor(4.0, False, {}), "4.0 was the sonnet-calibrated bar, not the glm one"

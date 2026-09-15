@@ -284,9 +284,17 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
 MIN_REQUIREMENTS_FOR_CONFIDENCE = 8
 
 
-def meets_floor(score: float | None, hard_stop: bool, cfg: dict, default_floor: float = 4.0,
+def meets_floor(score: float | None, hard_stop: bool, cfg: dict, default_floor: float = 4.3,
                 *, parts: dict | None = None) -> bool:
     """Operator decision 2: below the floor a role is SKIPPED, never offered for a yes/no.
+
+    ⚠️ **The floor is 4.3, not 4.0, because the SCORER CHANGED — it is not a stricter bar.** The 4.0
+    the operator chose was calibrated on claude-sonnet-5. Moving the `complex` tier to z-ai/glm-5.3
+    (JOBS-ROUTER-COST, 2026-09-15) shifted every score UP: re-scoring the same 18-posting pool with
+    the same CV moved every paired role up, mean **+0.37**, max +0.8, none down, and roles clearing
+    4.0 went 1 → 2 on an unchanged pool. 4.3 holds the bar the operator actually set; leaving it at
+    4.0 would have loosened the gate silently, which is the worst way for a gate to move.
+    Re-derive this offset before changing the scoring model again — it belongs to THIS pair.
 
     A THIN posting cannot clear the floor. Measured 2026-09-15: the single highest score in a
     28-role sweep (4.0) came from a job description that yielded FOUR requirements and zero
