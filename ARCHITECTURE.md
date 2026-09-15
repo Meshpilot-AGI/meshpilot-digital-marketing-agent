@@ -237,7 +237,8 @@ arrives from several sources, and two different reqs at one company often share 
 `job_evaluation`, `job_application` (UNIQUE on `listing_id`; submitting twice to one req is
 worse than not submitting), `job_answer_bank` (EXACT question match only — the agent never
 composes a screening answer). Sources: `jobbank_ca`, `greenhouse`, `lever`, `ashby`. Tools:
-`search_jobs`, `fetch_jd`. All gated by `agent_jobs_enabled` + a per-tier switch; `job_apply`
+`search_jobs`, `fetch_jd`, `score_job` (two-pass: JD-only requirements+importance, then CV
+match; work authorization decided deterministically in `jobs/workauth.py`, never by the model). All gated by `agent_jobs_enabled` + a per-tier switch; `job_apply`
 additionally joins `PUBLISH_TOOLS`. Design: docs/plans/2026-09-15-job-application-agent.md.
 
 Migrations are **Supabase-native SQL** (`supabase/migrations/*.sql`, Alembic

@@ -5,6 +5,7 @@ one approval UX serve all of them. Design: docs/plans/2026-09-15-job-application
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy import text
@@ -29,6 +30,19 @@ _UPSERT = text(
     "  posted_at= COALESCE(EXCLUDED.posted_at,job_listing.posted_at), "
     "  jd_text  = COALESCE(EXCLUDED.jd_text,  job_listing.jd_text) "
     "RETURNING id, (xmax = 0) AS inserted"
+)
+
+_INSERT_EVAL = text(
+    "INSERT INTO job_evaluation (listing_id, brand_id, score, score_parts, work_auth, report_md, model) "
+    "VALUES (:lid, :b, :score, CAST(:parts AS jsonb), :wa, :report, :model) RETURNING id"
+)
+
+_UNSCORED = text(
+    "SELECT l.id, l.source, l.canonical_url, l.company, l.title, l.location, l.jd_text "
+    "FROM job_listing l "
+    "LEFT JOIN job_evaluation e ON e.listing_id = l.id "
+    "WHERE l.brand_id = :b AND e.id IS NULL "
+    "ORDER BY l.first_seen_at DESC LIMIT :lim"
 )
 
 _COUNT_BY_SOURCE = text(
@@ -80,4 +94,27 @@ def recent(brand_id: str, limit: int = 25, *, engine: Any = None) -> list[dict]:
     eng = _engine_or(engine)
     with eng.begin() as conn:
         rows = conn.execute(_RECENT, {"b": brand_id, "lim": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def record_evaluation(brand_id: str, listing_id: str, result: dict, *, engine: Any = None) -> str:
+    """Persist one evaluation. Re-evaluation is allowed — the latest row by evaluated_at wins."""
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        row = conn.execute(_INSERT_EVAL, {
+            "lid": listing_id, "b": brand_id,
+            "score": result.get("score"),
+            "parts": json.dumps(result.get("score_parts") or {}),
+            "wa": result.get("work_auth"),
+            "report": result.get("report_md"),
+            "model": result.get("model"),
+        }).first()
+    return str(row[0]) if row else ""
+
+
+def unscored(brand_id: str, limit: int = 10, *, engine: Any = None) -> list[dict]:
+    """Listings with no evaluation yet, newest first."""
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        rows = conn.execute(_UNSCORED, {"b": brand_id, "lim": limit}).mappings().all()
     return [dict(r) for r in rows]

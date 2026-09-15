@@ -2735,3 +2735,48 @@ correct behaviour; my *diagnostics* violated it. A clean retest returned 200.
 
 **Rollback:** revert the lane commit; the tables are additive and unused while `agent_jobs_enabled`
 is False (its default), so no data migration is needed.
+
+### 2026-09-15 — JOBS-3 closed (two-pass scoring + a deterministic work-auth gate, verified on live roles)
+
+**Shipped:**
+- `agent/jobs/workauth.py` — the work-authorization verdict, deterministic and LLM-free. Whether a
+  role is legally takeable is a factual question with a right answer; a model reasoning about it errs
+  in an expensive direction (hiding a takeable role, or surfacing an impossible one).
+- `agent/jobs/score.py` — the two-pass rule. Pass 1 reads the JD ALONE and fixes each requirement's
+  importance; pass 2 then reads the CV and rates match only. Pass 1's importance is RESTORED if
+  pass 2 changes it, and the override is counted in `score_parts.importance_overridden`.
+- `agent/jobs/factbase.py` — the only source for claims about the operator; returns '' rather than
+  falling back to memory or a previous tailored CV.
+- `score_job` tool + `job_evaluation` persistence + `store.unscored()`.
+
+**Verified live (real roles, real CV, real OpenRouter calls):**
+- pointclickcare "Marketing Automation Architect (CA)" → **1.7**, 11 reqs / 4 critical / 1 strong / 5 none.
+- wealthsimple "Manager, Demand Generation" → **3.1**, 21 reqs / 6 critical / 9 strong / 8 none.
+- Both `work_auth=not_needed` (Canadian roles, correct), neither meets the 4.0 floor → skipped.
+- The verdicts are defensible on reading: the scorer correctly identified the operator as a DTC/
+  ecommerce performance marketer and named real gaps for a B2B demand-gen-for-advisory-sales role
+  (no sales-alignment experience, no fintech domain) rather than flattering the CV.
+- 1228 pytest pass, 1 skipped. ruff clean.
+
+**Two bugs found by verification, not by review:**
+1. `store.record_evaluation` used `json.dumps` with **no `import json`** — a guaranteed NameError on
+   the first real call. Caught by ruff (F821), not by tests: that path needs a live DB.
+2. Pass 2 silently returned nothing on real postings. The default `complete()` budget is 2048
+   tokens, and an 18-requirement posting with verbatim evidence overran it, truncating the JSON
+   mid-object. `_json_from` then returned `{}` and the scorer reported `score=None` with **no
+   error** — which reads as "scored badly" and would have silently buried every role. Now both
+   passes use an 8000-token budget AND an unparseable pass 2 fails loudly with the raw length.
+
+**Observed, NOT fixed (queued):**
+- ⚠️ **The 4.0 floor may be too strict for this operator's market.** Both live Canadian roles scored
+  below it, so with the floor as set NOTHING would be offered. Either the floor moves, the sourcing
+  widens, or the CV/targeting changes. This is an operator decision, not a bug — but it means the
+  end-to-end path currently yields zero applications, and that must not be discovered later as a
+  silent "nothing to do".
+- Only Lever and Ashby ship JD text inline; Greenhouse and Job Bank listings have no `jd_text`, so
+  they score as `error: no jd_text archived`. JOBS-3b needs a JD fetcher for those.
+- `model` is recorded as None — `llm.complete_messages` returns text only, so the actual model that
+  answered is not captured. Worth threading through for cost/quality attribution.
+
+**Rollback:** revert the lane commit; `job_evaluation` rows are additive and unread while
+`agent_jobs_enabled` is False.
