@@ -86,3 +86,31 @@ reads. The gateway is unaffected: its root directory is `gateway`, so it reads `
 
 There is no `submitter/railway.json` — it was never read (the service's root directory is `/`, not
 `submitter/`) and its presence implied otherwise.
+
+
+## ⚠️ Supabase is IPv6-only on the direct host — enable Railway's outbound IPv6
+
+**Measured 2026-09-15.** With a correct `DATABASE_URL`, the worker still died on its first poll:
+
+    socket.gaierror: [Errno -2] Name or service not known
+
+It is not a code or credential problem. Supabase's DIRECT connection host publishes **no A record**:
+
+    db.<ref>.supabase.co   A: (none)   AAAA: 2600:1f16:...
+
+Railway services are IPv4-only **by default**, so the name resolves to nothing they can route to.
+Two ways out:
+
+1. **Enable Railway's Outbound IPv6** on the service — Settings → Networking → *Enable Outbound
+   IPv6*, then redeploy. Free, and it keeps the direct connection, which means prepared statements
+   keep working.
+2. Switch to the Supavisor **pooler** host (`aws-0-<region>.pooler.supabase.com:6543`), which has
+   IPv4 A records. Supabase's own IPv4 add-on for the direct host is **paid**; the pooler is not.
+   `config._asyncpg_connect_args` already sets `statement_cache_size=0` for port 6543, because
+   pgbouncer transaction mode cannot use prepared statements (see `tests/test_db_url.py`).
+
+Option 1 is preferred here: no paid add-on, no prepared-statement penalty.
+
+⚠️ The CLI can only STAGE it — `railway outbound-network ipv6 enable --service <svc>` — and the
+commit step (`railway environment edit`) is an interactive TUI, so it cannot be completed from a
+non-interactive session. Use the dashboard toggle, or run that command yourself.
