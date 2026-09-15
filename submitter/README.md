@@ -26,7 +26,7 @@ Build settings:
 | Setting | Value | Why |
 |---|---|---|
 | Source | GitHub repo @ `production` | git is truth, same as the gateway |
-| `RAILWAY_DOCKERFILE_PATH` | `submitter/Dockerfile` | the build context is the repo ROOT — the Dockerfile `COPY src ./src` and installs the agent package |
+| Builder | `railway.json` **at the repo root** pins `DOCKERFILE` + `submitter/Dockerfile` | see the incident below |
 | Watch paths | **deliberately UNSET** | see below |
 
 ### Why watch paths are unset (and the gateway's are not)
@@ -70,3 +70,19 @@ submitted. The redundancy is deliberate — the irreversible step should take mo
 **Lever's apply form serves reCAPTCHA**, so the CAPTCHA hard-stop fires on every Lever posting and
 they come back `manual_required`. Greenhouse is the only working auto-submit path today. See
 `agent/jobs/drivers/browser.py` for why that may be over-cautious and what would settle it.
+
+
+## ⚠️ Why the builder is pinned in a ROOT `railway.json`
+
+**Measured 2026-09-15, first deploy.** With only `RAILWAY_DOCKERFILE_PATH` set as a variable,
+Railway's auto-builder (railpack) ignored it, detected the repo as a Python/FastAPI project, and
+built + booted **a second copy of the production API** on this service — uvicorn on :8080, scheduler
+loop started. It could not reach the database (`DATABASE_URL` was unset, so it fell back to the local
+default), which is the only reason the blast radius was nil.
+
+`RAILWAY_DOCKERFILE_PATH` as an env var is not sufficient. The builder is now pinned in
+`railway.json` at the REPO ROOT, which is the config path a service whose root directory is `/`
+reads. The gateway is unaffected: its root directory is `gateway`, so it reads `gateway/railway.json`.
+
+There is no `submitter/railway.json` — it was never read (the service's root directory is `/`, not
+`submitter/`) and its presence implied otherwise.

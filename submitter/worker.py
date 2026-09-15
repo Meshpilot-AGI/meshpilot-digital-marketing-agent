@@ -113,8 +113,46 @@ async def one_pass() -> dict:
     return out
 
 
+def preflight() -> list[str]:
+    """Say plainly, at startup, what is missing — instead of letting it show up as a connection
+    error every 5 minutes with no stated cause.
+
+    An unset DATABASE_URL does NOT fail loudly on its own: `_raw_db_url()` falls back to the LOCAL
+    default, so a container with no database quietly tries localhost forever. That is the failure
+    mode this exists to name.
+    """
+    problems: list[str] = []
+    try:
+        from glitch_signal.config import brand_config, settings
+
+        s = settings()
+        if not s.database_url and "localhost" in s._raw_db_url():
+            problems.append("DATABASE_URL is unset — falling back to the LOCAL default, so every "
+                            "poll will fail to connect. Set it on this service.")
+        try:
+            cfg = brand_config(BRAND)
+        except KeyError:
+            problems.append(f"brand {BRAND!r} is not in BRAND_CONFIGS_JSON — brand config FILES are "
+                            "gitignored, so that env var is the only source that reaches a container.")
+        else:
+            jobs = cfg.get("jobs") or {}
+            if not jobs:
+                problems.append(f"brand {BRAND!r} has no `jobs` block — nothing to submit for.")
+            if not (jobs.get("contact") or {}).get("email"):
+                problems.append("jobs.contact.email is missing — the form would be submitted with "
+                                "blank contact fields.")
+            if not jobs.get("approvers"):
+                problems.append("jobs.approvers is empty — nobody can approve, so nothing will ever "
+                                "reach this worker.")
+    except Exception as exc:  # noqa: BLE001
+        problems.append(f"config could not be loaded: {str(exc)[:200]}")
+    return problems
+
+
 async def main() -> None:
     log.info("submitter.start brand=%s LIVE=%s poll=%ss max_per_run=%s", BRAND, LIVE, POLL_S, MAX_PER_RUN)
+    for problem in preflight():
+        log.error("submitter.preflight: %s", problem)
     if not LIVE:
         log.warning("submitter.DRY_RUN — forms will be filled but NOT submitted "
                     "(set SUBMITTER_LIVE=true to send)")
