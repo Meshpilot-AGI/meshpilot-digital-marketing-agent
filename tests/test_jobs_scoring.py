@@ -277,16 +277,6 @@ async def test_a_real_posting_is_not_refused(monkeypatch):
 
 # --- cost-first router + detected-failure escalation (JOBS-15) --------------------------
 
-def test_working_tiers_are_cheapest_first():
-    """OpenRouter's models array fails over on ERROR, never on a weak answer — so the first entry
-    answers essentially everything. Cheapest must be first for the cost win to exist at all."""
-    from glitch_signal.agent.loop import routing
-
-    assert routing.resolve("complex")[0] == "z-ai/glm-5.3"
-    assert routing.resolve("simple")[0] == "z-ai/glm-5.3-flash"
-    assert routing.resolve("moderate")[0] == "openai/gpt-5.6-luna"
-
-
 def test_critical_stays_quality_first():
     """`critical` carries the conscience critic — "the last thing between the agent and the public" —
     and irreversible work. A previous lane deliberately moved that critic OFF the cheapest model;
@@ -358,3 +348,44 @@ async def test_a_good_cheap_answer_does_not_escalate(monkeypatch):
         {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
          "jd_text": "x" * 5000}, "cv", CFG, tier="complex")
     assert tiers == ["complex"], "no escalation when the cheap answer parses"
+
+
+# --- escalation must cover the failures actually observed (JOBS-16) ---------------------
+
+@pytest.mark.asyncio
+async def test_an_empty_completion_escalates_rather_than_failing(monkeypatch):
+    """Measured 2026-09-15: a cheap primary returned an EMPTY completion (whole token budget spent on
+    internal reasoning) on 14 of 18 real postings, and OpenRouter did NOT fail over — an empty
+    response is a SUCCESSFUL HTTP response, not an error. Escalating is the only thing that catches
+    it."""
+    import json as _json
+
+    from glitch_signal.agent.loop import llm
+
+    tiers = []
+
+    async def fake(messages, *, tier=None, **kw):
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        tiers.append((("p1" if "NOT seen any candidate" in system else "p2"), tier))
+        if "NOT seen any candidate" in system:
+            if tier == "complex":
+                raise RuntimeError("empty completion from z-ai/glm-5.3 (stop_reason=max_tokens)")
+            return _json.dumps({"role_summary": "r", "requirements": [
+                {"requirement": "paid media", "jd_signal": "x", "importance": "critical"}]})
+        return _json.dumps({"requirements": [], "score": 3.5, "verdict": "", "strengths": [], "gaps": []})
+
+    monkeypatch.setattr(llm, "complete_messages", fake)
+    out = await score.score_listing(
+        {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
+         "jd_text": "x" * 5000}, "cv", CFG, tier="complex")
+    assert ("p1", "complex") in tiers and ("p1", "critical") in tiers, "pass 1 must escalate"
+    assert out["score"] == 3.5
+
+
+def test_the_router_is_quality_first_after_the_measured_revert():
+    """glm-5.3 scored 0/18 on real postings as the `complex` primary. Cheapest-first is only safe
+    when the cheap model can actually complete the task."""
+    from glitch_signal.agent.loop import routing
+
+    assert routing.resolve("complex")[0] == "anthropic/claude-sonnet-5"
+    assert routing.resolve("critical")[0] == "anthropic/claude-opus-5"

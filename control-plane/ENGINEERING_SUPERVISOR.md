@@ -3422,3 +3422,41 @@ that silently raises spend.
 glm-5.3 and compare against the sonnet-5 run already stored — same method as the JOBS-8 calibration
 (compare the ranking, not just the means). If the cheap model's ranking diverges materially,
 `AGENT_ROUTER_COMPLEX` restores the old order without a code change.
+
+### 2026-09-15 — JOBS-16: cost-first router REVERTED. It was measured, and it scored 0/18.
+
+**The change from JOBS-15 was wrong and the measurement caught it.** `complex` was reordered to put
+`z-ai/glm-5.3` ($2.15/1M) ahead of `claude-sonnet-5` ($4.00/1M) — a 46% saving on paper. Re-scoring
+**the same 18 real postings, same CV, different model** produced:
+
+    0 / 18 scored
+      14  empty completion, stop_reason=max_tokens
+       4  pass 1 extracted no requirements
+    cost: $0.80 for zero usable output
+
+`glm-5.3` is a REASONING model: it spent the entire 8000-token budget on internal reasoning and
+emitted nothing. The paper saving was negative.
+
+**The load-bearing detail, now demonstrated rather than theorised: OpenRouter did NOT fail over.**
+An empty completion is a SUCCESSFUL HTTP response, not an error, so the `models` array never advanced
+to the fallback. JOBS-15's own docstring said failover is error-only; this is what that means in
+practice. **Cheapest-first is only safe when the cheap model can actually complete the task, and the
+fallback array provides no protection at all against one that cannot.**
+
+**Reverted all four tiers to quality-first.** `moderate` and `simple` were reverted too even though
+unmeasured: `glm-5.3-flash` is the same family on the same structured-JSON workload, and shipping a
+second unmeasured cost change immediately after this one would repeat the mistake.
+
+**Kept and extended the escalation**, which is the part worth keeping: it now covers **pass 1, pass 2
+and empty completions** (JOBS-15 only handled unparseable pass 2 — none of the 18 failures would have
+been caught). A cheap primary that returns nothing now escalates to the next tier instead of losing
+the listing. Tested with the exact observed failure: an empty-completion exception on pass 1.
+
+**Method note worth reusing:** the comparison was same-CV/same-roles/different-model, against a stored
+run — the same design as the JOBS-8 calibration check. It cost under a dollar and prevented shipping
+a router that silently returns nothing in production. Any future model swap should be measured this
+way BEFORE merge, not after.
+
+**If cost matters more than this workload:** the durable win is fewer and shorter calls — the
+requirement cap already in `score.py` — not a cheaper model that cannot produce the output.
+`AGENT_ROUTER_<TIER>` still overrides the roster without a code change.

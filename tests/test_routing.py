@@ -4,13 +4,12 @@ from __future__ import annotations
 from glitch_signal.agent.loop import routing
 
 
-def test_resolve_tiers_are_cost_first_except_critical():
-    """Working tiers are cheapest-first (OpenRouter fails over on ERROR, so the first entry answers
-    nearly everything — that IS the cost win). `critical` is exempt: it carries the conscience critic
-    and irreversible work, where a bad answer is not cheap to notice."""
-    assert routing.resolve("complex")[0] == "z-ai/glm-5.3"
-    assert routing.resolve("moderate")[0] == "openai/gpt-5.6-luna"
-    assert routing.resolve("simple")[0] == "z-ai/glm-5.3-flash"
+def test_resolve_tiers_quality_first():
+    """Cost-first was tried on 2026-09-15 and measured 0/18 successes: the cheap primary returned
+    empty completions and OpenRouter did not fail over, because an empty response is not an error."""
+    assert routing.resolve("complex")[0] == "anthropic/claude-sonnet-5"
+    assert routing.resolve("moderate")[0] == "z-ai/glm-5.2"
+    assert routing.resolve("simple")[0] == "anthropic/claude-haiku-4.5"
     assert routing.resolve("critical")[0] == "anthropic/claude-opus-5"
 
 def test_resolve_unknown_defaults_to_complex():
