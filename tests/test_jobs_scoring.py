@@ -110,9 +110,10 @@ async def test_importance_from_pass1_survives_pass2(monkeypatch):
 
     calls = []
 
-    async def fake_complete(prompt, *, system=None, tier=None, **kw):
-        calls.append(system or "")
-        if "NOT seen any candidate" in (system or ""):
+    async def fake_complete(messages, *, model=None, tier=None, **kw):
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        calls.append(system)
+        if "NOT seen any candidate" in system:
             return _json.dumps({"role_summary": "Perf marketer",
                                 "requirements": [{"requirement": "Paid media at scale",
                                                   "jd_signal": "manage $1M+ budgets",
@@ -123,7 +124,7 @@ async def test_importance_from_pass1_survives_pass2(monkeypatch):
                                               "match": "none", "evidence": "CV silent"}],
                             "score": 4.6, "verdict": "ok", "strengths": [], "gaps": []})
 
-    monkeypatch.setattr(llm, "complete", fake_complete)
+    monkeypatch.setattr(llm, "complete_messages", fake_complete)
     out = await score.score_listing(
         {"title": "Perf Marketing Manager", "company": "Acme", "location": "Toronto, Canada",
          "canonical_url": "https://x.com/1", "jd_text": "manage $1M+ budgets"}, "CV text", CFG)
@@ -141,14 +142,16 @@ async def test_pass1_never_sees_the_cv(monkeypatch):
 
     seen = {}
 
-    async def fake_complete(prompt, *, system=None, tier=None, **kw):
-        if "NOT seen any candidate" in (system or ""):
+    async def fake_complete(messages, *, model=None, tier=None, **kw):
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        prompt = next((m["content"] for m in messages if m["role"] == "user"), "")
+        if "NOT seen any candidate" in system:
             seen["pass1_prompt"] = prompt
             return _json.dumps({"role_summary": "r", "requirements": [
                 {"requirement": "x", "jd_signal": "y", "importance": "high"}]})
         return _json.dumps({"requirements": [], "score": 4.0, "verdict": "", "strengths": [], "gaps": []})
 
-    monkeypatch.setattr(llm, "complete", fake_complete)
+    monkeypatch.setattr(llm, "complete_messages", fake_complete)
     await score.score_listing(
         {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
          "jd_text": "the posting text"}, "SECRET_CV_MARKER", CFG)
@@ -189,3 +192,15 @@ def test_factbase_reads_inline_cv():
     from glitch_signal.agent.jobs import factbase
 
     assert factbase.cv_text("tejas", {"cv_markdown": "# CV\nreal content"}).startswith("# CV")
+
+
+def test_scorer_uses_the_budgeted_call_not_the_2048_default():
+    """Regression guard. The scorer briefly called `llm.complete` (2048-token default), which
+    truncated an 18-requirement pass 2 mid-JSON. The tests kept patching `complete` and so stopped
+    testing anything — CI caught it. Pin the call site."""
+    import inspect
+
+    src = inspect.getsource(score.score_listing)
+    assert "complete_messages" in src
+    assert "llm.complete(" not in src, "must not use the 2048-token default"
+    assert "_MAX_TOKENS" in src
