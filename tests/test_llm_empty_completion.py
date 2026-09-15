@@ -62,15 +62,21 @@ async def test_the_thinking_budget_case_is_retried_once_at_a_larger_budget(monke
 async def test_the_retry_is_capped(monkeypatch):
     send = _Send(_body(None, finish="length", out=4000), _body("ok"))
     await _chat(monkeypatch, send, max_tokens=4000)
-    assert send.budgets[1] == 8000                   # not 16000
+    assert send.budgets[1] == 16000                  # 4x, clamped to the ceiling
 
 
-async def test_an_already_generous_budget_is_not_retried(monkeypatch):
-    """At the ceiling the budget is not the explanation any more, so retrying just spends money."""
-    send = _Send(_body(None, finish="length", out=8000))
-    with pytest.raises(RuntimeError, match="empty completion"):
-        await _chat(monkeypatch, send, max_tokens=8000)
-    assert len(send.budgets) == 1
+async def test_an_already_generous_budget_still_retries_with_effort_capped(monkeypatch):
+    """This used to assert NO retry at the ceiling, on the reasoning that "the budget is not the
+    explanation any more, so retrying just spends money". Measured 2026-09-15, that is wrong for a
+    REASONING model: at an 8k budget z-ai/glm-5.3 spent 1,548 tokens thinking and emitted nothing,
+    and the old gate (`max_tokens < 8000`) excluded exactly the 8000 the job scorer asks for — so 14
+    of 18 real scorings failed with no retry at all.
+
+    The retry is also no longer the expensive option: capping `reasoning.effort` returned full
+    content in 250 tokens at a QUARTER of the unbounded cost. One retry, effort capped."""
+    send = _Send(_body(None, finish="length", out=8000), _body("ok"))
+    await _chat(monkeypatch, send, max_tokens=8000)
+    assert len(send.budgets) == 2, "a reasoning model at the ceiling must still get one retry"
 
 
 async def test_a_still_empty_retry_raises_rather_than_returning_nothing(monkeypatch):

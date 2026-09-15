@@ -193,7 +193,11 @@ _FINISH_MAP = {"tool_calls": "tool_use", "stop": "end_turn", "length": "max_toke
 # retry at a larger budget. An empty response for ANY OTHER reason is unexplained, and an unexplained
 # empty answer is a failure — it raises rather than pretending.
 _EMPTY_RETRY_FLOOR = 1500
-_EMPTY_RETRY_CEILING = 8000
+# ⚠️ This used to gate the retry as `max_tokens < _EMPTY_RETRY_CEILING`, so a caller asking for
+# EXACTLY 8000 — which the job scorer does — got no retry at all: 14 of 18 real scorings failed
+# outright while this module advertised an empty-completion retry. The ceiling now bounds the RAISE,
+# not whether the retry happens.
+_EMPTY_RETRY_CEILING = 16000
 
 
 def _from_openai_response(body: dict) -> dict:
@@ -250,7 +254,10 @@ async def _meter(model: str, usage: dict, req_id: str | None) -> None:
     """Attribute this call's tokens + cost to the active brand (COST-METER). Never raises."""
     try:
         from glitch_signal.analytics.cost import get_brand, record_usage  # noqa: PLC0415
-        from glitch_signal.analytics.cost.pricing import anthropic_cost, unknown_model_cost_usd  # noqa: PLC0415
+        from glitch_signal.analytics.cost.pricing import (  # noqa: PLC0415
+            anthropic_cost,
+            unknown_model_cost_usd,
+        )
         cost = usage.get("cost")
         if cost is None:                        # OpenRouter didn't return cost → estimate off the price book
             cost = anthropic_cost(model.split("/")[-1], usage)
@@ -265,7 +272,7 @@ async def _meter(model: str, usage: dict, req_id: str | None) -> None:
 async def _chat(messages: list[dict], *, system: str | None, tools: list[dict] | None,
                 model: str | None = None, tier: str | None = None, max_tokens: int, timeout_s: int,
                 client: httpx.AsyncClient | None, plugins: list[dict] | None = None,
-                cache_system: bool = False) -> dict:
+                cache_system: bool = False, reasoning: dict | None = None) -> dict:
     import time as _time
 
     from glitch_signal.agent.loop import routing
@@ -273,6 +280,8 @@ async def _chat(messages: list[dict], *, system: str | None, tools: list[dict] |
     payload: dict = {"models": models, "max_tokens": max_tokens,   # OpenRouter native fallback (first = primary)
                      "messages": _to_openai_messages(messages, system, cache_system=cache_system),
                      "usage": {"include": True}}
+    if reasoning:
+        payload["reasoning"] = reasoning
     if tools:
         payload["tools"] = _to_openai_tools(tools)
     if plugins:
@@ -295,10 +304,19 @@ async def _chat(messages: list[dict], *, system: str | None, tools: list[dict] |
 
     # An empty response is NOT an answer, and returning it as one is how a dead tier stayed invisible:
     # callers got `""` and carried on. See `_RETRY_ON_LENGTH`.
-    if resp["stop_reason"] == "max_tokens" and max_tokens < _EMPTY_RETRY_CEILING:
+    if resp["stop_reason"] == "max_tokens":
+        # A REASONING model that hits the cap has spent the budget thinking and emitted nothing.
+        # Raising max_tokens is the wrong lever and was measured to make it WORSE: z-ai/glm-5.3 used
+        # 1,548 reasoning tokens at an 8k budget and 3,340 at 20k — a bigger allowance invites more
+        # reasoning, it does not force an answer. Capping the EFFORT does: the same call with
+        # `reasoning.effort=low` returned full content in 250 tokens at a quarter of the cost.
+        # So: cap effort first, and only then raise the budget (for a non-reasoning model that was
+        # genuinely just truncated).
         raised = min(max(max_tokens * 4, _EMPTY_RETRY_FLOOR), _EMPTY_RETRY_CEILING)
         log.warning("llm.empty_completion_retry", model=used, max_tokens=max_tokens, retry_with=raised,
+                    reasoning_effort="low",
                     reasoning_tokens=resp["usage"].get("output_tokens", 0))
+        payload["reasoning"] = {"effort": "low"}
         payload["max_tokens"] = raised
         body = await _send(payload, timeout_s=timeout_s, client=client)
         resp = _from_openai_response(body)
@@ -331,7 +349,7 @@ async def complete(prompt: str, *, system: str | None = None, model: str | None 
 async def complete_messages(messages: list[dict], *, model: str | None = None, tier: str | None = None,
                             max_tokens: int = 2048, temperature: float = 0.2,
                             timeout_s: int = 90, client: httpx.AsyncClient | None = None,
-                            effort: str | None = None) -> str:
+                            effort: str | None = None, reasoning: dict | None = None) -> str:
     """OpenAI/LiteLLM-style messages (system extracted) → assistant text."""
     _ = (temperature, effort)
     system_parts, conv = [], []
@@ -342,7 +360,7 @@ async def complete_messages(messages: list[dict], *, model: str | None = None, t
             conv.append({"role": m.get("role", "user"), "content": m.get("content", "")})
     system = "\n\n".join(p for p in system_parts if p) or None
     resp = await _chat(conv, system=system, tools=None, model=model, tier=tier, max_tokens=max_tokens,
-                       timeout_s=timeout_s, client=client)
+                       timeout_s=timeout_s, client=client, reasoning=reasoning)
     return _text(resp)
 
 

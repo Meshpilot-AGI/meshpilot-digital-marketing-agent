@@ -3460,3 +3460,55 @@ way BEFORE merge, not after.
 **If cost matters more than this workload:** the durable win is fewer and shorter calls — the
 requirement cap already in `score.py` — not a cheaper model that cannot produce the output.
 `AGENT_ROUTER_<TIER>` still overrides the roster without a code change.
+
+### 2026-09-15 — JOBS-ROUTER-COST lane closed (cost-first re-landed; the 0/18 was OUR bug, not the model)
+
+The operator asked for cheapest-first routing. A first attempt was reverted the same day on a
+measurement showing 0/18 successes for `z-ai/glm-5.3` as the `complex` primary. He disagreed —
+"I think GLM 5.3 and kimi k3 are much better than sonnet 5" — and he was right. The measurement was
+sound; the conclusion drawn from it was not. It measured two defects in THIS repo:
+
+1. `llm._EMPTY_RETRY_CEILING` was 8000 and gated the retry as `max_tokens < CEILING`. The job scorer
+   asks for exactly 8000, so the empty-completion retry this module advertised had never once run
+   for the caller that needed it most. 14 of the 18 failures were that.
+2. Nothing capped `reasoning.effort`, so a reasoning model spent its whole budget thinking. Raising
+   the budget makes this worse, not better — measured below.
+
+**Fair comparison, same prompt, one scoring call:**
+
+| model | budget | content | reasoning tok | cost |
+|---|---|---|---|---|
+| z-ai/glm-5.3 | 8000 | 2048 ch | 1548 | $0.0089 |
+| z-ai/glm-5.3 | 20000 | 1736 ch | 3340 | $0.0145 |
+| z-ai/glm-5.3 | 20000, effort=low | 1433 ch | 0 | **$0.0027** |
+| anthropic/claude-sonnet-5 | 8000 | 1992 ch | 0 | $0.0105 |
+
+glm-5.3 completes the task and, with effort capped, is **74% cheaper than sonnet-5**.
+
+**Shipped:** `llm._chat` takes `reasoning` and passes it through; the empty-completion retry now caps
+`reasoning.effort=low` (the ceiling bounds the RAISE, not whether the retry happens; 8000 → 16000);
+`jobs/score.py` sends `reasoning={"effort":"low"}` on all four scoring calls — both passes want
+structured JSON, not deliberation; `routing.TIERS["complex"]` flipped to glm-5.3 first, sonnet-5
+second. `critical` stays quality-first: an irreversible decision is the wrong place to save $0.008.
+
+**Verified** — 18-posting pool, same CV, re-scored end to end: **17/18 scored, Spearman 0.914**
+against the stored sonnet run. Suite **1351 pass**.
+
+**⚠️ The finding that is NOT free, and the reason this entry exists:** every paired role scored
+HIGHER on glm — mean **+0.37**, max +0.8, **none down**. Against the operator's fixed **4.0 floor**
+that is a loosened gate, not a better one: roles at or above the floor went **1 → 2** on an unchanged
+pool and CV. The floor was calibrated on sonnet. Anyone tuning it must know that.
+
+**Observed, NOT fixed (queued):** one posting sonnet scored 1.8 became unscorable under glm (pass 2
+unparseable even after escalating to `critical`) — 17/18 vs 18/18, a skipped role rather than a wrong
+one. `moderate`/`simple` are NOT flipped: unmeasured on their workloads, and shipping an unmeasured
+cost change beside a measured one is exactly how the first attempt went wrong. `moonshotai/kimi-k3`
+is still unreachable — `HTTP 404: No allowed providers are available`, i.e. the account's OpenRouter
+**Allowed Providers** list, fixable by the operator in settings, not in code.
+
+**Method note:** cheapest-first is only safe where the CALLER detects a bad answer — `score.py`
+escalates on no-requirements/unparseable-JSON, and `llm._chat` raises rather than returning `""`.
+OpenRouter's `models` array fails over on an ERROR and never on an empty or weak answer. Ordering a
+tier cheapest-first without one of those checks reproduces the original bug.
+
+**Rollback:** `AGENT_ROUTER_COMPLEX="anthropic/claude-sonnet-5,z-ai/glm-5.3"` — no code change.

@@ -1,5 +1,4 @@
-"""Model routing (ROUTER) — pick a quality-FIRST OpenRouter model list per task tier, with native
-fallback.
+"""Model routing (ROUTER) — pick an OpenRouter model list per task tier, with native fallback.
 
 This is deliberately NOT a semantic cache and NOT a sub-5ms latency layer: our brain is a stateful,
 24/7 *background* ReAct loop where each call depends on the full messages + tool_results + per-brand
@@ -12,9 +11,10 @@ Each tier resolves to an ordered list `[primary, fallback, …]`; `llm._chat` se
 — simpler and more reliable than a hand-rolled try/except chain. Per-tier env override:
 `AGENT_ROUTER_<TIER>` = comma-separated OpenRouter slugs.
 
-⚠️ **Cost-first ordering was tried and reverted (2026-09-15) — see the measurement on TIERS below.**
-OpenRouter's `models` array fails over on an ERROR and NEVER on a weak or empty answer, so a cheap
-primary that cannot do the task simply returns nothing and the fallback is never reached.
+⚠️ The `models` array fails over on an ERROR and NEVER on a weak or empty answer. So a cheap primary
+is only safe where the CALLER detects a bad answer and escalates itself (agent/jobs/score.py does),
+or where an empty completion raises (llm.py does). Ordering a tier cheapest-first without one of
+those is how a dead primary stays invisible.
 """
 from __future__ import annotations
 
@@ -45,39 +45,55 @@ import os
 # Every slug below returned real text on three consecutive live calls, 2026-09-02, WITH those
 # settings in force. Re-probe rather than trusting this comment.
 TIERS: dict[str, list[str]] = {
-    # QUALITY-FIRST. Cost-first was tried on 2026-09-15 and MEASURED A FAILURE — see the note below.
+    # `critical` stays quality-first: an irreversible decision is the wrong place to save $0.008.
+    # `complex` is COST-FIRST — z-ai/glm-5.3 ahead of claude-sonnet-5, measured, see the note below.
     # Third entry is deliberately NOT Anthropic where possible: every Anthropic slug here is served
     # by amazon-bedrock, so an all-Anthropic tier fails as one unit.
     "critical": ["anthropic/claude-opus-5", "anthropic/claude-opus-4.8", "openai/gpt-5.6-sol"],
-    "complex":  ["anthropic/claude-sonnet-5", "z-ai/glm-5.3", "anthropic/claude-sonnet-4.6"],
+    "complex":  ["z-ai/glm-5.3", "anthropic/claude-sonnet-5", "anthropic/claude-sonnet-4.6"],
     "moderate": ["z-ai/glm-5.2", "openai/gpt-5.6-luna", "deepseek/deepseek-v4-pro"],
     "simple":   ["anthropic/claude-haiku-4.5", "z-ai/glm-5.3-flash", "google/gemini-2.5-flash"],
 }
 
-# ⚠️ COST-FIRST WAS TRIED AND REVERTED — 2026-09-15, with measurements.
+# COST-FIRST ON `complex` — 2026-09-15. The operator asked for cheapest-first; a first attempt was
+# reverted the same day on a measurement that turned out to be measuring OUR BUG, not the model.
 #
-# `complex` was reordered to put z-ai/glm-5.3 ($2.15/1M) ahead of claude-sonnet-5 ($4.00/1M), a 46%
-# saving on paper. Re-scoring 18 real job postings on it produced **0 successes out of 18**:
-#     14  empty completion, stop_reason=max_tokens   (glm-5.3 is a reasoning model: it spent the
-#                                                     entire 8000-token budget thinking and emitted
-#                                                     nothing)
-#      4  pass 1 extracted no requirements
-# The run cost $0.80 and produced nothing. The "saving" was negative.
+# What the failed run actually showed: re-scoring 18 real job postings on z-ai/glm-5.3 produced 0
+# successes, 14 of them an empty completion with stop_reason=max_tokens. That was read as "glm-5.3
+# cannot do this task". It was not. Two defects in our own code produced it:
+#   1. `llm._EMPTY_RETRY_CEILING` was 8000 and gated the retry as `max_tokens < CEILING`, so a caller
+#      asking for EXACTLY 8000 — which the job scorer does — got no retry at all. The empty-completion
+#      retry this module advertised had never once run for the scorer.
+#   2. Nothing capped `reasoning.effort`, so a reasoning model spent the whole budget thinking.
+#      Raising the budget makes this WORSE, not better — more allowance buys more reasoning.
 #
-# The load-bearing detail: **OpenRouter did NOT fail over.** An empty completion is a SUCCESSFUL
-# HTTP response, not an error, so the `models` array never advanced to the fallback. Cheapest-first
-# is therefore only safe when the cheap model can actually complete the task — the array provides no
-# protection against a model that answers badly or not at all.
+# The fair comparison, same prompt, one scoring call (2026-09-15):
+#   z-ai/glm-5.3        @8000                  content 2048ch   reasoning 1548 tok   $0.0089
+#   z-ai/glm-5.3        @20000                 content 1736ch   reasoning 3340 tok   $0.0145
+#   z-ai/glm-5.3        @20000 effort=low      content 1433ch   reasoning    0 tok   $0.0027
+#   anthropic/sonnet-5  @8000                  content 1992ch   reasoning    0 tok   $0.0105
+# glm-5.3 completes the task, and with effort capped it is **74% cheaper than sonnet-5**.
 #
-# `moderate` and `simple` were reverted too, unmeasured: glm-5.3-flash is the same family and the
-# same structured-JSON workload, and shipping a second unmeasured cost change straight after this one
-# would be repeating the mistake. Measure per tier per workload before switching any of them.
+# Two things make cheapest-first safe on this tier specifically, and both must stay:
+#   - `agent/jobs/score.py` escalates on a DETECTED bad answer (no requirements / unparseable JSON),
+#     which is the check OpenRouter's `models` array does not perform.
+#   - `llm._chat` retries an empty completion with `reasoning.effort=low`, and raises if it is still
+#     empty. A silent `""` never reaches a caller.
+# Ordering another tier cheapest-first without an equivalent check would reproduce the original bug.
 #
-# If cost matters more than this workload: the durable win is fewer/shorter calls (the requirement
-# cap in agent/jobs/score.py, already in place), not a cheaper model that cannot produce the output.
-# `AGENT_ROUTER_<TIER>` still overrides any of this without a code change.
-
-# The quality-first ordering this replaced# The quality-first ordering this replaced, kept so it can be restored per-tier without archaeology:
+# ⚠️ **glm-5.3 SCORES HIGHER THAN SONNET ON THE SAME RUBRIC — this is not free.** Re-scoring the
+# same 18-posting pool with the same CV (2026-09-15): 17/18 scored, Spearman 0.914 against the
+# sonnet run (the ranking holds, which is what the operator actually acts on), but every single
+# paired role moved UP: mean **+0.37**, max +0.8, none down. Against a FIXED 4.0 floor that is a
+# loosened gate, not a better one — roles at the floor went 1 → 2 on an unchanged pool and CV.
+# Whoever tunes the floor next must know it was calibrated on sonnet, not on glm. The one
+# regression: a posting sonnet scored 1.8 became unscorable (pass 2 unparseable even after the
+# escalation to `critical`), so 17/18 vs 18/18 — a skipped role, not a wrong one.
+#
+# `moderate` and `simple` were NOT flipped: they are unmeasured on this workload, and shipping an
+# unmeasured cost change alongside a measured one is how the first attempt went wrong.
+#
+# The quality-first ordering, kept so any tier can be restored without archaeology:
 #   critical  opus-5, opus-4.8, gpt-5.6-sol
 #   complex   sonnet-5, glm-5.3, sonnet-4.6
 #   moderate  glm-5.2, gpt-5.6-luna, deepseek-v4-pro
