@@ -8,9 +8,23 @@
 #
 # Playwright's own image ships Chromium AND its system deps, which is the whole reason to use it
 # rather than python:slim + a long apt incantation that drifts.
-FROM mcr.microsoft.com/playwright/python:v1.55.0-jammy
+# NOBLE, not jammy. The jammy image is Ubuntu 22.04 with python3.10, and this package declares
+# `requires-python = ">=3.11"`, so `pip install .` fails with
+# `requires a different Python: 3.10.12 not in '>=3.11'`. Noble is Ubuntu 24.04 with python3.12
+# (verified from the image config, not assumed). Bump this tag deliberately — Playwright pins the
+# browser build to the image, so the tag IS the Chromium version.
+FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
 
 WORKDIR /app
+
+# Ubuntu 24.04 ships PEP 668 "externally-managed-environment", which refuses `pip install` into the
+# system Python. This image's whole purpose is running one app, and Playwright itself lives in that
+# same system Python, so installing alongside it is the intended shape — not a workaround around a
+# shared machine. Set as an env var rather than a flag so it applies to every pip call, and it is a
+# harmless no-op on an image without the marker.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONUNBUFFERED=1
 
 # Install the agent package itself, so the submitter shares ONE copy of the store, the submission
 # guards and the fact verifier. A second implementation of those rules is how the guards drift apart.
