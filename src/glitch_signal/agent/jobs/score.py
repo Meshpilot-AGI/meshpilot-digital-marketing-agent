@@ -29,7 +29,11 @@ log = structlog.get_logger()
 MAX_JD_CHARS = 12000
 MAX_CV_CHARS = 8000
 # A 12-18 requirement posting with verbatim evidence does NOT fit the 2048-token default.
-_MAX_TOKENS = 12000
+# 8000, not 12000. OpenRouter RESERVES credit against max_tokens per request, so a larger budget
+# drains the balance faster than the tokens actually used — that is what brought a 402 forward
+# mid-sweep. The pass-2 overflow it was raised to fix is already handled by capping requirements at
+# _MAX_REQS; the bigger budget was belt-and-braces that cost real money.
+_MAX_TOKENS = 8000
 _MAX_REQS = 18   # keep pass 2's JSON inside the budget; see the ranking note below
 _IMPORTANCE_ORDER = {"critical": 0, "high": 1, "meaningful": 2, "preferred": 3, "low_signal": 4}
 
@@ -227,8 +231,25 @@ async def score_listing(listing: dict, cv_text: str, cfg: dict, *, tier: str = "
             "model": None, "error": None}
 
 
-def meets_floor(score: float | None, hard_stop: bool, cfg: dict, default_floor: float = 4.0) -> bool:
-    """Operator decision 2: below the floor a role is SKIPPED, never offered for a yes/no."""
+MIN_REQUIREMENTS_FOR_CONFIDENCE = 8
+
+
+def meets_floor(score: float | None, hard_stop: bool, cfg: dict, default_floor: float = 4.0,
+                *, parts: dict | None = None) -> bool:
+    """Operator decision 2: below the floor a role is SKIPPED, never offered for a yes/no.
+
+    A THIN posting cannot clear the floor. Measured 2026-09-15: the single highest score in a
+    28-role sweep (4.0) came from a job description that yielded FOUR requirements and zero
+    criticals — there was almost nothing to fail, so the score says more about the posting's length
+    than about the candidate. Treating that as the best opportunity available would put the operator
+    in front of an employer on the strength of a scoring artifact.
+
+    This is deliberately a CONFIDENCE gate, not a penalty: the score is left untouched and reported
+    honestly, but a posting we could not really evaluate does not get offered.
+    """
     if hard_stop or score is None:
+        return False
+    n = int((parts or {}).get("requirements") or 0)
+    if parts is not None and n < MIN_REQUIREMENTS_FOR_CONFIDENCE:
         return False
     return score >= float((cfg or {}).get("min_score") or default_floor)

@@ -637,7 +637,10 @@ async def _t_offer_job(args: dict, brand_id: str) -> str:
 
     data = dict(row)
     hard_stop = (data.get("work_auth") == "no_sponsorship")
-    if not _score.meets_floor(data.get("score"), hard_stop, cfg):
+    parts = data.get("score_parts")
+    if isinstance(parts, str):
+        parts = _json.loads(parts or "{}")
+    if not _score.meets_floor(data.get("score"), hard_stop, cfg, parts=parts or {}):
         return _json.dumps({"offered": False, "reason": "below the score floor or work-auth blocked",
                             "score": str(data.get("score")), "work_auth": data.get("work_auth")})
 
