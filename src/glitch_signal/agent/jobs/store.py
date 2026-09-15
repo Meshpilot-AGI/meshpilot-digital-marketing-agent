@@ -206,3 +206,29 @@ def submitted_today(brand_id: str, *, engine: Any = None) -> int:
     eng = _engine_or(engine)
     with eng.begin() as conn:
         return int(conn.execute(_SUBMITTED_TODAY, {"b": brand_id}).scalar() or 0)
+
+
+# --- JOBS-6: answer bank + submission bookkeeping -------------------------------------
+
+_ANSWER_BANK = text("SELECT question, answer FROM job_answer_bank WHERE brand_id = :b")
+
+_MARK_SUBMITTED = text(
+    "UPDATE job_application SET status = 'submitted', submitted_at = now(), "
+    "  evidence = CAST(:evidence AS jsonb) WHERE id = :id AND submitted_at IS NULL RETURNING id"
+)
+
+
+def answer_bank(brand_id: str, *, engine: Any = None) -> dict[str, str]:
+    """The operator's answer bank, keyed by NORMALIZED question. Exact match only (decision 4)."""
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        return {r[0]: r[1] for r in conn.execute(_ANSWER_BANK, {"b": brand_id})}
+
+
+def mark_submitted(app_id: str, evidence: dict, *, engine: Any = None) -> bool:
+    """Record a submission. Returns False if the row was ALREADY submitted — the guard against a
+    double submission racing through two workers. `submitted_at IS NULL` makes it atomic."""
+    eng = _engine_or(engine)
+    with eng.begin() as conn:
+        row = conn.execute(_MARK_SUBMITTED, {"id": app_id, "evidence": json.dumps(evidence or {})}).first()
+    return bool(row)
