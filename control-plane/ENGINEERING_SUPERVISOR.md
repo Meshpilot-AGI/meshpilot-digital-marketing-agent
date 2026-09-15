@@ -3166,3 +3166,34 @@ balance. Top it up before the next scoring sweep.
 - Job Bank is configured with 20 keywords but was NOT included in this measurement (the gather script
   covers ATS boards only). It is national and free — likely the single largest untapped source.
 - The thin-JD guard from JOBS-8 is still unbuilt.
+
+### 2026-09-15 — JOBS-10 (DTC sourcing): boards 59 → 92, pool 22 → 28, composition fixed
+
+Acting on the JOBS-9 finding that the constraint is TARGETING, not volume: the operator scores ~3.8
+at consumer/ecommerce employers and 2.0–2.7 at B2B SaaS, and public ATS boards over-represent the
+latter. So this lane probed the segment he actually fits.
+
+**Probed 122 DTC / retail / ecommerce / agency slugs → 43 live boards; 33 were new.**
+Toronto DTC (Mejuri, Knix), international DTC (Glossier, Everlane, Gymshark, Rothy's, Brooklinen,
+Away, Harry's, Olipop), DTC martech (Klaviyo, Attentive, Yotpo, Triple Whale, Northbeam, Gorgias,
+Loop Returns) and agencies (Dept, AKQA, Critical Mass, Sid Lee, Bounteous).
+
+The martech group is worth calling out: those companies SELL the stack the operator built himself
+(CAPI, server-side tagging, lifecycle). That is the narrowest overlap with his differentiator and is
+probably the highest-yield segment in the whole board list.
+
+**Measured: scorable Canadian roles 22 → 28**, and the new entries are the right shape — Campaign
+Manager, Senior Campaign Manager, CRM Marketing Manager, Marketing Technology Lead and Senior
+Lifecycle Growth Manager, all TORONTO, none previously visible. Previous sweeps surfaced B2B demand-gen
+roles that scored 2-3; these are consumer/CRM roles in the segment that scored 3.8.
+
+**⛔ NOT SCORED — OpenRouter credit is exhausted ($1.76 of $20).** So the prediction that these score
+higher is UNVERIFIED. The composition check (titles, employers, locations) is free and was done; the
+score check is not and was not. Do not record this lane as having improved scores — it improved the
+POOL, and the hypothesis that better-targeted employers score better is still a hypothesis.
+
+**Next session, in order:**
+1. Top up OpenRouter (operator action — MeshPilot's whole brain and GE's pipelines share this balance).
+2. Score the 28 and check whether the DTC roles do clear 4.0. That is the real test of the JOBS-9
+   targeting finding.
+3. Run Job Bank (20 keywords, national, free) — still the largest completely unmeasured source.
