@@ -3,6 +3,31 @@
 > The single live queue. Lanes move: OPEN → CLAIMED → IN PROGRESS → IN VERIFICATION → CLOSED.
 > Format + rules: see docs/LANE-LIFECYCLE.md.
 
+### JOBS — MeshPilot applies for jobs (discover → score → tailor → approve → submit)   [OPEN — JOBS-0 design written 2026-09-15]
+Owner: claude        Opened: 2026-09-15
+Operator goal, verbatim: "meshpilot should be applying for jobs for me."
+Reading: docs/plans/2026-09-15-job-application-agent.md (the design; open operator decisions in its
+§ 11), docs/VISION.md (Projects × Capabilities — this is a new Project `tejas` + a `jobs` capability),
+src/glitch_signal/agent/offpage/approvals.py (the approval gate this reuses wholesale).
+Acceptance: per sub-lane JOBS-0..6 in the design § 10; each live before the next starts.
+Write-back: ARCHITECTURE.md (3 tables), docs/BRANDS.md (the `tejas` project),
+control-plane/ENGINEERING_SUPERVISOR.md.
+
+**Shape:** a new Project (`tejas`, env_prefix `TKA`) + a `jobs` capability family. Discovery from
+Job Bank Canada + public ATS boards + Apify(Indeed) + LinkedIn **job-alert emails**. Scored two-pass
+(JD first, CV second) into an A-H report. CV tailored against a fact base that FAILS CLOSED on an
+unsupported metric. Approval as a Discord card (the OFFPAGE pattern). Submission last, gated, with a
+stored confirmation artifact.
+
+⚠️ **Explicitly out of scope:** authenticated scraping of LinkedIn/Indeed from our own IP (ToS, and it
+stakes the operator's own account), CAPTCHA solving, and account creation. Recorded as a decision, not
+an oversight — do not add later without an operator decision written into the design doc.
+
+✅ **`APIFY_KEY` is held and unwired** (see TARGETING lane). JOBS-2 is a legitimate first consumer.
+
+**Blocked on 4 operator decisions** (design § 11): daily cap, auto-apply score floor, per-application
+vs. batched approval, and whether free-text screening answers may ever go unattended.
+
 ### DRIVE-TO-SOCIAL — AyurPet posts existing Drive footage, IG + TikTok        [CLOSED 2026-09-12 — PRs #294 #295 #296]
 Second brand, first non-generated content source. `drive_to_social` capability (`agent/social/`),
 `drive_post` table, Drive client resolved per brand (`_client(brand_id)` — the no-arg form silently
