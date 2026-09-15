@@ -38,8 +38,11 @@ class _Engine:
 
 async def test_flags_primary_not_serving_and_drift():
     rows = [
-        # complex primary (anthropic/claude-sonnet-5) absent → 0 recent; fallback glm-5.3 served
-        {"model": "z-ai/glm-5.3", "recent_calls": 10, "recent_cost": 0.5, "base_calls": 5, "base_cost": 0.2},
+        # complex primary (z-ai/glm-5.3, cheapest-first) absent → 0 recent; the costlier FALLBACK
+        # sonnet-5 served instead, which is exactly the state worth flagging: the cheap primary is
+        # not answering and spend has quietly moved up the tier.
+        {"model": "anthropic/claude-sonnet-5", "recent_calls": 10, "recent_cost": 0.5,
+         "base_calls": 5, "base_cost": 0.2},
         # haiku recent cost/call 0.10 vs baseline 0.05 → 2x drift
         {"model": "anthropic/claude-haiku-4.5", "recent_calls": 10, "recent_cost": 1.0,
          "base_calls": 10, "base_cost": 0.5},
@@ -52,9 +55,10 @@ async def test_flags_primary_not_serving_and_drift():
 
 async def test_clean_when_primary_serves_and_no_drift():
     rows = [
-        {"model": "anthropic/claude-sonnet-5", "recent_calls": 20, "recent_cost": 2.0,
+        # the CURRENT primaries serving healthily: cheapest-first means these are the cheap ones
+        {"model": "z-ai/glm-5.3", "recent_calls": 20, "recent_cost": 2.0,
          "base_calls": 20, "base_cost": 2.0},
-        {"model": "anthropic/claude-haiku-4.5", "recent_calls": 20, "recent_cost": 1.0,
+        {"model": "z-ai/glm-5.3-flash", "recent_calls": 20, "recent_cost": 1.0,
          "base_calls": 20, "base_cost": 1.0},
     ]
     res = await audit.routing_audit(engine=_Engine(rows))

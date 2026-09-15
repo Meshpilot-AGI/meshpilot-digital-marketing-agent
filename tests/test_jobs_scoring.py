@@ -273,3 +273,88 @@ async def test_a_real_posting_is_not_refused(monkeypatch):
         {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
          "jd_text": "x" * 5000}, "cv", CFG)
     assert out["score"] == 4.0
+
+
+# --- cost-first router + detected-failure escalation (JOBS-15) --------------------------
+
+def test_working_tiers_are_cheapest_first():
+    """OpenRouter's models array fails over on ERROR, never on a weak answer — so the first entry
+    answers essentially everything. Cheapest must be first for the cost win to exist at all."""
+    from glitch_signal.agent.loop import routing
+
+    assert routing.resolve("complex")[0] == "z-ai/glm-5.3"
+    assert routing.resolve("simple")[0] == "z-ai/glm-5.3-flash"
+    assert routing.resolve("moderate")[0] == "openai/gpt-5.6-luna"
+
+
+def test_critical_stays_quality_first():
+    """`critical` carries the conscience critic — "the last thing between the agent and the public" —
+    and irreversible work. A previous lane deliberately moved that critic OFF the cheapest model;
+    cost-first ordering here would silently revert that fix."""
+    from glitch_signal.agent.loop import conscience, routing
+
+    assert conscience.CRITIC_TIER == "critical"
+    assert routing.resolve("critical")[0] == "anthropic/claude-opus-5"
+
+
+def test_every_tier_still_has_real_fallbacks():
+    from glitch_signal.agent.loop import routing
+
+    for tier in ("critical", "complex", "moderate", "simple"):
+        models = routing.resolve(tier)
+        assert len(models) >= 2, f"{tier} has no failover"
+        assert len(set(models)) == len(models)
+
+
+@pytest.mark.asyncio
+async def test_unparseable_pass2_escalates_to_a_stronger_tier(monkeypatch):
+    """The cheap model answering badly is exactly when paying for a better one is worth it —
+    and only then."""
+    import json as _json
+
+    from glitch_signal.agent.loop import llm
+
+    tiers = []
+
+    async def fake(messages, *, tier=None, **kw):
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        if "NOT seen any candidate" in system:
+            return _json.dumps({"role_summary": "r", "requirements": [
+                {"requirement": "paid media", "jd_signal": "x", "importance": "critical"}]})
+        tiers.append(tier)
+        if tier == "complex":
+            return "not json at all — truncated"        # cheap model fails
+        return _json.dumps({"requirements": [], "score": 4.0, "verdict": "ok",
+                            "strengths": [], "gaps": []})
+
+    monkeypatch.setattr(llm, "complete_messages", fake)
+    out = await score.score_listing(
+        {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
+         "jd_text": "x" * 5000}, "cv", CFG, tier="complex")
+    assert tiers == ["complex", "critical"], "must retry pass 2 on the next tier up"
+    assert out["score"] == 4.0
+    assert out["model"] == "critical"
+
+
+@pytest.mark.asyncio
+async def test_a_good_cheap_answer_does_not_escalate(monkeypatch):
+    """Escalation must be rare — it exists to remove the downside of cheapest-first, not to undo it."""
+    import json as _json
+
+    from glitch_signal.agent.loop import llm
+
+    tiers = []
+
+    async def fake(messages, *, tier=None, **kw):
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        if "NOT seen any candidate" in system:
+            return _json.dumps({"role_summary": "r", "requirements": [
+                {"requirement": "x", "jd_signal": "y", "importance": "high"}]})
+        tiers.append(tier)
+        return _json.dumps({"requirements": [], "score": 3.0, "verdict": "", "strengths": [], "gaps": []})
+
+    monkeypatch.setattr(llm, "complete_messages", fake)
+    await score.score_listing(
+        {"title": "t", "company": "c", "location": "Toronto, Canada", "canonical_url": "u",
+         "jd_text": "x" * 5000}, "cv", CFG, tier="complex")
+    assert tiers == ["complex"], "no escalation when the cheap answer parses"
