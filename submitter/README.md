@@ -88,29 +88,35 @@ There is no `submitter/railway.json` — it was never read (the service's root d
 `submitter/`) and its presence implied otherwise.
 
 
-## ⚠️ Supabase is IPv6-only on the direct host — enable Railway's outbound IPv6
+## ⚠️ Use the Supabase POOLER host — outbound IPv6 does NOT work here
 
-**Measured 2026-09-15.** With a correct `DATABASE_URL`, the worker still died on its first poll:
+**Measured 2026-09-15, twice.** With a correct `DATABASE_URL` pointing at Supabase's DIRECT host,
+the worker dies on every poll:
 
     socket.gaierror: [Errno -2] Name or service not known
 
-It is not a code or credential problem. Supabase's DIRECT connection host publishes **no A record**:
+Supabase's direct host publishes **no A record** — only AAAA:
 
     db.<ref>.supabase.co   A: (none)   AAAA: 2600:1f16:...
 
-Railway services are IPv4-only **by default**, so the name resolves to nothing they can route to.
-Two ways out:
+**Enabling Railway's Outbound IPv6 does not fix it.** That was tried: toggled on, service restarted,
+then FULLY REDEPLOYED (the docs say a redeploy is required) — the error is identical every time. The
+failure is `EAI_NONAME`, a **resolution** failure: Railway's resolver returns nothing for that name.
+Outbound IPv6 governs *routing*, so it cannot help a lookup that never returns an address. A routing
+problem would surface as `ENETUNREACH` / "Network is unreachable" at connect time instead.
 
-1. **Enable Railway's Outbound IPv6** on the service — Settings → Networking → *Enable Outbound
-   IPv6*, then redeploy. Free, and it keeps the direct connection, which means prepared statements
-   keep working.
-2. Switch to the Supavisor **pooler** host (`aws-0-<region>.pooler.supabase.com:6543`), which has
-   IPv4 A records. Supabase's own IPv4 add-on for the direct host is **paid**; the pooler is not.
-   `config._asyncpg_connect_args` already sets `statement_cache_size=0` for port 6543, because
-   pgbouncer transaction mode cannot use prepared statements (see `tests/test_db_url.py`).
+**So: use the Supavisor pooler**, which has IPv4 A records.
 
-Option 1 is preferred here: no paid add-on, no prepared-statement penalty.
+    postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
 
-⚠️ The CLI can only STAGE it — `railway outbound-network ipv6 enable --service <svc>` — and the
-commit step (`railway environment edit`) is an interactive TUI, so it cannot be completed from a
-non-interactive session. Use the dashboard toggle, or run that command yourself.
+Note the three differences from the direct string: the host, the port (**6543**), and the username
+gains the project ref (`postgres.<ref>`). Get the exact value from Supabase → Settings → Database →
+**Connection pooling** (not "Direct connection").
+
+The codebase already handles it: `config._asyncpg_connect_args` sets `statement_cache_size=0` for
+port 6543, because pgbouncer transaction mode cannot use prepared statements. Both modes are covered
+by `tests/test_db_url.py`. Losing prepared statements is the cost; Supabase's IPv4 add-on for the
+direct host is **paid**, and the pooler is not.
+
+If transaction mode ever causes trouble, session mode on the same pooler host (port **5432**) is the
+fallback and keeps prepared statements.
