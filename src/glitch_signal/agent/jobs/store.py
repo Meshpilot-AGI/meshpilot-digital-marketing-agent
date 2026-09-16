@@ -105,6 +105,29 @@ _MARK_SUBMITTED = text(
 )
 
 
+def _as_datetime(value: Any) -> Any:
+    """Coerce a source's `posted_at` to a datetime, or None.
+
+    ⚠️ This is why `job_listing` was EMPTY (found on the first live run, 2026-09-15). Every source
+    carries `posted_at` as an ISO STRING — that is what the feeds and ATS APIs return — and asyncpg
+    binds parameters by type rather than letting Postgres cast them, so the insert died with
+    `invalid input for query argument $7`. One `_gather` catch upstream turned that into a logged
+    warning, so discovery reported success and stored NOTHING, every run, since JOBS-2.
+
+    Coercing here rather than in each source is deliberate: there are five sources and one store, and
+    the next source added would have reintroduced the bug. An unparseable value becomes None — a
+    listing with no date is worth keeping; losing the listing over its date is not.
+    """
+    from datetime import datetime
+
+    if value is None or isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
 async def upsert_listing(brand_id: str, listing: dict, *, engine: Any = None) -> tuple[str, bool]:
     """Insert or refresh one listing. Returns (id, was_newly_inserted)."""
     eng = _engine_or(engine)
@@ -116,7 +139,7 @@ async def upsert_listing(brand_id: str, listing: dict, *, engine: Any = None) ->
             "company": listing.get("company"),
             "title": listing.get("title"),
             "location": listing.get("location"),
-            "posted_at": listing.get("posted_at"),
+            "posted_at": _as_datetime(listing.get("posted_at")),
             "jd": listing.get("jd_text"),
         })
         row = res.first()

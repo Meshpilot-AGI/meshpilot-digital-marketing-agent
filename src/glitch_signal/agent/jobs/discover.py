@@ -50,7 +50,11 @@ async def _gather(coros: list) -> list[dict]:
     got: list[dict] = []
     for res in await asyncio.gather(*coros, return_exceptions=True):
         if isinstance(res, BaseException):
-            log.warning("jobs.discover.source_failed", error=str(res)[:200])
+            # The TYPE matters as much as the message: this logged eight bare `error=` lines on the
+            # first live run, because several exception classes stringify to "". An error report that
+            # does not say what failed is why a broken source can look like an empty one.
+            log.warning("jobs.discover.source_failed", error_type=type(res).__name__,
+                        error=str(res)[:200] or "(no message)")
             continue
         got.extend(res or [])
     return got

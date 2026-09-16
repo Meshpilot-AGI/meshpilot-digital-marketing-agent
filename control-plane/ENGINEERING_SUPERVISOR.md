@@ -3559,3 +3559,45 @@ the real pipeline yet — the first live `jobs_hunt` run is the next step and ne
 not in the local `.env`, so a card can only be posted from the cloud. No submission driver exists, so
 every `jobs_submit` outcome today is `manual_required` by design. At the 4.3 floor, none of the 17
 roles scored in scratchpad would clear it — the binding constraint is now the POOL, not the gate.
+
+### 2026-09-15 — JOBS-9 lane closed (discovery could NEVER persist; found by the first live run)
+
+The first real `jobs_hunt` tick failed instantly, and the failure explains JOBS-8 finding 2 — why
+`job_listing` had zero rows since JOBS-2 shipped.
+
+**Root cause:** every source carries `posted_at` as an ISO **string** (that is what the ATS APIs and
+the Job Bank feed return), and **asyncpg binds parameters by type rather than letting Postgres cast
+them**, so every insert died with `invalid input for query argument $7`. A `_gather` catch upstream
+turned that into a logged warning, so `discover()` reported success and stored NOTHING on every run
+since JOBS-2. The capability looked healthy from every angle except the table.
+
+**Why no test caught it:** every unit test in this family mocks the store, so the bug lived entirely
+in the gap between our code and the driver. Same shape as the async-store defect on 2026-09-15 —
+*coverage of the callers is not coverage of the call.* Only a live run against Postgres could find
+it, which is an argument for doing the live run earlier, not for writing more mocks.
+
+**Second defect, same run:** `jobs.discover.source_failed` logged eight bare `error=` lines, because
+several exception classes stringify to `""`. An error report that does not say what failed is why a
+broken source looks like an empty one. Now logs `error_type` too — which immediately identified the
+two silent failures as `ConnectError`.
+
+**Shipped:** `store._as_datetime` coerces at the STORE, not per source — there are five sources and
+one store, and the next source added would have reintroduced it. An unparseable date becomes None: a
+listing with no date is worth keeping, losing the listing over its date is not. Plus the error-type
+logging, and a regression test that states why the mocked tests could not see this.
+
+**Verified — the pipeline ran end to end for the first time:**
+
+```
+fetched=3830  filtered_out=3787  kept=43  inserted=43   sources=[ashby, greenhouse, jobbank_ca, lever]
+job_listing 43 · posted_at non-null 39 · scorable (jd>800) 29
+scored 5 → 3.0, 2.6, 2.0, 1.8, 1.8 — all below the 4.3 floor, all SKIPPED, zero cards posted
+```
+
+The floor behaved exactly as designed: five roles evaluated, none surfaced, nothing offered.
+
+**Observed, NOT fixed (queued):** `source_failed` still does not name WHICH source failed — only its
+exception type — so the two `ConnectError`s are unattributed. `hunt.run` scores sequentially (~40 s
+per listing); the throwaway script that scored 18 roles used a semaphore of 4, and a cron tick that
+takes 20 minutes to score 30 listings will eventually hit the capability timeout. Neither blocks the
+lane. And the real constraint stands: of 5 scored, the best was 3.0.
