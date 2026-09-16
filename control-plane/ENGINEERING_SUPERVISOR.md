@@ -3629,3 +3629,59 @@ different league. Either the sourcing widens until genuine ≥4.3 roles appear, 
 knowingly. Both are his call; moving the floor to fit the pool without saying so would be the one
 unacceptable option, since the floor is the only thing standing between him and applications he
 would not have chosen.
+
+### 2026-09-15 — JOBS-10 lane closed (sourcing widened; the first role clears the floor)
+
+The operator's call after the first live run: keep the 4.3 floor, widen the pool. Two sources added.
+
+**Indeed via Apify — works, and is the first source that costs money.** Verified live against
+`misceres/indeed-scraper`: 11 listings, **11 of 11 scorable** (full JDs, ~6.5k chars), which is the
+whole point — Job Bank returns summaries and scores 0 of 13. Three defects found by running it:
+
+1. 🔴 **The API token was logged in plaintext.** With `?token=` in the query string, httpx puts the
+   full URL into the exception it raises on an error status, and `discover._gather` logs that
+   message — so the live Apify key printed to the logs, twice, on the first real run. Moved to an
+   `Authorization` header; a test asserts the token never appears in the URL. **The key must be
+   rotated** — it is in this session's log.
+2. **`402 Payment Required` on 2 of 6 queries** — concurrency, not balance ($0.63 of a $5 allowance
+   at the time). Apify's free plan caps concurrent runs by memory and discovery fires every query
+   through one `gather`. A semaphore of 2 fixed it: the re-run completed all six.
+3. **`max_items or DEFAULT` turned an explicit `max_items: 0` into a 25-result BILLED run**, because
+   0 is falsy. On a metered source that idiom is a live grenade. Only None now means unspecified.
+
+**Cost, measured:** 6 queries × 25 results = **$0.92 per discovery run**, ≈ $0.006/result. Daily
+that is ~$28/month against a $5 free allowance — see the queued note below.
+
+**LinkedIn alerts — built, honestly bounded, and NOT enabled.** LinkedIn sends these to a mailbox
+the operator owns, so reading them is not scraping. But ⚠️ **an alert carries no job description**,
+and fetching one would mean fetching it from LinkedIn, which is the thing this source exists to
+avoid. So its rows are stored-but-unscorable exactly like Job Bank's (0 of 13). It is a **lead**
+source — which companies are hiring, so their ATS boards can be added — not a listing source.
+Left `false` in the brand config: no mailbox is wired, and an enabled source with no credential is
+just a warning every tick. The reader is injectable (IMAP + app password, the only route the
+operator can set up alone — an agent must never create accounts or handle passwords).
+⚠️ **UNVERIFIED against a real message:** the mailbox reachable from this session holds zero LinkedIn
+mail and zero job alerts of any kind, so the parser is built to LinkedIn's published alert-link
+format and tested on a constructed fixture. Check the first real alert against it.
+
+**Verified — the decision was right:**
+
+```
+before  43 listings, 27 scored, best 4.2  → 0 cleared the 4.3 floor
+after   54 listings, 39 scored, best 4.5  → 1 clears
+
+  4.5  Digital Campaign/Performance Marketing Specialist   flipp    greenhouse  ← first over the bar
+  4.2  Paid Media Specialist                               later
+  4.1  Campaign Manager (FTC)                              dept
+```
+
+Widening the pool produced a genuine ≥4.3 role rather than requiring the bar to move. The tick tried
+to post its card and failed with `DISCORD_BOT_TOKEN missing` — correct locally, since that secret
+lives only in FastAPI Cloud. **The first card must be posted from the cloud, not this laptop.**
+
+**Observed, NOT fixed (queued):** `APIFY_KEY` is NOT set in FastAPI Cloud, so Indeed is local-only
+until it is added (and it should be rotated first). At $0.92/run the current 6×25 config exceeds the
+$5/month free allowance in six runs — either cut to ~2 queries × 15, run Indeed weekly rather than
+daily, or move to a paid plan; a deliberate choice, not a default. Indeed also returns the same role
+at several URLs (one posting, per-location `jk` ids), which URL-keyed dedup cannot collapse — a
+title+company dedup pass would.
