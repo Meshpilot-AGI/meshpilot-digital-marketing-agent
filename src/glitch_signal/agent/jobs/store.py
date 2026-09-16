@@ -89,6 +89,9 @@ _EXPIRE = text(
 
 _BY_STATUS = text(
     "SELECT a.id, a.listing_id, a.status, a.discord_msg_id, a.answers, a.tailored_cv_path, "
+    # The approved markdown travels with the row: the submitter re-renders THAT document rather than
+    # tailoring a fresh one, so what is sent is what was approved.
+    "       a.tailored_cv_md, "
     "       a.submitted_at, a.created_at, "
     "       l.canonical_url, l.company, l.title, l.location "
     "FROM job_application a JOIN job_listing l ON l.id = a.listing_id "

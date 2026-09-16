@@ -15,11 +15,19 @@ from glitch_signal.agent.jobs.drivers import browser as bx
 
 log = structlog.get_logger()
 
+# ⚠️ Measured against three REAL Flipp/DEPT/Later forms on 2026-09-16, not assumed. The first four
+# were all this driver knew, and every one of those forms also marks Country, Location (City) and
+# LinkedIn Profile REQUIRED — so a submission would have been rejected by the form's own validation
+# with every mapped field filled correctly. The selectors below are the ones those pages actually
+# expose; `auto_fill_country` etc. are Greenhouse's own ids for its combobox fields.
 _FIELDS = {
     "first_name": ["input#first_name", "input[name='first_name']", "input[autocomplete='given-name']"],
     "last_name": ["input#last_name", "input[name='last_name']", "input[autocomplete='family-name']"],
     "email": ["input#email", "input[name='email']", "input[type='email']"],
     "phone": ["input#phone", "input[name='phone']", "input[type='tel']"],
+    "city": ["input#auto_fill_location", "input[name*='location']", "input[id*='location']"],
+    "country": ["input#auto_fill_country", "input[name*='country']", "input[id*='country']"],
+    "linkedin": ["input[name*='linkedin' i]", "input[id*='linkedin' i]"],
 }
 _RESUME = ["input[type='file'][name*='resume']", "input#resume", "input[type='file']"]
 _SUBMIT = ["button#submit_app", "button[type='submit']", "input[type='submit']"]

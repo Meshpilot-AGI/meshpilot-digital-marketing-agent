@@ -39,16 +39,27 @@ SHOT_DIR = os.environ.get("SUBMITTER_SCREENSHOT_DIR", "/tmp/evidence")
 
 
 def identity_for(cfg: dict) -> dict:
-    """Contact fields, taken from the brand config — never inferred, never guessed."""
+    """Contact fields, taken from the brand config — never inferred, never guessed.
+
+    ⚠️ `location` in the config is one string ("Toronto, ON, Canada") but Greenhouse asks for City
+    and Country as SEPARATE required fields. Split on the last comma rather than parsing: the last
+    segment is the country in every form of that string, and a wrong split leaves a field the form
+    rejects rather than a wrong value sent to an employer. A config without a comma yields a city and
+    no country, which fails visibly instead of guessing "Canada".
+    """
     c = cfg.get("contact") or {}
     full = (c.get("full_name") or "").strip()
     first, _, last = full.partition(" ")
+    loc = (c.get("location") or "").strip()
+    city, _, country = (loc.rpartition(",") if "," in loc else (loc, "", ""))
     return {"full_name": full, "first_name": first, "last_name": last,
-            "email": c.get("email", ""), "phone": c.get("phone", "")}
+            "email": c.get("email", ""), "phone": c.get("phone", ""),
+            "city": city.strip(), "country": country.strip(),
+            "linkedin": c.get("linkedin", "")}
 
 
 async def one_pass() -> dict:
-    from glitch_signal.agent.jobs import store, submit
+    from glitch_signal.agent.jobs import artifact, factbase, store, submit
     from glitch_signal.agent.jobs.discover import jobs_config
     from glitch_signal.agent.jobs.drivers import for_ats
     from glitch_signal.agent.loop import policy
@@ -80,6 +91,21 @@ async def one_pass() -> dict:
         if not driver_cls:
             await store.set_application_status(str(app["id"]), "manual_required",
                                          reason=f"no driver for ats={ats}")
+            out["manual"] += 1
+            continue
+
+        # Materialize the APPROVED document. `prepare()` refuses without a CV artifact, and the
+        # artifact is deliberately not created until now: the PDF has nowhere durable to live (this
+        # container is a poll loop that restarts), so the markdown in the database is the record and
+        # this is a deterministic re-render of it. Never a fresh tailoring — what is uploaded must
+        # descend from what the operator approved.
+        try:
+            app = dict(app)
+            app["tailored_cv_path"] = artifact.ensure_cv_file(
+                app, factbase.cv_text(BRAND, cfg), out_dir=SHOT_DIR)
+        except (FileNotFoundError, artifact.UnverifiedCvError) as exc:
+            log.warning("submitter.no_approved_cv id=%s reason=%s", app.get("id"), exc)
+            await store.set_application_status(str(app["id"]), "manual_required", reason=str(exc)[:300])
             out["manual"] += 1
             continue
 

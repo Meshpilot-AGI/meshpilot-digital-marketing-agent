@@ -3750,3 +3750,49 @@ old ✅ is exactly the substitution this lane exists to prevent.
 **Observed, NOT fixed (queued):** `APIFY_KEY` is still un-rotated (verified still live 2026-09-16) and
 still absent from FastAPI Cloud. No submission driver exists, so `AGENT_JOB_APPLY_ENABLED` remains
 off and every submit outcome would be `manual_required`.
+
+### 2026-09-16 — JOBS-13 lane closed (submitter loop closed; measured against three REAL forms)
+
+The submitter had a browser, two drivers, every guard and a poll loop, and could never send anything:
+`prepare()` refuses without a CV artifact and nothing produced one — `tailored_cv_path` was NULL on
+every row. Closed by carrying `tailored_cv_md` through `_BY_STATUS` and adding
+`jobs/artifact.ensure_cv_file`, which renders THAT markdown at submit time (never tailors, never
+falls back to the master CV) and re-verifies it against the fact base first.
+
+**Then the driver was checked against three real Greenhouse forms** — Flipp (4.5), DEPT (4.1), Later
+(4.2) — rather than trusted. Four findings, all measured 2026-09-16:
+
+1. ✅ **Every core selector matches.** `#first_name`, `#last_name`, `#email`, `#phone`,
+   `input[type=file]`, `button[type=submit]` all resolve on all three. No password field anywhere,
+   so the account-wall guard has nothing to trip on for Greenhouse.
+2. 🔴 **The driver was missing three REQUIRED fields.** All three forms mark **Country**,
+   **Location (City)** and **LinkedIn Profile** required, and `_FIELDS` knew none of them. A
+   submission would have been rejected by the form's own validation with every mapped field filled
+   correctly. Added, plus the `identity_for` split of the config's single `location` string.
+3. ⚠️ **reCAPTCHA is PER-EMPLOYER, not universal.** Flipp serves reCAPTCHA **Enterprise** (
+   `enterprise.js?render=<sitekey>`, badge present, zero v2 checkbox widgets — i.e. the invisible
+   score-based kind); DEPT and Later serve **none**. So the earlier assumption that captcha blocks
+   everything is wrong — but the role the operator APPROVED is the one that is blocked.
+   The invisible/v2 question recorded in `browser.py` is now answered for this case: it is invisible.
+   That does NOT make it safe to drive through — an invisible reCAPTCHA is bot detection whose whole
+   purpose is to score automated submissions, and a low score can discard the application silently,
+   leaving the operator believing they applied. It stays a hard stop.
+4. 🔴 **Free-text screening questions are the real ceiling.** Flipp requires five (how did you hear,
+   what influenced you, salary expectations, work authorization, how did you hear about this job);
+   Later requires two, one of them a genuine essay ("Why do you go to work?"). Operator decision 4
+   routes every unbanked free-text question to `manual_required`, so **most Greenhouse applications
+   will be manual_required by design**, not by defect.
+
+**Verified:** suite **1386 pass** (6 new). Form inspection was read-only — nothing was filled,
+uploaded or submitted on any employer site.
+
+**The honest state:** the machine can now assemble and upload the approved CV, and it fills every
+structured field the real forms ask for. It still cannot complete Flipp (captcha + five free-text
+questions + no stored CV on that pre-fix approval).
+
+**Observed, NOT fixed (queued):** the answer bank is EMPTY, and it is the lever that decides how much
+of this is automatic. Recurring questions (salary expectations, legally able to work in Canada, how
+did you hear about this job) are bankable ONCE by the operator and would then be answered on every
+future form; bespoke essays never will be, and should not be. Seeding that bank is the highest-value
+next step and is operator-authored by design — the agent must not compose those answers.
+Also: `APIFY_KEY` still un-rotated; Lever's driver is untested against a live form.
