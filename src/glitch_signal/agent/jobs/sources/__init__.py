@@ -13,13 +13,17 @@ job-ALERT EMAILS (LinkedIn sends them to us); Indeed arrives via Apify, which ca
 """
 from __future__ import annotations
 
-from glitch_signal.agent.jobs.sources import ats, jobbank_ca
+from glitch_signal.agent.jobs.sources import apify_indeed, ats, jobbank_ca, linkedin_alerts
 
 REGISTRY = {
     "jobbank_ca": jobbank_ca.fetch,
     "greenhouse": ats.fetch_greenhouse,
     "lever": ats.fetch_lever,
     "ashby": ats.fetch_ashby,
+    # ⚠️ The only METERED source — billed per result. See apify_indeed for the caps.
+    "indeed": apify_indeed.fetch,
+    # LinkedIn sends these to the operator; we read them. We never scrape LinkedIn.
+    "linkedin_alerts": linkedin_alerts.fetch,
 }
 
 

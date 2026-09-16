@@ -23,6 +23,9 @@ from glitch_signal.agent.jobs.sources import REGISTRY
 log = structlog.get_logger()
 
 _MAX_JOBBANK_KEYWORDS = 20
+# Indeed is billed per result, so breadth costs money here in a way it does not on a free feed. Six
+# queries × the per-query cap is the most one tick can order, whatever the config says.
+_MAX_INDEED_QUERIES = 6
 
 
 def jobs_config(brand_id: str) -> dict:
@@ -42,6 +45,13 @@ def _enabled_sources(cfg: dict) -> dict:
         out["jobbank_ca"] = cfg.get("jobbank_keywords") or cfg.get("target_titles") or []
     if src.get("ats_boards"):
         out["ats"] = cfg.get("ats_boards") or []
+    if src.get("indeed"):
+        # Separate from `jobbank_keywords` on purpose: this source is BILLED PER RESULT, so the
+        # breadth that is free on Job Bank is not free here. A brand opts into Indeed with a short,
+        # deliberate query list, not by inheriting a filter vocabulary.
+        out["indeed"] = cfg.get("indeed_queries") or []
+    if src.get("linkedin_alerts"):
+        out["linkedin_alerts"] = [cfg.get("linkedin_alerts") or {}]
     return out
 
 
@@ -81,6 +91,16 @@ async def discover(brand_id: str, *, dry_run: bool = False, engine: Any = None) 
         if provider in REGISTRY and slug:
             coros.append(REGISTRY[provider](slug))
             used.append(provider)
+
+    idx = cfg.get("indeed_options") or {}
+    for q in enabled.get("indeed", [])[:_MAX_INDEED_QUERIES]:
+        coros.append(REGISTRY["indeed"](q, country=idx.get("country", "CA"),
+                                        location=idx.get("location"),
+                                        max_items=int(idx.get("max_items_per_query", 25))))
+        used.append("indeed")
+    for opts in enabled.get("linkedin_alerts", []):
+        coros.append(REGISTRY["linkedin_alerts"](opts))
+        used.append("linkedin_alerts")
 
     raw = await _gather(coros)
 
