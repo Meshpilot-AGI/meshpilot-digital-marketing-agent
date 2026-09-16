@@ -3685,3 +3685,34 @@ $5/month free allowance in six runs — either cut to ~2 queries × 15, run Inde
 daily, or move to a paid plan; a deliberate choice, not a default. Indeed also returns the same role
 at several URLs (one posting, per-location `jk` ids), which URL-keyed dedup cannot collapse — a
 title+company dedup pass would.
+
+### 2026-09-15 — JOBS-11 lane closed (a failed offer buried the best role; found by the first cloud run)
+
+`jobs_hunt` and `jobs_decide` are now scheduled in FastAPI Cloud (daily 12:00 and every 30 min,
+America/Toronto). The first cloud run completed `done` — and offered nothing, despite a 4.5 role
+sitting above the 4.3 floor. That exposed a defect in JOBS-8.
+
+**The bug.** `hunt.run` writes the `job_application` row BEFORE posting the Discord card — deliberate,
+because that row is the double-offer guard. When the card post failed (the earlier LOCAL run had no
+`DISCORD_BOT_TOKEN`), the listing kept a `drafted` row with no `discord_msg_id`, and
+`offer_candidates`' `a.id IS NULL` filter then excluded it **permanently**. The failure was reported
+exactly once, in that run's `errors`; every run afterwards was silent. The role it buried was the
+only one over the floor.
+
+That is the shape of failure this capability can least afford: not a wrong application, but a right
+one that disappears while the system reports success.
+
+**Fix:** a draft that was never offered is a RETRY candidate — `(a.id IS NULL OR (a.status='drafted'
+AND a.discord_msg_id IS NULL))`. Anything further along (offered/approved/skipped/submitted) stays
+excluded. Verified live: `offer_candidates` went 0 → 5 rows, the 4.5 back at the top.
+
+**Cloud config (this lane):** `TKA_JOBS_AUTH_TOKEN` minted for the `tejas` brand (its env_prefix is
+`TKA`); `AGENT_JOBS_ENABLED`, `AGENT_JOB_DISCOVERY_ENABLED`, `AGENT_JOB_TAILOR_ENABLED` set true;
+**`AGENT_JOB_APPLY_ENABLED` deliberately NOT set** — submission stays off, so the cloud can offer and
+decide but cannot send. `AGENT_CRON_ENABLED` was already on. Redeployed so the process sees them.
+
+**Observed, NOT fixed (queued):** `APIFY_KEY` is still absent from FastAPI Cloud, so the cloud tick
+runs Job Bank + ATS only (free) — deliberate until the key is rotated, since it was leaked into logs
+by the `?token=` defect fixed in JOBS-10. A stuck `drafted` row is now retried forever with no
+backoff and no alert; if Discord is misconfigured the tick will retry every day in silence. A
+`jobs_hunt` run that offers nothing while candidates exist deserves a warning log at minimum.

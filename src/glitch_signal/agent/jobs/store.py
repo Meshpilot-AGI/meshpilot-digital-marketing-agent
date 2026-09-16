@@ -207,8 +207,18 @@ _OFFER_CANDIDATES = text(
     "JOIN LATERAL ("
     "  SELECT score, score_parts, work_auth FROM job_evaluation "
     "  WHERE listing_id = l.id ORDER BY evaluated_at DESC LIMIT 1) e ON true "
+    # ⚠️ `a.id IS NULL` alone BURIED a role permanently, and it buried the best one. `hunt.run`
+    # writes the application row BEFORE posting the card (that ordering is the double-offer guard),
+    # so when the Discord post failed — a missing token on the first cloud run — the listing kept a
+    # `drafted` row with no `discord_msg_id` and this query excluded it from then on. The failure was
+    # reported once, in that run's `errors`; every run after it was silent. A 4.5 role, the only one
+    # over the floor, would have sat unseen forever.
+    #
+    # A draft that was never offered is a RETRY candidate, not a finished one. Anything further along
+    # (offered, approved, skipped, submitted) is correctly excluded.
     "LEFT JOIN job_application a ON a.listing_id = l.id "
-    "WHERE l.brand_id = :b AND a.id IS NULL AND e.score IS NOT NULL "
+    "WHERE l.brand_id = :b AND e.score IS NOT NULL "
+    "  AND (a.id IS NULL OR (a.status = 'drafted' AND a.discord_msg_id IS NULL)) "
     "ORDER BY e.score DESC NULLS LAST, l.first_seen_at DESC LIMIT :lim")
 
 
