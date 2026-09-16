@@ -91,8 +91,8 @@ def test_daily_cap_counts_submissions_not_loop_runs():
 def test_the_settings_floor_stays_aligned_with_the_live_one():
     """`agent_job_min_score` is NOT what runs — `jobs.min_score` in the brand config is, via
     `score.meets_floor`. It is kept aligned anyway so a reader who finds this constant does not
-    mistake a stale value for the live threshold. Raised to 4.3 when the scoring model changed."""
+    mistake a stale value for the live threshold. Tracks the brand config: 4.0 → 4.3 → 4.0."""
     from glitch_signal.config import Settings
 
-    assert Settings().agent_job_min_score == 4.3
+    assert Settings().agent_job_min_score == 4.0
     assert Settings().agent_job_max_applications_per_day == 3

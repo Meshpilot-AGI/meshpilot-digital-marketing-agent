@@ -3796,3 +3796,49 @@ did you hear about this job) are bankable ONCE by the operator and would then be
 future form; bespoke essays never will be, and should not be. Seeding that bank is the highest-value
 next step and is operator-authored by design — the agent must not compose those answers.
 Also: `APIFY_KEY` still un-rotated; Lever's driver is untested against a live form.
+
+### 2026-09-16 — JOBS-14 lane closed (floor 4.3 → 4.0, a deliberate widening) + the answer bank is live
+
+**The answer bank went from empty to 14 entries**, authored by the operator and keyed to the exact
+text of six real forms. Effect, verified by `resolve_answers` against those forms:
+
+```
+DEPT 4.1 Campaign Manager (FTC)   ✅ every screening question answered
+DEPT 4.0 CRM Talent Pool          ✅ every screening question answered
+Later 4.2                         → manual_required (bespoke essay)
+Flipp 4.5                         → manual_required (bespoke essay) + reCAPTCHA
+```
+
+Two matching lessons, both caught before they cost a submission:
+
+- **An internal `?` broke a key.** The operator's answer was right and the stored question was
+  `...fixed term contracts (3 / 6 / 12 month etc)`; the form asks `...contracts? (3 / 6 / 12 month
+  etc)`. `normalize_question` strips only TRAILING punctuation, so it silently missed. Re-keyed from
+  the live form text.
+- **"Yes" was the wrong value for a consent field.** The operator said to put "Yes" for DEPT's
+  privacy statement; the combobox's ONLY option is *"I hereby agree and accept"*, so a
+  `select_option(label="Yes")` would have found nothing and the driver would have hard-stopped.
+  Stored the form's own wording. Checked the work-auth combobox at the same time — it does offer
+  Yes/No, so that answer was right. **Read the options before banking an answer to a select.**
+
+**Floor 4.3 → 4.0 on the operator's instruction.** ⚠️ Recorded as a WIDENING, not a restoration:
+4.3 existed to hold the bar he originally set, because glm-5.3 scores the same pool a mean of +0.37
+above the sonnet-5 that his first 4.0 was calibrated on. On the current scorer 4.0 sits nearer an
+effective 3.6. He chose it knowing that, once the bank made two sub-4.3 roles fully submittable while
+4.3 admitted only Flipp — which reCAPTCHA blocks anyway. The concern was raised once and is closed;
+a future session should not "restore" 4.3 as a correctness fix.
+
+**Verified:** the 4.0 floor admits **4** roles — Later 4.2, DEPT 4.1, DEPT 4.0, Jane 4.0. Suite
+**1386 pass**.
+
+🔴 **BLOCKED — the cloud still enforces 4.3.** The live floor is `jobs.min_score` inside the
+`BRAND_CONFIGS_JSON` env var, and the FastAPI Cloud CLI is authenticated as
+`storieschakra@gmail.com` (from today's Vediq migration), which does not own this app —
+every `env` call returns `Team not found for the current user`. So this lane changes the code and the
+local config but CANNOT change what production enforces. The operator must re-auth the CLI to the
+account owning team `helpn8nworld`; then `BRAND_CONFIGS_JSON` needs its `tejas.jobs.min_score` set to
+4.0 and `APIFY_KEY` adding. Until then the cloud tick keeps offering at 4.3.
+
+**Observed, NOT fixed (queued):** `APIFY_KEY` is STILL the leaked key — the operator supplied the same
+value again (byte-identical), so rotation has not happened. Nothing checks posting liveness before
+offering: the Wave Financial Lever posting in the pool now 404s.

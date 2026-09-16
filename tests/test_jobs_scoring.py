@@ -395,13 +395,16 @@ def test_the_scoring_tier_is_cost_first_and_critical_is_not():
     assert routing.resolve("critical")[0] == "anthropic/claude-opus-5"
 
 
-def test_the_default_floor_is_4_3_because_the_scorer_changed():
-    """The operator chose 4.0 against claude-sonnet-5. Moving `complex` to z-ai/glm-5.3 shifted the
-    same 18-posting pool UP by a mean of +0.37 with the same CV and nothing scoring lower, so 4.0
-    on the new scorer is a LOOSER gate than the one he set. 4.3 holds his actual bar.
+def test_the_default_floor_is_4_0_a_deliberate_widening():
+    """⚠️ This 4.0 is LOOSER than the 4.0 in the design doc, and that is intended.
 
-    This offset belongs to the sonnet-5 → glm-5.3 pair. Re-derive it if the scoring model changes
-    again rather than carrying 4.3 forward as if it were the operator's number."""
-    assert score.meets_floor(4.3, False, {})
-    assert not score.meets_floor(4.2, False, {})
-    assert not score.meets_floor(4.0, False, {}), "4.0 was the sonnet-calibrated bar, not the glm one"
+    The original 4.0 was calibrated on claude-sonnet-5. glm-5.3 scores the same pool a mean of +0.37
+    higher, so this threshold sits nearer an effective 3.6 on the old scorer. It was raised to 4.3 to
+    hold the original bar and lowered again by the operator on 2026-09-16, once 14 banked answers
+    made two 4.0/4.1 roles fully submittable while the 4.3 gate admitted only one — which reCAPTCHA
+    blocked anyway.
+
+    Asserted so nobody later "restores" 4.3 as a correctness fix: it is an operator decision with a
+    known cost, not a drifted constant."""
+    assert score.meets_floor(4.0, False, {})
+    assert not score.meets_floor(3.9, False, {})

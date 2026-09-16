@@ -198,7 +198,7 @@ All four resolved by the operator. These are settled; do not re-ask.
 | # | Decision | Value | Consequence for the build |
 |---|---|---|---|
 | 1 | Daily application cap | **3/day** | `jobs.max_applications_per_day = 3`, enforced in the policy gate as a per-day cap, not just per-run |
-| 2 | Auto-apply score floor | **4.3/5** (was 4.0) | Below the floor never reaches an approval card — it is not surfaced for a yes/no, it is skipped. Raised 4.0 → 4.3 on 2026-09-15 to hold the SAME bar after the scoring model changed: glm-5.3 scores ~+0.37 higher than the sonnet-5 the 4.0 was calibrated on. Re-derive the offset if the scoring model changes again |
+| 2 | Auto-apply score floor | **4.0/5** (4.0 → 4.3 → 4.0) | Below the floor never reaches an approval card — it is not surfaced for a yes/no, it is skipped. Raised to 4.3 on 2026-09-15 to hold the same bar after the scorer changed (glm-5.3 scores ~+0.37 above the sonnet-5 the original 4.0 was calibrated on), then LOWERED back to 4.0 by the operator on 2026-09-16 — a deliberate widening, not a restoration: on the current scorer it sits nearer an effective 3.6 |
 | 3 | Approval granularity | **per application** | No batching. One card, one role, one decision |
 | 4 | Free-text screening answers | **always `manual_required`** | The agent NEVER composes an unattended answer to a screening question. Any question outside a known-answer bank routes to the operator |
 
@@ -212,6 +212,6 @@ The answer bank is operator-authored, stored per-brand, and matched by exact
 question identity — never by an LLM deciding two questions "mean the same thing."
 A near-match is a miss, and a miss is `manual_required`.
 
-Combined effect: with a 4.3 floor and 3/day, this is a precision instrument, not a
+Combined effect: with a 4.0 floor and 3/day, this is a precision instrument, not a
 volume one — roughly 15 applications a week, each seen in full by the operator
 before it goes. That is the intended shape.
