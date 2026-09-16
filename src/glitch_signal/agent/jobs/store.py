@@ -174,6 +174,33 @@ async def unscored(brand_id: str, limit: int = 10, *, engine: Any = None) -> lis
         return [dict(r) for r in res.mappings().all()]
 
 
+_OFFER_CANDIDATES = text(
+    # Scored listings with NO application row yet, best score first. The LEFT JOIN on job_application
+    # is the idempotency guard that keeps a re-run from offering the same role twice; the LATERAL
+    # takes the most RECENT evaluation, because a re-score must not be shadowed by its first verdict.
+    "SELECT l.id AS listing_id, l.canonical_url, l.company, l.title, l.location, l.jd_text, "
+    "       e.score, e.score_parts, e.work_auth "
+    "FROM job_listing l "
+    "JOIN LATERAL ("
+    "  SELECT score, score_parts, work_auth FROM job_evaluation "
+    "  WHERE listing_id = l.id ORDER BY evaluated_at DESC LIMIT 1) e ON true "
+    "LEFT JOIN job_application a ON a.listing_id = l.id "
+    "WHERE l.brand_id = :b AND a.id IS NULL AND e.score IS NOT NULL "
+    "ORDER BY e.score DESC NULLS LAST, l.first_seen_at DESC LIMIT :lim")
+
+
+async def offer_candidates(brand_id: str, limit: int = 10, *, engine: Any = None) -> list[dict]:
+    """Scored listings with no application row yet, best score first.
+
+    The floor is NOT applied here — `score.meets_floor` owns that decision, and applying it in SQL
+    too would put the operator's threshold in two places that can disagree.
+    """
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_OFFER_CANDIDATES, {"b": brand_id, "lim": limit})
+        return [dict(r) for r in res.mappings().all()]
+
+
 async def upsert_application(brand_id: str, listing_id: str, *, status: str = "drafted",
                              cv_path: str | None = None, answers: dict | None = None,
                              engine: Any = None) -> str:

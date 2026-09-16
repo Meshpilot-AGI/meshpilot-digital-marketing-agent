@@ -324,7 +324,11 @@ class Settings(BaseSettings):
     agent_job_apply_enabled: bool = False     # SUBMISSION — the outward, irreversible one
     # Operator decisions, 2026-09-15 (design § 11). A precision instrument, not a volume one.
     agent_job_max_applications_per_day: int = 3   # per-brand/day; 0 = unlimited
-    agent_job_min_score: float = 4.0              # below this a role is SKIPPED, never even offered
+    # ⚠️ Nothing reads this — the floor that RUNS is the brand config's `jobs.min_score`, applied by
+    # `agent.jobs.score.meets_floor`. Kept aligned rather than deleted so a reader who finds it does
+    # not take a stale 4.0 for the live threshold. Raised 4.0 → 4.3 with the brand config when the
+    # scoring model changed (glm-5.3 scores ~+0.37 above the sonnet-5 the 4.0 was calibrated on).
+    agent_job_min_score: float = 4.3              # below this a role is SKIPPED, never even offered
     # SCOPE: default toolset for an un-specified run (Discord/bare). `chat` = safe read+plan only;
     # a pipeline/operator run passes a broader scope (discovery/content/orm/full).
     agent_default_scope: str = "chat"

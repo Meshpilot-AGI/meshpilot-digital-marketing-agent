@@ -3512,3 +3512,50 @@ OpenRouter's `models` array fails over on an ERROR and never on an empty or weak
 tier cheapest-first without one of those checks reproduces the original bug.
 
 **Rollback:** `AGENT_ROUTER_COMPLEX="anthropic/claude-sonnet-5,z-ai/glm-5.3"` — no code change.
+
+### 2026-09-15 — JOBS-8 lane closed (the pipeline the design specified was never built)
+
+JOBS-0..7 shipped every PIECE of the job capability — discovery, scoring, tailoring, the fact
+verifier, approval cards, submission guards — as agent TOOLS, and nothing that sequences them. The
+capability was complete and inert. Three findings, in order of how badly they matter:
+
+**1. `jobs_decide` was unreachable.** `approvals.run` — the tick that reads the operator's reactions
+back into the application rows — shipped in JOBS-5 (#312) and was never added to the cron capability
+registry. There was NO route by which an approval could be read. Not unsafe (expiry is not approval,
+so nothing could have been wrongly submitted) but it means the approval gate could never have
+completed a single decision.
+
+**2. `job_listing` is EMPTY — the spine has never persisted one row.** Verified against the live
+database: `SELECT count(*) FROM job_listing` = **0**, across every brand. All 18 scored postings, the
+53-role pool, the CV before/after comparison and the glm-vs-sonnet ranking measurement ran in
+scratchpad scripts calling `score_listing` directly. The LLM work was real; none of it went through
+the store. Any statement of the form "the pool has N roles" refers to a JSON file, not to MeshPilot.
+
+**3. A capability job bypasses the policy gate — found and fixed inside this lane.** The four
+`agent_job*_enabled` kill-switches are enforced in `loop/policy.py` on TOOL DISPATCH. A `capability`
+cron job calls the coroutine directly: no model, no tool call, no gate. Registering `jobs_submit`
+would therefore have submitted applications while `agent_job_apply_enabled` was False — the exact
+switch the operator relies on. `hunt._off()` now checks the switches inside each tick, and two tests
+assert the refusal. **Worth auditing the other 18 registered capabilities for the same shape.**
+
+**Shipped:** `agent/jobs/hunt.py` — deterministic `run` (discover → score → tailor → offer) and
+`run_submit`; `store.offer_candidates` (scored, no application yet, best first — the LEFT JOIN is the
+idempotency guard); three capabilities registered (`jobs_hunt`, `jobs_decide`, `jobs_submit`) with
+`REQUIRED_CAPABILITIES` split so the run that OFFERS a role cannot DECIDE it was approved and cannot
+SUBMIT it; `config.agent_job_min_score` aligned 4.0 → 4.3 with a note that nothing reads it.
+
+**Why deterministic rather than an agent goal:** every other capability family ends in a draft a
+human reads. This one ends in an irreversible act in the operator's name under a 3/day cap.
+Sequencing that with a model would put "did it call the tools in the right order" on the safety path.
+The model still does the writing — scoring reports and the tailored CV — which is where it belongs.
+
+**Verified:** suite **1363 pass** (10 new). `store.offer_candidates` executed against the live
+Supabase database — the SQL is valid and returns 0 rows, consistent with finding 2. The kill-switch
+tests fail correctly when the switches are flipped off.
+
+**Observed, NOT fixed (queued):** nothing has been discovered, scored, offered or submitted through
+the real pipeline yet — the first live `jobs_hunt` run is the next step and needs
+`agent_jobs_enabled` + `agent_job_discovery_enabled` on. `DISCORD_BOT_TOKEN` is in FastAPI Cloud but
+not in the local `.env`, so a card can only be posted from the cloud. No submission driver exists, so
+every `jobs_submit` outcome today is `manual_required` by design. At the 4.3 floor, none of the 17
+roles scored in scratchpad would clear it — the binding constraint is now the POOL, not the gate.
