@@ -21,3 +21,19 @@ def test_posted_at_strings_are_coerced_because_asyncpg_will_not_cast_them():
     assert _as_datetime("last tuesday") is None
     now = datetime.now(UTC)
     assert _as_datetime(now) is now
+
+
+def test_offer_candidates_retries_a_draft_whose_card_never_posted():
+    """⚠️ Observed live 2026-09-15. `hunt.run` writes the application row BEFORE posting the card —
+    that ordering is the double-offer guard — so when the Discord post failed, the listing kept a
+    `drafted` row with no `discord_msg_id` and the old `a.id IS NULL` filter excluded it from every
+    later run. The failure was reported once, in that run's `errors`, and was silent afterwards. The
+    role it buried was 4.5: the only one over the floor.
+
+    A draft that was never offered is a retry candidate. Anything further along is not.
+    """
+    from glitch_signal.agent.jobs.store import _OFFER_CANDIDATES
+
+    sql = " ".join(str(_OFFER_CANDIDATES).split())
+    assert "a.status = 'drafted' AND a.discord_msg_id IS NULL" in sql
+    assert "a.id IS NULL OR" in sql, "a listing with no application at all is still the main case"
