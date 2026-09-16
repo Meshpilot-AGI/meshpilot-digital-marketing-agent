@@ -3716,3 +3716,37 @@ runs Job Bank + ATS only (free) — deliberate until the key is rotated, since i
 by the `?token=` defect fixed in JOBS-10. A stuck `drafted` row is now retried forever with no
 backoff and no alert; if Discord is misconfigured the tick will retry every day in silence. A
 `jobs_hunt` run that offers nothing while candidates exist deserves a warning log at minimum.
+
+### 2026-09-16 — JOBS-12 lane closed (the approval did not bind to what was approved)
+
+The operator approved the first card — ✅ on the 4.5 Flipp role — and `jobs_decide` read it correctly:
+`status=approved`, 18:46 UTC. Inspecting the row it produced exposed two defects in the gate itself.
+
+**1. 🔴 The approved CV did not exist any more.** `hunt.run` tailored the CV, verified it against the
+fact base, put it in the Discord card, and dropped it — `tailored_cv_path` stayed NULL and nothing
+held the document. The operator approved a SPECIFIC artifact; a later submission would have
+re-tailored and sent something they never saw. That makes the approval gate theatre: it records
+consent to a document that no longer exists.
+
+Fixed by storing the verified markdown ON the row, before the card exists (`tailored_cv_md`, additive
+migration `20260916190000`). Markdown rather than the PDF path deliberately: the PDF is derived, and
+`render_cv_pdf` writes to local disk, which is ephemeral on FastAPI Cloud — a stored path would rot.
+The `ON CONFLICT` clause COALESCEs it, so a later status refresh cannot erase the approved document.
+
+**2. `approved_by` was NULL.** `read_decision` already had to identify the reacting user to check
+them against the allowlist — and threw the id away. On the one action here that is irreversible and
+taken in the operator's name, "someone on the allowlist" is a weaker trail than the code can
+trivially provide. `read_decision_actor` now returns `(decision, approver_id)` and `run` records it;
+`read_decision` stays as a thin wrapper for callers that only want the decision.
+
+**Verified:** migration applied to prod ahead of the code (additive-before-code), `tailored_cv_md`
+confirmed present on `job_application`. Suite **1380 pass** (3 new).
+
+⚠️ **The existing approved Flipp application is NOT retroactively fixed** — its CV was never stored
+and cannot be recovered, and its `approved_by` is permanently NULL. Before anything is submitted for
+it, the CV must be regenerated and re-approved; submitting a freshly-tailored document against that
+old ✅ is exactly the substitution this lane exists to prevent.
+
+**Observed, NOT fixed (queued):** `APIFY_KEY` is still un-rotated (verified still live 2026-09-16) and
+still absent from FastAPI Cloud. No submission driver exists, so `AGENT_JOB_APPLY_ENABLED` remains
+off and every submit outcome would be `manual_required`.

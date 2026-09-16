@@ -15,6 +15,7 @@ class _Store:
         self._unscored, self._candidates = list(unscored), list(candidates)
         self._submitted, self._approved = submitted, list(approved)
         self.offered, self.evaluated, self.statuses, self.marked = [], [], [], []
+        self.cv_md = None
 
     async def unscored(self, brand, limit, *, engine=None):
         return self._unscored
@@ -29,6 +30,7 @@ class _Store:
         return self._submitted
 
     async def upsert_application(self, brand, listing_id, *, status="drafted", engine=None, **kw):
+        self.cv_md = kw.get("cv_md")
         return f"app-{listing_id}"
 
     async def mark_offered(self, app_id, msg_id, *, engine=None, **kw):
@@ -218,3 +220,17 @@ async def test_submit_refuses_unless_its_own_switch_is_on(monkeypatch):
     out = await hunt.run_submit("tejas", {}, deps={"submit": _ok})
     assert out["submitted"] == []
     assert "agent_job_apply_enabled" in out["refused"]
+
+
+async def test_the_approved_cv_is_stored_with_the_application(monkeypatch):
+    """⚠️ The first real approval (2026-09-16) approved a CV that no longer existed. `hunt.run`
+    generated the tailored markdown, verified it, put it in the Discord card and dropped it —
+    `tailored_cv_path` stayed NULL and nothing held the document. A later submission would have
+    re-tailored and sent something the operator never saw, which makes the approval gate theatre.
+
+    The markdown goes in with the row, before the card exists."""
+    store = _Store(candidates=[_cand(4.9)])
+    _patch(monkeypatch, store)
+    await hunt.run("tejas", {}, deps={"discover": _noop_discover, "tailor_cv": _ok_tailor,
+                                      "offer": _offer})
+    assert store.cv_md and "Tailored" in store.cv_md, "the approved document must be persisted"

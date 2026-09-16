@@ -144,8 +144,12 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
             data = dict(cand)
             data["tailored_cv"] = tailored.get("markdown") or ""
             data["answers"] = {}
+            # The markdown goes in with the row, BEFORE the card exists. The operator approves a
+            # specific document; if it lived only in the card, a later submission would re-tailor
+            # and send something they never saw.
             app_id = await store.upsert_application(brand_id, str(cand["listing_id"]),
-                                                    status="drafted", engine=engine)
+                                                    status="drafted", cv_md=data["tailored_cv"],
+                                                    engine=engine)
             msg_id = await _offer(brand_id, data)
             await store.mark_offered(app_id, msg_id, engine=engine)
         except Exception as exc:  # noqa: BLE001

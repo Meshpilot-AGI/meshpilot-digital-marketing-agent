@@ -93,7 +93,19 @@ async def offer(brand_id: str, application: dict, *, api: Any = None) -> str:
 
 
 async def read_decision(brand_id: str, msg_id: str, *, api: Any = None) -> str | None:
-    """The operator's decision, or None if they have not reacted.
+    """The operator's decision, or None. Thin wrapper — see `read_decision_actor` for the approver."""
+    decided = await read_decision_actor(brand_id, msg_id, api=api)
+    return decided[0] if decided else None
+
+
+async def read_decision_actor(brand_id: str, msg_id: str, *,
+                              api: Any = None) -> tuple[str, str] | None:
+    """(decision, approver's Discord id), or None if they have not reacted.
+
+    ⚠️ This function already had to identify the reacting user in order to check them against the
+    allowlist — and it threw the id away, so every approval recorded WHO as NULL. On the one action
+    in this system that is irreversible and taken in the operator's name, "someone on the allowlist"
+    is a weaker audit trail than the code can trivially provide.
 
     Only reactions from `jobs.approvers` count. The bot's own legend reaction makes every count 1,
     so a count of 1 is noise; only >1 is worth a per-emoji users call (rate-limit lesson from
@@ -114,8 +126,10 @@ async def read_decision(brand_id: str, msg_id: str, *, api: Any = None) -> str |
         users = await api("GET",
                           f"/channels/{s['channel_id']}/messages/{msg_id}/reactions/{quote(emoji)}",
                           s["token"])
-        if any(str(u.get("id")) in s["approvers"] for u in (users or [])):
-            return status
+        actor = next((str(u.get("id")) for u in (users or []) if str(u.get("id")) in s["approvers"]),
+                     None)
+        if actor:
+            return status, actor
     return None
 
 
@@ -131,7 +145,7 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
     from glitch_signal.agent.jobs import store
 
     d = deps or {}
-    read = d.get("read_decision") or read_decision
+    read = d.get("read_decision") or read_decision_actor
     out: dict[str, Any] = {"ran": "jobs_decide", "decided": [], "expired": [], "errors": []}
 
     out["expired"] = await store.expire_stale(brand_id, engine=engine)
@@ -140,19 +154,21 @@ async def run(brand_id: str, args: dict | None = None, *, engine: Any = None,
             continue
         try:
             await asyncio.sleep(0.35)
-            status = await read(brand_id, app["discord_msg_id"])
+            decided = await read(brand_id, app["discord_msg_id"])
         except Exception as exc:  # noqa: BLE001 — one unreadable card must not stop the rest
             out["errors"].append(f"{app['id']}: {str(exc)[:120]}")
             continue
-        if not status:
+        if not decided:
             continue
+        status, actor = decided
         if status == "hold":
             # Keep it queued and push the window out; a hold is explicitly NOT a decision.
             await store.mark_offered(str(app["id"]), app["discord_msg_id"],
                                ttl_hours=settings_for(brand_id)["ttl_hours"], engine=engine)
         else:
-            await store.set_application_status(str(app["id"]), status,
+            await store.set_application_status(str(app["id"]), status, by=actor,
                                          approved=(status in ("approved", "edited")), engine=engine)
-        out["decided"].append({"id": str(app["id"]), "status": status, "url": app.get("canonical_url")})
-        log.info("jobs.decided", application=str(app["id"]), status=status)
+        out["decided"].append({"id": str(app["id"]), "status": status, "by": actor,
+                               "url": app.get("canonical_url")})
+        log.info("jobs.decided", application=str(app["id"]), status=status, by=actor)
     return out
