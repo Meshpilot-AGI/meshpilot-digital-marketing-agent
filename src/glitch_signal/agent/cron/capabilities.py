@@ -205,6 +205,41 @@ async def _cap_offpage_reply_standing(brand_id: str, args: dict) -> dict:
     return await run(brand_id, args)
 
 
+async def _cap_jobs_hunt(brand_id: str, args: dict) -> dict:
+    """JOBS-8: discover → score → tailor → offer ONE approval card per role, capped at the daily cap.
+
+    Offers only; nothing here can submit. The capability split is the safety property: a run that
+    surfaces a role must not also be able to act on it.
+    """
+    from glitch_signal.agent.jobs.hunt import run
+
+    return await run(brand_id, args)
+
+
+async def _cap_jobs_decide(brand_id: str, args: dict) -> dict:
+    """JOBS-8: read the operator's reactions on offered job cards back into the application rows.
+
+    ⚠️ `approvals.run` shipped in JOBS-5 but was never registered here, so from JOBS-5 until now
+    there was NO route by which an approval could be read — every card would have sat unanswered
+    until it expired. Expiry is not approval, so nothing could have been wrongly submitted; the
+    capability was simply inert.
+    """
+    from glitch_signal.agent.jobs.approvals import run
+
+    return await run(brand_id, args)
+
+
+async def _cap_jobs_submit(brand_id: str, args: dict) -> dict:
+    """JOBS-8: submit what the operator APPROVED, up to the remaining daily cap.
+
+    The outward, irreversible one. Gated by `agent_job_apply_enabled` on top of the publish gate,
+    and every unresolved field becomes `manual_required` rather than a guess.
+    """
+    from glitch_signal.agent.jobs.hunt import run_submit
+
+    return await run_submit(brand_id, args)
+
+
 _REGISTRY: dict[str, CapFn] = {
     "curate": _cap_curate,
     "reconcile": _cap_reconcile,
@@ -224,6 +259,9 @@ _REGISTRY: dict[str, CapFn] = {
     "offpage_reply_draft": _cap_offpage_reply_draft,
     "offpage_decide": _cap_offpage_decide,
     "offpage_reply_standing": _cap_offpage_reply_standing,
+    "jobs_hunt": _cap_jobs_hunt,
+    "jobs_decide": _cap_jobs_decide,
+    "jobs_submit": _cap_jobs_submit,
 }
 
 
@@ -261,6 +299,14 @@ REQUIRED_CAPABILITIES: dict[str, frozenset[str]] = {
     "offpage_reply_draft": frozenset(),
     "offpage_decide": frozenset(),
     "offpage_reply_standing": frozenset({"discovery"}),
+    # Pulls job sources and posts a Discord card. The card is outward-facing, so `publish` is named
+    # honestly here rather than argued away as "only a message to the operator's own server".
+    "jobs_hunt": frozenset({"discovery", "jobs_read", "jobs_draft", "publish"}),
+    # Reads reactions and writes our own rows. Grants nothing new — and is deliberately NOT bundled
+    # into jobs_hunt: the run that offers a role does not get to decide it was approved.
+    "jobs_decide": frozenset(),
+    # Sends an application in the operator's name. The only irreversible one in the family.
+    "jobs_submit": frozenset({"jobs_apply", "publish"}),
 }
 
 

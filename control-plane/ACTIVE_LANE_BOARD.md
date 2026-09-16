@@ -9,6 +9,14 @@ Shipped: JOBS-0 design (#307) · JOBS-1 schema+gates (#308) · JOBS-2 discovery 
 ✅ `brand/configs/tejas.json` now EXISTS (channel 1549291706548092959, approver
 1240025800904933407, CV inline, 34 ATS boards). ✅ `render_cv` ships — ATS-safe PDF via the Chrome
 binary html_render already needs.
+✅ JOBS-8 (2026-09-15) built the `job_hunt` ticks the design specified and JOBS-0..7 never wired:
+`hunt.run` (discover→score→tailor→offer) + `hunt.run_submit`, registered as the cron capabilities
+`jobs_hunt` / `jobs_decide` / `jobs_submit`. ⚠️ Found on the way: `approvals.run` was NEVER in the
+capability registry, so no approval could be read by any route; and a `capability` job bypasses the
+policy gate entirely, so the kill-switches are now checked inside each tick (audit the other 18
+capabilities for the same shape).
+🔴 **`job_listing` is EMPTY — 0 rows, every brand.** The spine has never persisted anything: the 18
+scored roles, the 53-role pool and the CV comparison all live in scratchpad JSON, not in MeshPilot.
 ⛔ REMAINING BLOCKERS:
 1. `DISCORD_BOT_TOKEN` is absent from the local env, so no card has yet been posted to the real
    channel — the Discord half of JOBS-5 is still UNVERIFIED end to end.

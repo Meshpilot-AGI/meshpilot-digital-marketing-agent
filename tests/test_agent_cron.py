@@ -156,8 +156,22 @@ def test_capability_registry():
                                          "seo_heartbeat",
                                          "discord_provision_alerts", "drive_to_social", "offpage_syndicate",
                                          "offpage_listen_reddit", "offpage_reply_draft", "offpage_decide",
-                                         "offpage_reply_standing"}
+                                         "offpage_reply_standing",
+                                         "jobs_hunt", "jobs_decide", "jobs_submit"}
     assert capabilities.get("nope") is None
+
+
+def test_the_jobs_family_is_split_so_one_run_cannot_offer_decide_and_submit():
+    """`jobs_decide` shipped in JOBS-5 as `approvals.run` and was never registered here, so no
+    approval could be READ by any route — the gate was inert, not unsafe (expiry is not approval).
+
+    The split is the safety property, so it is asserted rather than left to convention: offering a
+    role, deciding it was approved, and acting on that decision need three different grants."""
+    hunt = capabilities.required_capabilities("jobs_hunt")
+    submit = capabilities.required_capabilities("jobs_submit")
+    assert "jobs_apply" not in hunt, "the tick that offers a role must not be able to submit it"
+    assert "jobs_apply" in submit
+    assert capabilities.required_capabilities("jobs_decide") == frozenset()
 
 
 async def test_reconcile_capability_dispatches_to_reconcile(monkeypatch):
