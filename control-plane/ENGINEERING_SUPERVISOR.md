@@ -3601,3 +3601,31 @@ exception type — so the two `ConnectError`s are unattributed. `hunt.run` score
 per listing); the throwaway script that scored 18 roles used a semaphore of 4, and a cron tick that
 takes 20 minutes to score 30 listings will eventually hit the capability timeout. Neither blocks the
 lane. And the real constraint stands: of 5 scored, the best was 3.0.
+
+### 2026-09-15 — JOBS first live run, complete state (supersedes the "5 scored" figure above)
+
+The JOBS-9 entry recorded the tick's first 5 scorings. The full pass finished; these are the numbers
+to quote, not those:
+
+```
+job_listing 43 · job_evaluation 27 · job_application 0
+>= 4.3 floor: 0        best score: 4.2
+  4.2  Paid Media Specialist                  later          not_needed
+  4.1  Campaign Manager (FTC)                 dept           not_needed
+  4.0  CRM Campaign Managers (Talent Pool)    dept           not_needed
+  4.0  Director of Growth Marketing (SMB)     jane           not_needed
+  3.9  Manager, Demand Generation             wealthsimple   not_needed
+```
+
+**The machine is proven; the pool is the constraint.** Every stage ran for real — four sources,
+3,830 fetched, 43 stored, 27 scored, work-auth resolved (no hard stops: `not_needed` throughout,
+which is the PGWP open-permit encoding behaving correctly) — and it offered NOTHING, because nothing
+reached the floor. That is the designed behaviour, not a failure: zero cards from 27 evaluations is
+the floor doing its job.
+
+**The open operator question:** 4.3 was derived to preserve the bar he set at 4.0 on sonnet-5. On
+this pool that bar admits zero roles, and the top three are 4.2 / 4.1 / 4.0 — near misses, not a
+different league. Either the sourcing widens until genuine ≥4.3 roles appear, or the bar moves
+knowingly. Both are his call; moving the floor to fit the pool without saying so would be the one
+unacceptable option, since the floor is the only thing standing between him and applications he
+would not have chosen.
