@@ -56,11 +56,15 @@ _RECENT = text(
 
 
 _UPSERT_APP = text(
-    "INSERT INTO job_application (listing_id, brand_id, status, tailored_cv_path, answers) "
-    "VALUES (:lid, :b, :status, :cv, CAST(:answers AS jsonb)) "
+    "INSERT INTO job_application (listing_id, brand_id, status, tailored_cv_path, tailored_cv_md, answers) "
+    "VALUES (:lid, :b, :status, :cv, :cv_md, CAST(:answers AS jsonb)) "
     "ON CONFLICT (listing_id) DO UPDATE SET "
     "  status = EXCLUDED.status, tailored_cv_path = COALESCE(EXCLUDED.tailored_cv_path, "
-    "    job_application.tailored_cv_path), answers = EXCLUDED.answers "
+    "    job_application.tailored_cv_path), "
+    # COALESCE, not overwrite: a later call that does not carry the markdown (a status refresh, a
+    # render recording its path) must never erase the document the operator approved.
+    "  tailored_cv_md = COALESCE(EXCLUDED.tailored_cv_md, job_application.tailored_cv_md), "
+    "  answers = EXCLUDED.answers "
     "RETURNING id"
 )
 
@@ -236,12 +240,18 @@ async def offer_candidates(brand_id: str, limit: int = 10, *, engine: Any = None
 
 async def upsert_application(brand_id: str, listing_id: str, *, status: str = "drafted",
                              cv_path: str | None = None, answers: dict | None = None,
-                             engine: Any = None) -> str:
+                             cv_md: str | None = None, engine: Any = None) -> str:
+    """Create or refresh the application row.
+
+    `cv_md` is the VERIFIED tailored markdown the operator will see on the card — stored so the
+    approval binds to the artifact it approved. Without it a later submission would re-tailor and
+    send a different document than the one that was shown.
+    """
     eng = _engine_or(engine)
     async with eng.begin() as conn:
         res = await conn.execute(_UPSERT_APP, {
             "lid": listing_id, "b": brand_id, "status": status,
-            "cv": cv_path, "answers": json.dumps(answers or {})})
+            "cv": cv_path, "cv_md": cv_md, "answers": json.dumps(answers or {})})
         row = res.first()
     return str(row[0]) if row else ""
 

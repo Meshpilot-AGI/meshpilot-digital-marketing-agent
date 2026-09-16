@@ -189,10 +189,12 @@ async def test_one_unreadable_card_does_not_stop_the_rest():
     calls = []
 
     async def flaky(brand_id, msg_id, **kw):
+        # The injected reader is `read_decision_actor`: (decision, approver id), so the approver is
+        # recorded on the row rather than discarded after the allowlist check.
         calls.append(msg_id)
         if msg_id == "m1":
             raise RuntimeError("discord 500")
-        return "rejected"
+        return ("rejected", "1240025800904933407")
 
     orig_e, orig_b, orig_s = (jobstore.expire_stale, jobstore.applications_by_status,
                               jobstore.set_application_status)
@@ -216,3 +218,21 @@ async def test_one_unreadable_card_does_not_stop_the_rest():
 
     assert calls == ["m1", "m2"]
     assert len(out["errors"]) == 1 and out["decided"][0]["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_the_approver_is_recorded_not_just_the_decision():
+    """⚠️ `read_decision` already had to identify the reacting user to check them against the
+    allowlist, and it threw the id away — so the first real approval (2026-09-16) recorded
+    `approved_by = NULL`. On the one irreversible action taken in the operator's name, "someone on
+    the allowlist" is a weaker audit trail than the code can trivially provide."""
+    from glitch_signal.agent.jobs import approvals
+
+    async def api(method, path, token, **kw):
+        if path.endswith("/messages/msg-1"):
+            return {"reactions": [{"emoji": {"name": "✅"}, "count": 2}]}
+        return [{"id": "999-not-an-approver"}, {"id": APPROVER}]
+
+    assert await approvals.read_decision_actor(BRAND, "msg-1", api=api) == ("approved", APPROVER)
+    # The thin wrapper keeps the old single-value contract for callers that only want the decision.
+    assert await approvals.read_decision(BRAND, "msg-1", api=api) == "approved"
