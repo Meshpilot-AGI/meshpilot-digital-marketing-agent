@@ -31,6 +31,10 @@ CAPABILITIES: dict[str, frozenset[str]] = {
     "jobs_apply": frozenset({"job_apply"}),
     "mcp:heygen": frozenset({"mcp__heygen__*"}),
     "mcp:higgsfield": frozenset({"mcp__higgsfield__*"}),
+    # The operator's mailbox, reached through their per-brand MCP cluster. Its own capability, not
+    # folded into `knowledge`: reading someone's mail is a distinct power from reading brand docs,
+    # and a run that scores job postings has no business also reading their inbox.
+    "mcp:inbox": frozenset({"mcp__viasocket__*"}),
 }
 
 # scope -> capabilities
@@ -43,6 +47,10 @@ SCOPES: dict[str, frozenset[str]] = {
     "job_discovery": frozenset({"memory", "knowledge", "jobs_read", "web"}),
     "job_draft": frozenset({"memory", "knowledge", "quality", "jobs_read", "jobs_draft"}),
     "job_apply": frozenset({"memory", "knowledge", "jobs_read", "jobs_draft", "jobs_apply"}),
+    # Read the mailbox and nothing else. Deliberately NOT bundled into the job scopes: confirming
+    # what an employer replied is a separate act from applying, and keeping it separate means a
+    # submission run cannot quietly read mail as well.
+    "inbox": frozenset({"memory", "knowledge", "mcp:inbox"}),
     "full": frozenset(CAPABILITIES),                                             # everything
 }
 
