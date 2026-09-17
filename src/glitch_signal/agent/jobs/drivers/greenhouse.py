@@ -61,13 +61,16 @@ class GreenhouseDriver:
                 await page.goto(url, wait_until="domcontentloaded")
                 await bx.assert_no_blockers(page)
 
-                missing = []
+                missing, filled = [], {}
                 for key, sels in _FIELDS.items():
                     val = self.identity.get(key)
                     if not val:
+                        missing.append(f"{key} (no value in the brand config)")
                         continue
-                    if not await _fill_first(page, sels, str(val)):
-                        missing.append(key)
+                    if await _fill_first(page, sels, str(val)):
+                        filled[key] = str(val)
+                    else:
+                        missing.append(f"{key} (no matching input on the form)")
 
                 uploaded = False
                 for sel in _RESUME:
@@ -95,7 +98,16 @@ class GreenhouseDriver:
                 shot = f"{self.screenshot_dir}/gh-{package.get('application_id')}.png" if self.screenshot_dir else None
                 if not self.live:
                     ev = await bx.evidence_from(page, shot)
-                    ev["dry_run"] = True
+                    # ⚠️ WHAT was filled, not merely that filling did not raise. The first rehearsal
+                    # recorded only "form filled, NOT submitted" plus the page's body text — which is
+                    # mostly the job description, and proves nothing about the fields. A rehearsal
+                    # whose whole purpose is "show me what would be sent" has to say what would be
+                    # sent, or the operator is trusting the same untested path they wanted rehearsed.
+                    ev.update({"dry_run": True,
+                               "fields_filled": filled,
+                               "fields_missing": missing,
+                               "resume_uploaded": uploaded,
+                               "answers_placed": dict(package.get("answers") or {})})
                     return {"ok": False, "failure_reason": "dry run — form filled, NOT submitted",
                             "evidence": ev}
 
