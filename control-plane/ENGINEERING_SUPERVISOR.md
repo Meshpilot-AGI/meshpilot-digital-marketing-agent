@@ -3842,3 +3842,33 @@ account owning team `helpn8nworld`; then `BRAND_CONFIGS_JSON` needs its `tejas.j
 **Observed, NOT fixed (queued):** `APIFY_KEY` is STILL the leaked key — the operator supplied the same
 value again (byte-identical), so rotation has not happened. Nothing checks posting liveness before
 offering: the Wave Financial Lever posting in the pool now 404s.
+
+### 2026-09-16 — JOBS-15 lane closed (a real approval was unreadable; the legend gated the gate)
+
+The operator reacted ✅ on the DEPT 4.1 card and `jobs_decide` returned `decided: []`. His approval
+was not merely delayed — it was unreadable by any route, permanently.
+
+**Cause.** `read_decision_actor` gated on `count >= 2`, reasoning that the bot's own legend reaction
+makes every emoji count 1, so 1 is noise. That coupled *reading an approval* to *the legend having
+been seeded* — and `offer()` posts four reactions per card in a loop with **no delay**, catching
+failures as "cosmetic". Three cards went out in quick succession, Discord's reaction rate limit bit,
+the legend silently did not land, and a lone ✅ was then a count of 1 and skipped on every sweep.
+
+A missing legend is cosmetic. A missing legend that disables approvals is not — and it failed in the
+direction where the operator believes he has approved something and nothing happens.
+
+**Fix.** Subtract the bot's own reaction using Discord's `me` flag instead of assuming it:
+`effective = count - (1 if me else 0)`, then check any emoji with ≥1 non-bot reaction. Correctness
+no longer depends on the legend existing at all.
+
+**The test was complicit.** `test_bot_legend_reaction_alone_is_not_a_decision` asserted
+`count == 1 → None` while handing the fixture a user list containing the APPROVER — encoding "one
+reactor means the bot", which is exactly the false assumption. Rewritten to model the bot with `me`,
+plus two new tests: a lone operator reaction with no legend IS read, and legend+operator still reads.
+
+**Verified:** suite **1388 pass** (2 new). Needs deploy before the live card can be re-read.
+
+**Observed, NOT fixed (queued):** `offer()` still seeds legend reactions with no inter-call delay, so
+the legend will keep failing under burst — now cosmetic-only, as intended, but worth a 0.3s sleep.
+The three live cards (Later 4.2, DEPT 4.1, DEPT 4.0) are still `awaiting_approval` and will be read
+correctly once this deploys.

@@ -12,6 +12,7 @@ from glitch_signal.agent.jobs import approvals
 
 BRAND = "tejas"
 APPROVER = "111111111111111111"
+BOT = "999999999999999999"
 STRANGER = "999999999999999999"
 
 CFG = {"jobs": {"approvals_channel_id": "222", "approvers": [APPROVER], "offer_ttl_hours": 48}}
@@ -112,9 +113,33 @@ async def test_a_stranger_cannot_approve():
 
 @pytest.mark.asyncio
 async def test_bot_legend_reaction_alone_is_not_a_decision():
-    """The bot pre-seeds all four emoji. A count of 1 is the bot itself, never the operator."""
-    api = _fake_api([{"emoji": {"name": "✅"}, "count": 1}], {"✅": [APPROVER]})
+    """The bot pre-seeds all four emoji. Its OWN reaction is never a decision.
+
+    Modelled with Discord's `me` flag rather than with a bare count of 1, because that is what
+    actually distinguishes the bot: the old version of this test asserted `count == 1 → None` while
+    handing the fixture a user list containing the APPROVER, so it encoded "one reactor means the
+    bot" — an assumption that broke the moment the legend failed to seed (see below)."""
+    api = _fake_api([{"emoji": {"name": "✅"}, "count": 1, "me": True}], {"✅": [BOT]})
     assert await approvals.read_decision(BRAND, "msg-1", api=api) is None
+
+
+@pytest.mark.asyncio
+async def test_a_lone_operator_reaction_is_read_even_when_the_legend_never_seeded():
+    """⚠️ Observed live 2026-09-16: a REAL approval read back as no decision.
+
+    `offer()` seeds four legend reactions per card with no delay and swallows failures as
+    "cosmetic". Three cards posted in quick succession hit Discord's reaction rate limit, the legend
+    did not land, and the old `count >= 2` gate then skipped the operator's ✅ forever — his approval
+    was unreadable by any route. A missing legend is cosmetic; a missing legend that disables
+    approvals is not."""
+    api = _fake_api([{"emoji": {"name": "✅"}, "count": 1}], {"✅": [APPROVER]})
+    assert await approvals.read_decision(BRAND, "msg-1", api=api) == "approved"
+
+
+@pytest.mark.asyncio
+async def test_the_bot_is_subtracted_so_operator_plus_legend_still_reads():
+    api = _fake_api([{"emoji": {"name": "✅"}, "count": 2, "me": True}], {"✅": [BOT, APPROVER]})
+    assert await approvals.read_decision(BRAND, "msg-1", api=api) == "approved"
 
 
 @pytest.mark.asyncio
