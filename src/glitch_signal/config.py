@@ -190,6 +190,18 @@ class Settings(BaseSettings):
 
     # --- YouTube OAuth2 (per-brand: <PREFIX>_YOUTUBE_CLIENT_ID/SECRET via brand_env) ---
     # Redirect URI must exactly match the one registered on the OAuth client.
+    # ── Google OAuth CLIENT (app identity, not a brand credential) ──────────────────────────────
+    # ⚠️ Deliberately NOT brand-prefixed, and that is not a hole in "never a global credential".
+    # That rule protects DATA access: a brand's tokens must never be reachable by another brand, and
+    # they are not — the grant lives per-brand in `platform_auth`. A client id/secret identifies
+    # MESHPILOT to Google and grants access to nothing on its own; a user still has to consent. One
+    # GCP project with one OAuth client serving every brand is how OAuth apps are meant to work, and
+    # requiring a separate GCP project per brand would mean a new Google app, consent screen and
+    # verification for each one.
+    # A brand-specific <PREFIX>_GMAIL_CLIENT_ID still wins when set.
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    gmail_redirect_uri: str = "https://api.meshpilot.app/oauth/gmail/callback"
     youtube_redirect_uri: str = "https://api.meshpilot.app/oauth/youtube/callback"
     # Full pragmatic channel control for the agent: upload videos, manage the
     # account (videos/playlists/channel), and force-ssl (read/write incl comments

@@ -104,3 +104,33 @@ def test_a_brand_without_credentials_gets_an_actionable_400_not_a_500(monkeypatc
     r = TestClient(server.app, raise_server_exceptions=False).get("/oauth/gmail/start?brand=tejas")
     assert r.status_code == 400
     assert "GMAIL_CLIENT_ID" in r.json()["detail"]
+
+
+def test_one_app_level_client_serves_every_brand(monkeypatch):
+    """MeshPilot has its own GCP project; a brand does not need one. The OAuth client identifies the
+    APP to Google and grants access to nothing by itself — the thing that grants access is the
+    per-brand refresh token in platform_auth, which stays per-brand. So "never a global credential"
+    is intact: it protects data access, and this is app identity."""
+    from glitch_signal import config as cfgmod
+
+    monkeypatch.setattr(gmail_oauth, "brand_env", lambda n, b: None)
+    monkeypatch.setattr(gmail_oauth, "settings", lambda: cfgmod.Settings(
+        google_oauth_client_id="app-client", google_oauth_client_secret="app-secret"))
+    assert gmail_oauth._client_creds("tejas") == ("app-client", "app-secret")
+
+
+def test_a_brand_specific_client_still_overrides_the_app_level_one(monkeypatch):
+    from glitch_signal import config as cfgmod
+
+    monkeypatch.setattr(gmail_oauth, "brand_env",
+                        lambda n, b: {"GMAIL_CLIENT_ID": "brand-id",
+                                      "GMAIL_CLIENT_SECRET": "brand-sec"}.get(n))
+    monkeypatch.setattr(gmail_oauth, "settings", lambda: cfgmod.Settings(
+        google_oauth_client_id="app-client", google_oauth_client_secret="app-secret"))
+    assert gmail_oauth._client_creds("tejas") == ("brand-id", "brand-sec")
+
+
+def test_the_redirect_uri_is_the_gmail_callback(monkeypatch):
+    """It must match an Authorized redirect URI on the GCP client EXACTLY, or Google refuses with
+    redirect_uri_mismatch before the consent screen is ever shown."""
+    assert gmail_oauth.redirect_uri().endswith("/oauth/gmail/callback")
