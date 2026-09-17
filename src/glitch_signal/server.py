@@ -1049,6 +1049,55 @@ async def resend_webhook(request: Request):
     return Response(status_code=200)
 
 
+@app.get("/oauth/gmail/start")
+async def oauth_gmail_start(brand: str) -> RedirectResponse:
+    """The onboarding link: the operator opens this, Google asks THEM, we store the grant.
+
+    An agent must never complete a consent flow or handle the operator's password — this endpoint
+    only builds the URL that sends them to Google.
+    """
+    if brand not in brand_ids():
+        raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
+    from glitch_signal.oauth import gmail as gmail_oauth
+
+    url = gmail_oauth.build_authorize_url(brand)
+    log.info("oauth.gmail.start", brand=brand)
+    return RedirectResponse(url=url, status_code=302)
+
+
+@app.get("/oauth/gmail/callback")
+async def oauth_gmail_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+) -> HTMLResponse:
+    if error:
+        log.warning("oauth.gmail.callback_error", error=error, desc=error_description)
+        return HTMLResponse(
+            _html_page("Gmail authorization cancelled",
+                       f"Error: <code>{_html_escape.escape(error or '')}</code>"),
+            status_code=400,
+        )
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
+    from glitch_signal.oauth import gmail as gmail_oauth
+
+    try:
+        brand = gmail_oauth.parse_state(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Bad state: {exc}") from exc
+    tokens = await gmail_oauth.exchange_code_for_tokens(code, brand)
+    await gmail_oauth.persist_tokens(brand, tokens)
+    granted = str(tokens.get("scope") or "")
+    log.info("oauth.gmail.connected", brand=brand, scopes=granted)
+    return HTMLResponse(_html_page(
+        "Gmail connected",
+        f"MeshPilot can now READ mail for <code>{_html_escape.escape(brand)}</code>.<br>"
+        f"Granted scope: <code>{_html_escape.escape(granted)}</code><br>"
+        "It cannot send, delete or modify anything — the grant is read-only."))
+
+
 @app.get("/oauth/youtube/start")
 async def oauth_youtube_start(brand: str) -> RedirectResponse:
     if brand not in brand_ids():
