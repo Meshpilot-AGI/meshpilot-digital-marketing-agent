@@ -159,6 +159,13 @@ async def submit(application: dict, questions: list[str], bank: dict[str, str]) 
                 "evidence": evidence,
                 "reason": res.get("failure_reason") or "driver reported failure",
                 "package": prepared["package"]}
+    if res.get("clicked") and not res.get("ok"):
+        # We clicked and cannot tell what happened. NOT submitted (we will not claim what we cannot
+        # evidence) — but emphatically not retryable either, because the employer may already hold
+        # the application. The only safe next actor is a human.
+        return {"ok": False, "outcome": "needs_verification", "submitted": False,
+                "evidence": evidence, "reason": res.get("failure_reason") or
+                "submit clicked, outcome unknown", "package": prepared["package"]}
     if not evidence:
         # A claimed submission with no artifact is treated as NOT submitted. Believing an unevidenced
         # claim is how the tracker drifts away from reality in the direction that looks good.

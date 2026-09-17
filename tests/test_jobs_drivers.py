@@ -149,3 +149,32 @@ def test_identity_comes_from_config_never_inferred():
                                         "email": "a@b.com", "phone": "+1"}})
     assert ident["first_name"] == "Tejas" and ident["last_name"] == "Karan Agrawal"
     assert w.identity_for({})["email"] == ""
+
+
+async def test_a_clicked_submit_with_no_confirmation_never_retries():
+    """🔴 The first LIVE attempt (2026-09-17, DEPT 4.1) clicked submit and the page showed no
+    confirmation. The old path called that `failed`, counted an attempt, LEFT THE ROW APPROVED — and
+    would have clicked submit on the same form again five minutes later.
+
+    Everything before the click is safely retryable: nothing left the browser. After the click we do
+    not know what the employer received, and a duplicate application is worse than none — it cannot
+    be withdrawn and it looks careless. The only safe next actor is a human."""
+    from glitch_signal.agent.jobs import submit as _submit
+
+    class _Driver:
+        async def submit(self, package):
+            return {"ok": False, "clicked": True, "outcome": "needs_verification",
+                    "evidence": {"url": "https://boards.example.com/x", "confirmation_text": "…"},
+                    "failure_reason": "submit was CLICKED but the page showed no confirmation"}
+
+    _submit.register_driver(_Driver())
+    try:
+        res = await _submit.submit(
+            {"id": "a1", "status": "approved", "canonical_url": "https://job-boards.greenhouse.io/x/jobs/1",
+             "tailored_cv_path": "/tmp/cv.pdf"}, [], {})
+    finally:
+        _submit.register_driver(None)
+
+    assert res["outcome"] == "needs_verification", "must not be a retryable `failed`"
+    assert res["submitted"] is False, "we never claim what we cannot evidence"
+    assert res["evidence"], "the page after the click is the only record of what happened"
