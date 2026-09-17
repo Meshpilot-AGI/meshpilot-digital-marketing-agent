@@ -122,6 +122,30 @@ _RECORD_REHEARSAL = text(
 )
 
 
+_RECORD_ATTEMPT = text(
+    "UPDATE job_application SET attempts = attempts + 1, failure_reason = :reason, "
+    # Stay APPROVED while retries remain: the operator's decision is still good, it is our execution
+    # that failed. Only a persistent failure demotes, so a bug cannot silently spend an approval.
+    "  status = CASE WHEN attempts + 1 >= :max THEN 'failed' ELSE status END "
+    "WHERE id = :id RETURNING attempts, status"
+)
+
+
+async def record_attempt(app_id: str, reason: str, *, max_attempts: int = 3,
+                         engine: Any = None) -> tuple[int, str]:
+    """Count a failure that is OURS (a driver error, a timeout), and demote only at the cap.
+
+    Distinct from `manual_required`, which means the FORM asked something the operator has not
+    answered — that is their decision to make and demotes immediately.
+    """
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        res = await conn.execute(_RECORD_ATTEMPT,
+                                 {"id": app_id, "reason": reason[:300], "max": max_attempts})
+        row = res.first()
+    return (int(row[0]), str(row[1])) if row else (0, "")
+
+
 async def record_rehearsal(app_id: str, evidence: dict, *, engine: Any = None) -> None:
     """Store what a DRY RUN saw, without changing the application's state.
 

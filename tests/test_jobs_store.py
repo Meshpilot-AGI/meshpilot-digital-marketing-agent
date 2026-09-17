@@ -48,3 +48,18 @@ async def test_record_rehearsal_does_not_touch_status_or_submitted_at():
     assert "status" not in sql, "a rehearsal must not change the application's state"
     assert "submitted_at" not in sql
     assert "'dry_run'" in sql, "it writes under its own key, so a real submission can overwrite cleanly"
+
+
+def test_our_failure_counts_but_does_not_immediately_consume_the_approval():
+    """⚠️ Measured 2026-09-17: a placement defect in the driver set two APPROVED applications to
+    `failed`. The operator's decision was spent by OUR bug, and once it was fixed nothing could
+    retry them — approval cards expire in 48h, so that meant re-offering work he had already done.
+
+    `manual_required` still demotes immediately: that means the FORM asked something he has not
+    answered, which is his decision, not our error."""
+    from glitch_signal.agent.jobs.store import _RECORD_ATTEMPT
+
+    sql = " ".join(str(_RECORD_ATTEMPT).split()).lower()
+    assert "attempts = attempts + 1" in sql
+    assert "case when attempts + 1 >= :max then 'failed' else status end" in sql, \
+        "it must stay approved while retries remain, and demote only at the cap"
