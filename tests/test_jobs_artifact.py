@@ -79,3 +79,22 @@ def test_a_location_with_no_country_fails_visibly_rather_than_guessing():
     claim about the operator on someone else's form."""
     i = _worker().identity_for({"contact": {"full_name": "A B", "location": "Toronto"}})
     assert i["city"] == "Toronto" and i["country"] == ""
+
+
+def test_the_pdf_renderer_passes_the_container_shm_flag():
+    """⚠️ A container's /dev/shm is 64 MB by default and Chromium crashes when it exhausts it —
+    intermittently, which is the worst way to fail. The Playwright driver in the same image already
+    passed --disable-dev-shm-usage and never crashed; the PDF renderer did not, and its crash took
+    down a real submission (DEPT 4.0, 2026-09-17).
+
+    The two drive the same browser in the same container, so their flags must stay in step."""
+    import inspect
+
+    from glitch_signal.agent.jobs import render
+    from glitch_signal.agent.jobs.drivers import browser
+
+    src = inspect.getsource(render.render_cv_pdf)
+    assert "--disable-dev-shm-usage" in src
+    driver_src = inspect.getsource(browser.new_page)
+    for flag in ("--no-sandbox", "--disable-dev-shm-usage"):
+        assert flag in src and flag in driver_src, f"{flag} must be on both browser launches"

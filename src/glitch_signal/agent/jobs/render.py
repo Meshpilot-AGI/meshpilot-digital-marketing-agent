@@ -131,6 +131,12 @@ def render_cv_pdf(markdown: str, out_path: pathlib.Path | str | None = None) -> 
         profile = pathlib.Path(td) / "profile"   # per-run profile: a shared one deadlocks (html_render)
         cmd = [
             chrome, "--headless=new", "--no-sandbox", "--disable-gpu",
+            # ⚠️ A container's /dev/shm is 64 MB by default and Chromium crashes when it exhausts
+            # it — intermittently, which is the worst way to fail. The Playwright driver in this
+            # same image already passes this flag and has never crashed; the PDF renderer did not,
+            # and took down a real submission (DEPT 4.0, 2026-09-17). Keep the two flag sets in
+            # step: they drive the same browser in the same container.
+            "--disable-dev-shm-usage",
             "--no-first-run", "--no-default-browser-check", "--disable-extensions",
             f"--user-data-dir={profile}",
             # No page header/footer: many parsers drop that region, and a URL stamped there is noise
