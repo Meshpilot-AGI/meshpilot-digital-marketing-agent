@@ -103,15 +103,24 @@ async def one_pass() -> dict:
             app = dict(app)
             app["tailored_cv_path"] = artifact.ensure_cv_file(
                 app, factbase.cv_text(BRAND, cfg), out_dir=SHOT_DIR)
-        except Exception as exc:  # noqa: BLE001 — see below
-            # Deliberately broad. This caught only (FileNotFoundError, UnverifiedCvError), so an
-            # HtmlRenderError from the PDF step propagated out of one_pass and killed the WHOLE
-            # sweep — one unrenderable CV stopped every other application from being considered
-            # (observed live 2026-09-16: a missing Chromium binary took the loop down every pass).
-            # Anything that stops this row is this row's problem, not the queue's.
+        except (FileNotFoundError, artifact.UnverifiedCvError) as exc:
+            # The OPERATOR's problem: no approved document exists, or the one that does no longer
+            # verifies. Neither is fixed by trying again, and both need a human.
             log.warning("submitter.no_approved_cv id=%s reason=%s", app.get("id"), exc)
             await store.set_application_status(str(app["id"]), "manual_required", reason=str(exc)[:300])
             out["manual"] += 1
+            continue
+        except Exception as exc:  # noqa: BLE001 — OUR problem; see below
+            # Everything else here is infrastructure: a Chromium crash, a timeout, a full disk.
+            # Caught broadly so one bad row cannot kill the sweep (a missing browser binary once
+            # took the loop down every pass), but counted rather than demoted — this branch used to
+            # set `manual_required`, which SPENT the operator's approval on our own crash. Same
+            # mistake JOBS-23 fixed for the submit path, still present one function earlier:
+            # a /dev/shm Chromium crash consumed a real approval on 2026-09-17.
+            n, st = await store.record_attempt(str(app["id"]), f"CV render failed: {exc}")
+            log.warning("submitter.render_failed id=%s attempt=%s status=%s reason=%s",
+                        app.get("id"), n, st, str(exc)[:200])
+            out["errors"].append(f"{app['id']}: render failed (attempt {n})")
             continue
 
         # The bank goes to the DRIVER: the questions live on the page, so they cannot be resolved
