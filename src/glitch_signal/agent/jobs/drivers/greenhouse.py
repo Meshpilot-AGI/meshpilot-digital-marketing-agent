@@ -117,7 +117,7 @@ class GreenhouseDriver:
                 # (empty) answers — so the form's real questions were never seen and decision 4
                 # never evaluated.
                 required = await bx.required_questions(page)
-                answers, unresolved = {}, []
+                answers, unresolved, targets = {}, [], []
                 for q in required:
                     label = q.get("label", "")
                     value = self._resolve(label)
@@ -125,6 +125,12 @@ class GreenhouseDriver:
                         unresolved.append(label.rstrip("*").strip())
                     else:
                         answers[label] = value
+                        # Carry the element ID discovery already read from `<label for=…>`. Matching
+                        # by label TEXT failed on DEPT's "Where are you currently located?*" while
+                        # succeeding on two sibling questions with identical markup (2026-09-17) —
+                        # accessible-name matching is a guess about how the browser composed a name,
+                        # and we do not have to guess: the id is right there.
+                        targets.append({"id": q.get("id") or "", "label": label, "value": value})
                 if unresolved:
                     # NOT a failure — the designed outcome. The agent never composes an answer, so a
                     # question outside the bank belongs to the operator (decision 4).
@@ -135,9 +141,9 @@ class GreenhouseDriver:
                                               + "; ".join(unresolved[:4])}
 
                 unplaced = []
-                for question, answer in answers.items():
-                    if not await _place_answer(page, question, str(answer)):
-                        unplaced.append(question)
+                for t in targets:
+                    if not await _place_answer(page, t["label"], str(t["value"]), el_id=t["id"]):
+                        unplaced.append(t["label"])
                 if unplaced:
                     return {"ok": False,
                             "failure_reason": f"could not place approved answers: {unplaced[:3]}",
@@ -183,9 +189,24 @@ class GreenhouseDriver:
                 await browser_.close()
 
 
-async def _place_answer(page: Any, question: str, answer: str) -> bool:
-    """Find the control whose LABEL matches the question and set it. Label-based, never positional:
-    a positional guess silently answers the wrong question."""
+async def _place_answer(page: Any, question: str, answer: str, *, el_id: str = "") -> bool:
+    """Set the control for this question. By element ID when discovery found one, else by label.
+
+    Never positional: a positional guess silently answers the wrong question. ID first because it is
+    exact — `get_by_label` depends on how the browser composed the accessible name, and it returned
+    zero matches for DEPT's location question while matching two sibling questions with the same
+    markup. The id came from that question's own `<label for=…>`, so it cannot drift from it.
+    """
+    if el_id:
+        by_id = page.locator(f"#{el_id}")
+        if await by_id.count():
+            target = by_id.first
+            tag = await target.evaluate("e => e.tagName.toLowerCase()")
+            if tag == "select":
+                await target.select_option(label=answer)
+            else:
+                await target.fill(answer)
+            return True
     label = page.get_by_label(question, exact=False)
     if await label.count():
         target = label.first

@@ -83,3 +83,38 @@ def test_a_location_question_resolves_rather_than_being_skipped():
     assert _d()._resolve("Location (City)*") == IDENTITY["city"]
     assert _d()._resolve("What is the location where you permanently reside?*") == IDENTITY["city"]
     assert bx.label_key("where are you currently located") not in bx.CORE_LABELS
+
+
+async def test_an_answer_is_placed_by_element_id_when_discovery_found_one():
+    """⚠️ `get_by_label` returned ZERO matches for DEPT's "Where are you currently located?*" while
+    matching two sibling questions with identical `<label for=…>` markup (2026-09-17) — so the
+    resolved answer could not be placed and the application failed.
+
+    Accessible-name matching is a guess about how the browser composed a name. The id comes from the
+    question's own label element, so it cannot drift from it."""
+    from glitch_signal.agent.jobs.drivers.greenhouse import _place_answer
+
+    calls = {}
+
+    class _Loc:
+        def __init__(self, sel):
+            self.sel = sel
+            self.first = self
+
+        async def count(self):
+            return 1 if self.sel.startswith("#") else 0
+
+        async def evaluate(self, _js):
+            return "input"
+
+        async def fill(self, v):
+            calls["filled"] = (self.sel, v)
+
+    class _Page:
+        def locator(self, sel): return _Loc(sel)
+        def get_by_label(self, *a, **k):
+            raise AssertionError("must not fall back to label matching when an id is known")
+
+    assert await _place_answer(_Page(), "Where are you currently located?*", "Toronto, ON",
+                               el_id="question_68591407")
+    assert calls["filled"] == ("#question_68591407", "Toronto, ON")
