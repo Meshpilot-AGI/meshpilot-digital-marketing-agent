@@ -143,8 +143,18 @@ async def one_pass() -> dict:
                     # proves only that the code did not crash.
                     await store.record_rehearsal(str(app["id"]), res.get("evidence") or {})
                     log.info("submitter.dry_run app=%s reason=%s", app["id"], res.get("reason"))
-                else:
+                elif outcome == "manual_required":
+                    # The FORM asked something the operator has not answered. Their decision, so it
+                    # demotes immediately and goes back to them.
                     await store.set_application_status(str(app["id"]), outcome, reason=res.get("reason"))
+                else:
+                    # OUR failure — a driver defect, a timeout, a selector that moved. Counting it
+                    # instead of demoting keeps the operator's approval alive across a fix: a
+                    # placement bug once set two approved applications to `failed`, and with a 48h
+                    # card TTL that meant re-offering and re-approving work they had already done.
+                    n, st = await store.record_attempt(str(app["id"]), res.get("reason") or "")
+                    log.warning("submitter.attempt_failed app=%s attempt=%s status=%s reason=%s",
+                                app["id"], n, st, res.get("reason"))
                     out["manual"] += 1
             log.info("submitter.not_submitted app=%s outcome=%s reason=%s",
                      app["id"], outcome, (res.get("reason") or "")[:160])
