@@ -152,7 +152,11 @@ async def submit(application: dict, questions: list[str], bank: dict[str, str]) 
     res = await _DRIVER.submit(prepared["package"])
     evidence = res.get("evidence") or {}
     if not res.get("ok"):
-        return {"ok": False, "outcome": "failed", "submitted": False, "evidence": evidence,
+        # A driver may DECLARE its outcome. `manual_required` is not a failure — it is the designed
+        # result when the form asks something the operator has not answered, and flattening it to
+        # "failed" would make a correct refusal look like a broken run.
+        return {"ok": False, "outcome": res.get("outcome") or "failed", "submitted": False,
+                "evidence": evidence,
                 "reason": res.get("failure_reason") or "driver reported failure",
                 "package": prepared["package"]}
     if not evidence:

@@ -3910,3 +3910,45 @@ DEPT 4.1, DEPT 4.0 — verified against `approved_by = 1240025800904933407` on e
 loop re-processes the SAME first row (Later 4.2) every pass and never reaches DEPT — correct for a
 dry run, but it will need a cursor or a per-row dry-run marker before a backlog can drain. Flipp is
 `manual_required` (no stored CV), as designed.
+
+### 2026-09-17 — JOBS-19/20 (the rehearsal proved the guard was never running)
+
+With the dry run finally reporting WHAT it filled, the evidence from Later's real posting read:
+
+```
+fields_filled   first_name last_name email phone city country
+fields_missing  linkedin (no matching input on the form)
+answers_placed  0
+resume_uploaded True
+```
+
+Two defects, the second serious.
+
+**1. LinkedIn could never have filled.** On Later's form LinkedIn is `question_37726385002` — a
+CUSTOM question with no `name` attribute (same on DEPT and Flipp, checked). Selectors built from
+`name*='linkedin'` match nothing, and the field is REQUIRED, so a live submission would have failed
+the employer's own validation.
+
+**2. 🔴 The answer-bank rule was never evaluated.** The worker passed
+`list(app["answers"].keys())` as "the questions" — the application row's own answers, which are `{}`
+— so `resolve_answers` received an EMPTY LIST, found nothing missing, and `prepare()` returned
+`ready`. The form's real questions were never read. Live, Later's two required questions (salary
+expectations, and a "why do you go to work" essay) would have been submitted BLANK.
+
+That is worse than not applying: it burns the requisition and reads as careless. And decision 4 —
+never answer a question that is not in the bank — was not weakly enforced, it was never reached.
+
+**Fix (JOBS-20):** question resolution moved INTO the driver, where the page is.
+`browser.required_questions` reads every label ending in Greenhouse's `*` marker and drops the core
+identity labels the driver fills from config. `GreenhouseDriver._resolve` answers each remaining
+question from identity (LinkedIn/GitHub/portfolio, matched by label because they arrive as custom
+questions) then from the bank by EXACT normalised match — no fuzz, no model. Anything unresolved
+returns `outcome: manual_required` with the list, and `submit.submit` now honours a driver-declared
+outcome instead of flattening every non-OK result to `failed`: a correct refusal must not look like
+a broken run.
+
+**Verified:** suite **1399 pass** (7 new, including one asserting a near-match is a MISS —
+"salary expectations" vs "salary expectations for this role"). Not yet re-rehearsed live.
+
+**Expected next rehearsal, on Later:** `manual_required`, naming the "why do you go to work" essay —
+because that answer is genuinely the operator's and is not in the bank. That is the system working.

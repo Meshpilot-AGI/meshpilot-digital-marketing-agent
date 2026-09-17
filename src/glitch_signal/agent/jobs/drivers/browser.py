@@ -101,3 +101,48 @@ def looks_submitted(text: str) -> bool:
     application was sent when it was not."""
     t = (text or "").lower()
     return any(re.search(p, t) for p in _SUCCESS_PATTERNS)
+
+
+# Greenhouse marks a required field by appending "*" to its <label>. Every CUSTOM question is
+# rendered as `question_<id>` with no semantic name attribute — measured on Later, DEPT and Flipp,
+# 2026-09-17 — so a selector built from `name*='linkedin'` matches nothing and the only durable
+# handle is the LABEL TEXT.
+_REQUIRED_MARK = "*"
+
+# Labels the driver already satisfies from the brand config via semantic selectors. Compared after
+# normalisation, so "First Name*" matches "first name".
+CORE_LABELS = frozenset({
+    "first name", "last name", "email", "phone", "country", "location (city)",
+    "where are you currently located", "resume/cv", "resume", "cover letter", "attach",
+    "enter manually", "preferred first name",
+})
+
+
+def label_key(text: str) -> str:
+    """Normalise a form label for comparison: case, whitespace, and the required marker."""
+    return " ".join((text or "").split()).rstrip("*").strip().lower().rstrip("?:.")
+
+
+async def required_questions(page: Any) -> list[dict]:
+    """Every REQUIRED question on the form that the driver does not already fill from config.
+
+    Read from the page rather than assumed, because the questions are the employer's, not ours. The
+    submitter previously passed the application row's own (empty) answer keys as "the questions",
+    so `resolve_answers` was handed an empty list, found nothing missing, and the operator's
+    answer-bank rule never evaluated — a form with two required questions would have been submitted
+    with both blank (measured on Later, 2026-09-17).
+    """
+    rows = await page.evaluate("""() => {
+        const out = [];
+        for (const l of document.querySelectorAll('label')) {
+            const text = (l.innerText || '').trim().replace(/\\s+/g, ' ');
+            if (!text.endsWith('*')) continue;
+            let el = null;
+            if (l.htmlFor) el = document.getElementById(l.htmlFor);
+            if (!el) el = l.parentElement ? l.parentElement.querySelector('input,select,textarea') : null;
+            if (!el) continue;
+            out.push({label: text, id: el.id || '', tag: el.tagName.toLowerCase(), type: el.type || ''});
+        }
+        return out;
+    }""")
+    return [r for r in (rows or []) if label_key(r.get("label", "")) not in CORE_LABELS]
