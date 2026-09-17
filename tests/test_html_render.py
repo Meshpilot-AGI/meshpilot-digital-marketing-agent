@@ -3,7 +3,6 @@
 Pure helpers need no env/DB; the render tests shell out to headless Chrome
 (skipped if no Chrome on the box).
 """
-import pathlib
 
 import pytest
 
@@ -71,3 +70,29 @@ def test_render_card_live_produces_png(tmp_path):
     out = hr.render_card(spec, "glitch_executor", aspect="16:9", out_dir=tmp_path)
     assert out.exists() and out.stat().st_size > 0
     assert out.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"   # PNG magic
+
+
+def test_playwright_browsers_path_is_honoured(tmp_path, monkeypatch):
+    """⚠️ Playwright's own Docker image installs browsers to /ms-playwright, NOT ~/.cache — so a
+    lookup that searched only the home cache found nothing inside the one container built
+    specifically to have a browser. The job submitter failed every pass with "no Chrome/Chromium
+    binary found" while Chromium sat on disk (observed live 2026-09-16, Railway)."""
+    from glitch_signal.media.html_render import _playwright_chromium
+
+    root = tmp_path / "ms-playwright"
+    exe = root / "chromium_headless_shell-1200" / "chrome-headless-shell-linux64" / "chrome-headless-shell"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(root))
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    assert _playwright_chromium() == str(exe)
+
+
+def test_the_zero_sentinel_is_not_treated_as_a_path(tmp_path, monkeypatch):
+    """`PLAYWRIGHT_BROWSERS_PATH=0` means "install beside the package", not a directory called 0."""
+    from glitch_signal.media.html_render import _playwright_chromium
+
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", "0")
+    monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    assert _playwright_chromium() is None or "/0/" not in _playwright_chromium()

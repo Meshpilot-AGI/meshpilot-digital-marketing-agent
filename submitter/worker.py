@@ -103,7 +103,12 @@ async def one_pass() -> dict:
             app = dict(app)
             app["tailored_cv_path"] = artifact.ensure_cv_file(
                 app, factbase.cv_text(BRAND, cfg), out_dir=SHOT_DIR)
-        except (FileNotFoundError, artifact.UnverifiedCvError) as exc:
+        except Exception as exc:  # noqa: BLE001 — see below
+            # Deliberately broad. This caught only (FileNotFoundError, UnverifiedCvError), so an
+            # HtmlRenderError from the PDF step propagated out of one_pass and killed the WHOLE
+            # sweep — one unrenderable CV stopped every other application from being considered
+            # (observed live 2026-09-16: a missing Chromium binary took the loop down every pass).
+            # Anything that stops this row is this row's problem, not the queue's.
             log.warning("submitter.no_approved_cv id=%s reason=%s", app.get("id"), exc)
             await store.set_application_status(str(app["id"]), "manual_required", reason=str(exc)[:300])
             out["manual"] += 1

@@ -65,21 +65,39 @@ def _playwright_chromium() -> str | None:
     exactly this (screenshot / print-to-pdf) and starts immediately, whereas macOS's full
     `Google Chrome.app` with `--headless=new` was measured HANGING until the 120s timeout even with
     an isolated `--user-data-dir`.
+
+    ⚠️ **`PLAYWRIGHT_BROWSERS_PATH` is honoured, and that is not optional.** Playwright's own Docker
+    image installs browsers to `/ms-playwright`, NOT to `~/.cache/ms-playwright` — so searching only
+    the home cache found nothing inside the one container built specifically to have a browser. The
+    job submitter failed every pass with "no Chrome/Chromium binary found (… and the Playwright
+    cache)" while Chromium sat on disk the whole time (observed live 2026-09-16, Railway).
     """
     import glob
+    import os
 
-    pats = (
-        # headless shell — macOS (arm64/x64) and Linux
-        "~/Library/Caches/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-mac-*/chrome-headless-shell",
-        "~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
-        # full chromium as a fallback
-        "~/Library/Caches/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
-        "~/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+    roots = []
+    if env_root := os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        # "0" is Playwright's "install next to the package" sentinel, not a path.
+        if env_root != "0":
+            roots.append(env_root)
+    roots += ["/ms-playwright",                          # the official image's default
+              "~/Library/Caches/ms-playwright",          # macOS
+              "~/.cache/ms-playwright"]                  # Linux, local installs
+
+    # Relative to each root. headless shell first: it is purpose-built for print-to-pdf.
+    rels = (
+        "chromium_headless_shell-*/chrome-headless-shell-mac-*/chrome-headless-shell",
+        "chromium_headless_shell-*/chrome-headless-shell-linux*/chrome-headless-shell",
+        "chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+        "chromium-*/chrome-linux/chrome",
+        "chromium-*/chrome-linux64/chrome",
     )
-    for pat in pats:
-        hits = sorted(glob.glob(pathlib.Path(pat).expanduser().as_posix()))
-        if hits:
-            return hits[-1]
+    for rel in rels:                       # preference is by BINARY KIND, then by root
+        for root in roots:
+            base = pathlib.Path(root).expanduser()
+            hits = sorted(h for h in glob.glob((base / rel).as_posix()) if os.access(h, os.X_OK))
+            if hits:
+                return hits[-1]
     return None
 
 
