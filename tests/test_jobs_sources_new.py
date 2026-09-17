@@ -139,3 +139,21 @@ async def test_the_api_token_never_appears_in_the_url():
                              client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     assert "SECRET-KEY" not in cap["url"]
     assert cap["auth"] == "Bearer SECRET-KEY"
+
+
+def test_the_dry_run_reports_what_it_filled_not_just_that_it_ran():
+    """⚠️ The first live rehearsal (2026-09-17) recorded only "form filled, NOT submitted" plus the
+    page body — which on a Greenhouse posting is mostly the job description. It proved the code
+    reached the form and stopped; it proved NOTHING about whether name, email, phone, country, city
+    and LinkedIn actually landed in the right inputs.
+
+    A rehearsal exists so the operator can see what WOULD be sent. If it cannot answer that, they are
+    being asked to trust the exact path they wanted rehearsed."""
+    import inspect
+
+    from glitch_signal.agent.jobs.drivers import greenhouse
+
+    src = inspect.getsource(greenhouse.GreenhouseDriver.submit)
+    dry = src.split("if not self.live:")[1].split("return")[0]
+    for key in ("fields_filled", "fields_missing", "resume_uploaded", "answers_placed"):
+        assert key in dry, f"the dry-run evidence must report {key}"
