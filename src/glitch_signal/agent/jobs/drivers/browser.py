@@ -109,12 +109,19 @@ def looks_submitted(text: str) -> bool:
 # handle is the LABEL TEXT.
 _REQUIRED_MARK = "*"
 
-# Labels the driver already satisfies from the brand config via semantic selectors. Compared after
-# normalisation, so "First Name*" matches "first name".
+# Labels the driver reliably fills from the brand config via SEMANTIC selectors (`#first_name`,
+# `input[type=email]`, …), so asking the answer bank about them would report every application as
+# manual_required.
+#
+# ⚠️ Keep this list to fields whose input really is semantic. It briefly also held
+# "where are you currently located" and "location (city)" — and on DEPT's form that question is a
+# CUSTOM `question_<id>` with no semantic handle, so excluding it here meant it was neither filled
+# by selector NOR offered to the resolver: a REQUIRED field left silently blank in a rehearsal that
+# otherwise looked clean (measured 2026-09-17). Anything an employer might render as a custom
+# question belongs in the resolver, not here — being asked twice is harmless, being skipped is not.
 CORE_LABELS = frozenset({
-    "first name", "last name", "email", "phone", "country", "location (city)",
-    "where are you currently located", "resume/cv", "resume", "cover letter", "attach",
-    "enter manually", "preferred first name",
+    "first name", "last name", "preferred first name", "email", "phone", "country",
+    "resume/cv", "resume", "cover letter", "attach", "enter manually",
 })
 
 

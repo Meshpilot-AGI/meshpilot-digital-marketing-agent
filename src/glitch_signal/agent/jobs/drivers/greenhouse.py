@@ -66,8 +66,13 @@ class GreenhouseDriver:
         from glitch_signal.agent.jobs.drivers import browser as _bx
 
         key = _bx.label_key(label)
+        # Profile facts an employer may render EITHER as a semantic field or as a custom question.
+        # Matched on the label because that is the only handle a custom question offers; the value
+        # still comes from the brand config and is never composed.
         for word, ident in (("linkedin", "linkedin"), ("github", "github"),
-                            ("portfolio", "portfolio"), ("website", "portfolio")):
+                            ("portfolio", "portfolio"), ("website", "portfolio"),
+                            ("currently located", "city"), ("location", "city"),
+                            ("city", "city"), ("reside", "city")):
             if word in key and self.identity.get(ident):
                 return str(self.identity[ident])
         # No fuzz, no LLM: a confident near-match is how a wrong answer gets submitted under

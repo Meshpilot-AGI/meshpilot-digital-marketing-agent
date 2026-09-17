@@ -44,11 +44,16 @@ def test_a_near_match_is_a_miss_not_a_guess():
     assert _d()._resolve("What are your salary expectations?*") is None
 
 
-def test_core_identity_labels_are_not_treated_as_questions():
-    """They are filled from config by semantic selector; re-asking them of the bank would report
-    every application as manual_required."""
-    for label in ("First Name*", "Email*", "Phone*", "Country*", "Location (City)*"):
+def test_only_genuinely_semantic_fields_are_excluded_from_the_questions():
+    """These have real semantic inputs (#first_name, input[type=email], …), so asking the bank about
+    them would report every application as manual_required.
+
+    Location is deliberately NOT here: DEPT renders it as a custom question, and excluding it meant
+    a required field went unfilled and unnoticed."""
+    for label in ("First Name*", "Email*", "Phone*", "Country*"):
         assert bx.label_key(label) in bx.CORE_LABELS
+    for label in ("Location (City)*", "Where are you currently located?*", "LinkedIn Profile*"):
+        assert bx.label_key(label) not in bx.CORE_LABELS
 
 
 def test_label_key_normalises_the_required_marker_and_punctuation():
@@ -65,3 +70,16 @@ async def test_required_questions_drops_the_fields_we_fill_ourselves():
 
     got = [q["label"] for q in await bx.required_questions(_Page())]
     assert got == ["LinkedIn Profile*", "Why do you go to work?*"]
+
+
+def test_a_location_question_resolves_rather_than_being_skipped():
+    """⚠️ DEPT renders "Where are you currently located?*" as a CUSTOM question with no semantic
+    input. It was in CORE_LABELS, so it was neither filled by selector nor offered to the resolver —
+    a REQUIRED field left silently blank in a rehearsal that otherwise looked clean (2026-09-17).
+
+    Anything an employer might render as a custom question belongs in the resolver. Being asked
+    twice is harmless; being skipped is not."""
+    assert _d()._resolve("Where are you currently located?*") == IDENTITY["city"]
+    assert _d()._resolve("Location (City)*") == IDENTITY["city"]
+    assert _d()._resolve("What is the location where you permanently reside?*") == IDENTITY["city"]
+    assert bx.label_key("where are you currently located") not in bx.CORE_LABELS
