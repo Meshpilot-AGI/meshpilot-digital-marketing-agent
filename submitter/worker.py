@@ -135,6 +135,10 @@ async def one_pass() -> dict:
             if outcome in ("manual_required", "failed"):
                 # A DRY RUN is not a failure — leave the row approved so a later live pass can send it.
                 if not LIVE and "dry run" in (res.get("reason") or ""):
+                    # Persist what the rehearsal SAW. Without this the evidence lives on this
+                    # container's /tmp, which is to say nowhere — and a rehearsal nobody can inspect
+                    # proves only that the code did not crash.
+                    await store.record_rehearsal(str(app["id"]), res.get("evidence") or {})
                     log.info("submitter.dry_run app=%s reason=%s", app["id"], res.get("reason"))
                 else:
                     await store.set_application_status(str(app["id"]), outcome, reason=res.get("reason"))

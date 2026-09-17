@@ -37,3 +37,14 @@ def test_offer_candidates_retries_a_draft_whose_card_never_posted():
     sql = " ".join(str(_OFFER_CANDIDATES).split())
     assert "a.status = 'drafted' AND a.discord_msg_id IS NULL" in sql
     assert "a.id IS NULL OR" in sql, "a listing with no application at all is still the main case"
+
+
+async def test_record_rehearsal_does_not_touch_status_or_submitted_at():
+    """A dry run is not an outcome. Its evidence is recorded so a human can inspect what WOULD have
+    been sent — the point of a rehearsal — but the row must stay exactly as approved."""
+    from glitch_signal.agent.jobs.store import _RECORD_REHEARSAL
+
+    sql = " ".join(str(_RECORD_REHEARSAL).split()).lower()
+    assert "status" not in sql, "a rehearsal must not change the application's state"
+    assert "submitted_at" not in sql
+    assert "'dry_run'" in sql, "it writes under its own key, so a real submission can overwrite cleanly"

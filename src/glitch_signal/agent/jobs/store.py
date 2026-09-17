@@ -112,6 +112,28 @@ _MARK_SUBMITTED = text(
 )
 
 
+_RECORD_REHEARSAL = text(
+    # Status and submitted_at are deliberately untouched: a rehearsal is not an outcome. It writes
+    # ONLY under `evidence.dry_run`, so a later real submission overwrites `evidence` wholesale
+    # without having to reason about leftovers.
+    "UPDATE job_application SET evidence = "
+    "  COALESCE(evidence, '{}'::jsonb) || jsonb_build_object('dry_run', CAST(:ev AS jsonb)) "
+    "WHERE id = :id"
+)
+
+
+async def record_rehearsal(app_id: str, evidence: dict, *, engine: Any = None) -> None:
+    """Store what a DRY RUN saw, without changing the application's state.
+
+    The dry run exists so a human can inspect what would have been sent — and its evidence was
+    landing on an ephemeral container's /tmp, which is to say nowhere. A rehearsal nobody can look
+    at proves only that the code did not crash.
+    """
+    eng = _engine_or(engine)
+    async with eng.begin() as conn:
+        await conn.execute(_RECORD_REHEARSAL, {"id": app_id, "ev": json.dumps(evidence or {})})
+
+
 def _as_datetime(value: Any) -> Any:
     """Coerce a source's `posted_at` to a datetime, or None.
 
