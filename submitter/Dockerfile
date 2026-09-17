@@ -36,6 +36,18 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
+# ⚠️ Playwright's PYTHON BINDINGS, pinned to this image's tag. The image ships Chromium and its
+# system libraries, and it ships playwright for the interpreter IT was built around — but
+# `pip install .` above lands our package in /usr/local/lib/python3.12/dist-packages, and from
+# there `import playwright` did not resolve: the submitter rendered the CV fine and then failed
+# every pass with "No module named 'playwright'" (observed live 2026-09-16, Railway).
+#
+# The version MUST track the FROM tag above (v1.55.0-noble → 1.55.0). Playwright refuses to drive a
+# browser build it does not recognise, so a drifting pin breaks the one thing this container exists
+# to do. Bump both lines together or not at all.
+RUN pip install --no-cache-dir "playwright==1.55.0" \
+ && python -c "import playwright, sys; print('playwright', playwright.__version__ if hasattr(playwright,'__version__') else 'ok', 'importable on', sys.executable)"
+
 COPY submitter/worker.py ./worker.py
 
 # No inbound HTTP. This is a poll loop.

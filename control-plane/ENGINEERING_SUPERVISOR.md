@@ -3872,3 +3872,41 @@ plus two new tests: a lone operator reaction with no legend IS read, and legend+
 the legend will keep failing under burst — now cosmetic-only, as intended, but worth a 0.3s sleep.
 The three live cards (Later 4.2, DEPT 4.1, DEPT 4.0) are still `awaiting_approval` and will be read
 correctly once this deploys.
+
+### 2026-09-16/17 — JOBS-16/17 (the dry run earned its keep: three defects, nothing submitted)
+
+The operator asked for a dry run before `SUBMITTER_LIVE`. It found three things, in sequence, each
+of which would have hit a real employer's form on the first LIVE attempt instead.
+
+1. **The submitter container could not find its own browser.** `HtmlRenderError: no Chrome/Chromium
+   binary found (… and the Playwright cache)`. Playwright's official image installs browsers to
+   `/ms-playwright` and sets `PLAYWRIGHT_BROWSERS_PATH`; `_playwright_chromium` searched only
+   `~/.cache/ms-playwright` and the macOS cache. The one container built specifically to have a
+   browser could not see the Chromium on its own disk. Fixed: honour the env var (ignoring the `0`
+   sentinel), add `/ms-playwright`, prefer by binary KIND across roots, require executable.
+2. **One unrenderable CV killed the whole sweep.** The worker caught only `(FileNotFoundError,
+   UnverifiedCvError)` around the render, so `HtmlRenderError` propagated out of `one_pass` and took
+   every other application down with it, every pass. Broadened — a row's failure is the row's.
+3. **`No module named 'playwright'`.** With the browser found, the CV rendered (58 KB PDF) and the
+   driver then could not import its bindings: `pip install .` puts our package in
+   `/usr/local/lib/python3.12/dist-packages`, from which the image's own playwright did not resolve.
+   Fixed by installing `playwright==1.55.0` explicitly in the image, pinned to the FROM tag.
+
+**The operator's config was ALSO stale on this service.** `meshpilot-submitter` is a separate Railway
+service with its own `BRAND_CONFIGS_JSON`, still carrying the FABRICATED
+`linkedin.com/in/tejaskaranagrawal` and `github.com/tejaskaranagrawal`, 34 boards, and no Indeed.
+Later's form marks LinkedIn Profile REQUIRED, so a live run would have submitted a wrong URL under
+his name. Replaced with the corrected config (92 boards, real links, floor 4.0).
+
+**Gate state, deliberately:** on the submitter `AGENT_JOBS_ENABLED`, `AGENT_JOB_APPLY_ENABLED` and
+`AGENT_PUBLISH_ENABLED` are ON — all three are required merely to reach a DRY RUN, because the
+policy gate sits in front of the driver. **`SUBMITTER_LIVE` remains unset**, and it is the only
+switch that sends. The three-switch redundancy behaved exactly as designed.
+
+**Operator confirmation (2026-09-17):** he approved ALL THREE cards deliberately — Later 4.2,
+DEPT 4.1, DEPT 4.0 — verified against `approved_by = 1240025800904933407` on each. Not a misread.
+
+**Observed, NOT fixed (queued):** `MAX_PER_RUN=1` plus "a dry run leaves the row approved" means the
+loop re-processes the SAME first row (Later 4.2) every pass and never reaches DEPT — correct for a
+dry run, but it will need a cursor or a per-row dry-run marker before a backlog can drain. Flipp is
+`manual_required` (no stored CV), as designed.
