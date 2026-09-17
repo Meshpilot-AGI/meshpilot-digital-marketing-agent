@@ -3750,3 +3750,95 @@ old ✅ is exactly the substitution this lane exists to prevent.
 **Observed, NOT fixed (queued):** `APIFY_KEY` is still un-rotated (verified still live 2026-09-16) and
 still absent from FastAPI Cloud. No submission driver exists, so `AGENT_JOB_APPLY_ENABLED` remains
 off and every submit outcome would be `manual_required`.
+
+### 2026-09-16 — JOBS-13 lane closed (submitter loop closed; measured against three REAL forms)
+
+The submitter had a browser, two drivers, every guard and a poll loop, and could never send anything:
+`prepare()` refuses without a CV artifact and nothing produced one — `tailored_cv_path` was NULL on
+every row. Closed by carrying `tailored_cv_md` through `_BY_STATUS` and adding
+`jobs/artifact.ensure_cv_file`, which renders THAT markdown at submit time (never tailors, never
+falls back to the master CV) and re-verifies it against the fact base first.
+
+**Then the driver was checked against three real Greenhouse forms** — Flipp (4.5), DEPT (4.1), Later
+(4.2) — rather than trusted. Four findings, all measured 2026-09-16:
+
+1. ✅ **Every core selector matches.** `#first_name`, `#last_name`, `#email`, `#phone`,
+   `input[type=file]`, `button[type=submit]` all resolve on all three. No password field anywhere,
+   so the account-wall guard has nothing to trip on for Greenhouse.
+2. 🔴 **The driver was missing three REQUIRED fields.** All three forms mark **Country**,
+   **Location (City)** and **LinkedIn Profile** required, and `_FIELDS` knew none of them. A
+   submission would have been rejected by the form's own validation with every mapped field filled
+   correctly. Added, plus the `identity_for` split of the config's single `location` string.
+3. ⚠️ **reCAPTCHA is PER-EMPLOYER, not universal.** Flipp serves reCAPTCHA **Enterprise** (
+   `enterprise.js?render=<sitekey>`, badge present, zero v2 checkbox widgets — i.e. the invisible
+   score-based kind); DEPT and Later serve **none**. So the earlier assumption that captcha blocks
+   everything is wrong — but the role the operator APPROVED is the one that is blocked.
+   The invisible/v2 question recorded in `browser.py` is now answered for this case: it is invisible.
+   That does NOT make it safe to drive through — an invisible reCAPTCHA is bot detection whose whole
+   purpose is to score automated submissions, and a low score can discard the application silently,
+   leaving the operator believing they applied. It stays a hard stop.
+4. 🔴 **Free-text screening questions are the real ceiling.** Flipp requires five (how did you hear,
+   what influenced you, salary expectations, work authorization, how did you hear about this job);
+   Later requires two, one of them a genuine essay ("Why do you go to work?"). Operator decision 4
+   routes every unbanked free-text question to `manual_required`, so **most Greenhouse applications
+   will be manual_required by design**, not by defect.
+
+**Verified:** suite **1386 pass** (6 new). Form inspection was read-only — nothing was filled,
+uploaded or submitted on any employer site.
+
+**The honest state:** the machine can now assemble and upload the approved CV, and it fills every
+structured field the real forms ask for. It still cannot complete Flipp (captcha + five free-text
+questions + no stored CV on that pre-fix approval).
+
+**Observed, NOT fixed (queued):** the answer bank is EMPTY, and it is the lever that decides how much
+of this is automatic. Recurring questions (salary expectations, legally able to work in Canada, how
+did you hear about this job) are bankable ONCE by the operator and would then be answered on every
+future form; bespoke essays never will be, and should not be. Seeding that bank is the highest-value
+next step and is operator-authored by design — the agent must not compose those answers.
+Also: `APIFY_KEY` still un-rotated; Lever's driver is untested against a live form.
+
+### 2026-09-16 — JOBS-14 lane closed (floor 4.3 → 4.0, a deliberate widening) + the answer bank is live
+
+**The answer bank went from empty to 14 entries**, authored by the operator and keyed to the exact
+text of six real forms. Effect, verified by `resolve_answers` against those forms:
+
+```
+DEPT 4.1 Campaign Manager (FTC)   ✅ every screening question answered
+DEPT 4.0 CRM Talent Pool          ✅ every screening question answered
+Later 4.2                         → manual_required (bespoke essay)
+Flipp 4.5                         → manual_required (bespoke essay) + reCAPTCHA
+```
+
+Two matching lessons, both caught before they cost a submission:
+
+- **An internal `?` broke a key.** The operator's answer was right and the stored question was
+  `...fixed term contracts (3 / 6 / 12 month etc)`; the form asks `...contracts? (3 / 6 / 12 month
+  etc)`. `normalize_question` strips only TRAILING punctuation, so it silently missed. Re-keyed from
+  the live form text.
+- **"Yes" was the wrong value for a consent field.** The operator said to put "Yes" for DEPT's
+  privacy statement; the combobox's ONLY option is *"I hereby agree and accept"*, so a
+  `select_option(label="Yes")` would have found nothing and the driver would have hard-stopped.
+  Stored the form's own wording. Checked the work-auth combobox at the same time — it does offer
+  Yes/No, so that answer was right. **Read the options before banking an answer to a select.**
+
+**Floor 4.3 → 4.0 on the operator's instruction.** ⚠️ Recorded as a WIDENING, not a restoration:
+4.3 existed to hold the bar he originally set, because glm-5.3 scores the same pool a mean of +0.37
+above the sonnet-5 that his first 4.0 was calibrated on. On the current scorer 4.0 sits nearer an
+effective 3.6. He chose it knowing that, once the bank made two sub-4.3 roles fully submittable while
+4.3 admitted only Flipp — which reCAPTCHA blocks anyway. The concern was raised once and is closed;
+a future session should not "restore" 4.3 as a correctness fix.
+
+**Verified:** the 4.0 floor admits **4** roles — Later 4.2, DEPT 4.1, DEPT 4.0, Jane 4.0. Suite
+**1386 pass**.
+
+🔴 **BLOCKED — the cloud still enforces 4.3.** The live floor is `jobs.min_score` inside the
+`BRAND_CONFIGS_JSON` env var, and the FastAPI Cloud CLI is authenticated as
+`storieschakra@gmail.com` (from today's Vediq migration), which does not own this app —
+every `env` call returns `Team not found for the current user`. So this lane changes the code and the
+local config but CANNOT change what production enforces. The operator must re-auth the CLI to the
+account owning team `helpn8nworld`; then `BRAND_CONFIGS_JSON` needs its `tejas.jobs.min_score` set to
+4.0 and `APIFY_KEY` adding. Until then the cloud tick keeps offering at 4.3.
+
+**Observed, NOT fixed (queued):** `APIFY_KEY` is STILL the leaked key — the operator supplied the same
+value again (byte-identical), so rotation has not happened. Nothing checks posting liveness before
+offering: the Wave Financial Lever posting in the pool now 404s.

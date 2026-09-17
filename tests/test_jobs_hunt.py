@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from glitch_signal.agent.jobs import hunt
 
-CFG = {"max_applications_per_day": 3, "min_score": 4.3, "cv_markdown": "# CV\nreal experience"}
+CFG = {"max_applications_per_day": 3, "min_score": 4.0, "cv_markdown": "# CV\nreal experience"}
 
 
 class _Store:
@@ -113,7 +113,7 @@ async def _offer(brand, application):
 async def test_a_below_floor_role_is_skipped_and_never_offered(monkeypatch):
     """Operator decision 2: below the floor a role is SKIPPED, not surfaced for a yes/no. Offering
     it 'just to ask' would quietly turn the floor into a suggestion."""
-    store = _Store(candidates=[_cand(4.0)])          # 4.0 < the 4.3 floor
+    store = _Store(candidates=[_cand(3.9)])          # 3.9 < the 4.0 floor
     out = await _run(monkeypatch, store)
     assert out["offered"] == [] and store.offered == []
     assert out["skipped"][0]["reason"] == "below floor / work-auth"

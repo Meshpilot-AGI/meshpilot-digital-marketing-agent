@@ -2,7 +2,7 @@
 
 Recall-first: this runs BEFORE any LLM sees a posting, so it must be cheap and conservative. A
 posting wrongly dropped here is never scored, never offered, and never noticed — so the rules bias
-toward letting a borderline posting through and letting the score floor (4.3) reject it later.
+toward letting a borderline posting through and letting the score floor (4.0) reject it later.
 
 Two asymmetries that matter, both learned from the operator's career-ops run on 2026-09-14:
 
