@@ -45,11 +45,34 @@ async def _fill_first(page: Any, selectors: list[str], value: str) -> bool:
 class GreenhouseDriver:
     """Implements `submit.SubmissionDriver`."""
 
-    def __init__(self, *, identity: dict, live: bool = False, screenshot_dir: str | None = None):
+    def __init__(self, *, identity: dict, live: bool = False, screenshot_dir: str | None = None,
+                 bank: dict[str, str] | None = None):
         # `live=False` means: do everything EXCEPT the final click. The default is not-sending.
         self.identity = identity
         self.live = live
         self.screenshot_dir = screenshot_dir
+        # The operator's answer bank. It lives HERE, next to the page, because the questions are on
+        # the page: they cannot be resolved before the form has been read.
+        self.bank = bank or {}
+
+    def _resolve(self, label: str) -> str | None:
+        """An approved answer for this label, or None. Identity first, then the bank — EXACT match.
+
+        Identity covers the profile questions an employer renders as a custom question rather than a
+        semantic field (LinkedIn is `question_37726385002` on Later's form, with no name attribute at
+        all), so they must be matched by label or not at all.
+        """
+        from glitch_signal.agent.jobs import submit as _submit
+        from glitch_signal.agent.jobs.drivers import browser as _bx
+
+        key = _bx.label_key(label)
+        for word, ident in (("linkedin", "linkedin"), ("github", "github"),
+                            ("portfolio", "portfolio"), ("website", "portfolio")):
+            if word in key and self.identity.get(ident):
+                return str(self.identity[ident])
+        # No fuzz, no LLM: a confident near-match is how a wrong answer gets submitted under
+        # someone's name (operator decision 4).
+        return _submit.answer_for(label, self.bank)
 
     async def submit(self, package: dict) -> dict:
         from playwright.async_api import async_playwright
@@ -83,11 +106,31 @@ class GreenhouseDriver:
                     return {"ok": False, "failure_reason": "no resume file input found on the form",
                             "evidence": await bx.evidence_from(page)}
 
-                # Answers were resolved from the operator's bank BEFORE we got here. We only place
-                # them; we never compose one, and an unplaceable answer is a hard stop rather than a
-                # silently skipped question.
+                # READ the employer's required questions off the page, then answer only what the
+                # operator has already approved. Everything here used to come from
+                # `package["answers"]`, which the worker built from the application row's own
+                # (empty) answers — so the form's real questions were never seen and decision 4
+                # never evaluated.
+                required = await bx.required_questions(page)
+                answers, unresolved = {}, []
+                for q in required:
+                    label = q.get("label", "")
+                    value = self._resolve(label)
+                    if value is None:
+                        unresolved.append(label.rstrip("*").strip())
+                    else:
+                        answers[label] = value
+                if unresolved:
+                    # NOT a failure — the designed outcome. The agent never composes an answer, so a
+                    # question outside the bank belongs to the operator (decision 4).
+                    ev = await bx.evidence_from(page, None)
+                    ev.update({"fields_filled": filled, "unresolved_questions": unresolved})
+                    return {"ok": False, "outcome": "manual_required", "evidence": ev,
+                            "failure_reason": "required questions with no approved answer: "
+                                              + "; ".join(unresolved[:4])}
+
                 unplaced = []
-                for question, answer in (package.get("answers") or {}).items():
+                for question, answer in answers.items():
                     if not await _place_answer(page, question, str(answer)):
                         unplaced.append(question)
                 if unplaced:
@@ -107,7 +150,7 @@ class GreenhouseDriver:
                                "fields_filled": filled,
                                "fields_missing": missing,
                                "resume_uploaded": uploaded,
-                               "answers_placed": dict(package.get("answers") or {})})
+                               "answers_placed": dict(answers)})
                     return {"ok": False, "failure_reason": "dry run — form filled, NOT submitted",
                             "evidence": ev}
 

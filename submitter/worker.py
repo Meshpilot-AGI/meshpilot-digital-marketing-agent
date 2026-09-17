@@ -114,10 +114,13 @@ async def one_pass() -> dict:
             out["manual"] += 1
             continue
 
-        submit.register_driver(driver_cls(identity=identity, live=LIVE, screenshot_dir=SHOT_DIR))
+        # The bank goes to the DRIVER: the questions live on the page, so they cannot be resolved
+        # before it is read. The worker no longer pretends to know them.
+        submit.register_driver(driver_cls(identity=identity, live=LIVE, screenshot_dir=SHOT_DIR,
+                                          bank=bank))
         try:
             # Screening questions are whatever the form asks; we only ever answer from the bank.
-            res = await submit.submit(app, list((app.get("answers") or {}).keys()), bank)
+            res = await submit.submit(app, [], bank)
         except Exception as exc:  # noqa: BLE001 — one bad posting must not kill the loop
             out["errors"].append(f"{app['id']}: {str(exc)[:160]}")
             continue
