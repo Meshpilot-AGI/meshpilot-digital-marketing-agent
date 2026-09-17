@@ -107,9 +107,19 @@ async def read_decision_actor(brand_id: str, msg_id: str, *,
     in this system that is irreversible and taken in the operator's name, "someone on the allowlist"
     is a weaker audit trail than the code can trivially provide.
 
-    Only reactions from `jobs.approvers` count. The bot's own legend reaction makes every count 1,
-    so a count of 1 is noise; only >1 is worth a per-emoji users call (rate-limit lesson from
-    OFF-PAGE). An empty approvers list means NOBODY can approve — deliberately fail-safe.
+    Only reactions from `jobs.approvers` count. An empty approvers list means NOBODY can approve —
+    deliberately fail-safe.
+
+    ⚠️ **This used to gate on `count >= 2`**, reasoning that the bot's own legend reaction makes
+    every count 1, so 1 is noise. That coupled reading an approval to the legend having been seeded
+    — and `offer()` seeds four reactions per card with no delay and swallows failures as "cosmetic".
+    Post three cards in quick succession, hit Discord's reaction rate limit, and the legend silently
+    does not land; the operator's ✅ is then a count of 1 and is skipped FOREVER. Observed live
+    2026-09-16: a real approval on the DEPT 4.1 card read back as no decision.
+
+    A missing legend is cosmetic. A missing legend that disables approvals is not. So the bot's own
+    reaction is now SUBTRACTED via Discord's `me` flag instead of assumed: any emoji with at least
+    one non-bot reaction is worth checking, whether or not the legend exists.
     """
     s = settings_for(brand_id)
     api = api or _api
@@ -118,9 +128,11 @@ async def read_decision_actor(brand_id: str, msg_id: str, *,
     for r in (msg or {}).get("reactions", []) or []:
         name = (r.get("emoji") or {}).get("name")
         if name:
-            counts[name] = int(r.get("count") or 0)
+            # `me` is Discord's own "the bot reacted here" flag — exact, where subtracting a assumed
+            # legend was a guess. Others = everyone who is not us.
+            counts[name] = max(0, int(r.get("count") or 0) - (1 if r.get("me") else 0))
     for emoji, status in REACTIONS.items():           # dict order = precedence
-        if counts.get(emoji, 0) < 2 and counts.get(emoji.rstrip("️"), 0) < 2:
+        if counts.get(emoji, 0) < 1 and counts.get(emoji.rstrip("️"), 0) < 1:
             continue
         await asyncio.sleep(0.35)                     # stay under the per-route bucket
         users = await api("GET",
