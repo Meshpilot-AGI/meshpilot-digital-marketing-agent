@@ -17,9 +17,16 @@ consent screen, with the caveat that an EXTERNAL app in Testing expires refresh 
 That is a Google policy, not something this code can route around: if the consent screen shows an
 "unverified app" warning, the scope has not been approved yet.
 
-Client credentials resolve per brand with a fallback chain, because this is the SAME GCP OAuth client
-as YouTube — one project, one consent screen, several scopes:
+Client credentials resolve per brand first, then fall back to an APP-LEVEL client:
     <PREFIX>_GMAIL_CLIENT_ID → <PREFIX>_GOOGLE_CLIENT_ID → <PREFIX>_YOUTUBE_CLIENT_ID
+                             → settings().google_oauth_client_id
+
+⚠️ That app-level fallback is deliberate and is not a hole in "never a global credential". That rule
+protects DATA access — a brand's tokens must never be reachable by another brand, and they are not:
+the grant lives per-brand in `platform_auth`. A client id/secret identifies MESHPILOT to Google and
+grants access to nothing on its own; a user still has to consent. One GCP project with one OAuth
+client serving every brand is how OAuth apps are meant to work, and demanding a GCP project per
+brand would mean a separate Google app, consent screen and verification for each.
 """
 from __future__ import annotations
 
@@ -51,22 +58,24 @@ def _first_env(brand_id: str, *names: str) -> str | None:
 
 
 def _client_creds(brand_id: str) -> tuple[str, str]:
-    cid = _first_env(brand_id, "GMAIL_CLIENT_ID", "GOOGLE_CLIENT_ID", "YOUTUBE_CLIENT_ID")
-    csec = _first_env(brand_id, "GMAIL_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET",
-                      "YOUTUBE_CLIENT_SECRET")
+    s = settings()
+    cid = (_first_env(brand_id, "GMAIL_CLIENT_ID", "GOOGLE_CLIENT_ID", "YOUTUBE_CLIENT_ID")
+           or s.google_oauth_client_id)
+    csec = (_first_env(brand_id, "GMAIL_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET",
+                       "YOUTUBE_CLIENT_SECRET") or s.google_oauth_client_secret)
     if not cid or not csec:
         raise RuntimeError(
-            f"Gmail OAuth client not configured for brand={brand_id} "
-            "(<PREFIX>_GMAIL_CLIENT_ID/_SECRET, or the GOOGLE_/YOUTUBE_ fallbacks — it is the same "
-            "GCP OAuth client)."
+            f"Gmail OAuth client not configured for brand={brand_id}. Set GOOGLE_OAUTH_CLIENT_ID "
+            "and GOOGLE_OAUTH_CLIENT_SECRET (one GCP OAuth client serves every brand), or a "
+            "brand-specific <PREFIX>_GMAIL_CLIENT_ID/_SECRET to override it."
         )
     return cid, csec
 
 
 def redirect_uri() -> str:
-    s = settings()
-    return getattr(s, "gmail_redirect_uri", None) or \
-        s.youtube_redirect_uri.replace("/oauth/youtube/callback", "/oauth/gmail/callback")
+    """Must match an Authorized redirect URI on the GCP OAuth client, exactly, or Google refuses
+    the flow with `redirect_uri_mismatch` before the consent screen is even shown."""
+    return settings().gmail_redirect_uri
 
 
 def build_authorize_url(brand_id: str) -> str:
