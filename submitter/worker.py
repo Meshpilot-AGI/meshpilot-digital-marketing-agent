@@ -143,6 +143,17 @@ async def one_pass() -> dict:
                     # proves only that the code did not crash.
                     await store.record_rehearsal(str(app["id"]), res.get("evidence") or {})
                     log.info("submitter.dry_run app=%s reason=%s", app["id"], res.get("reason"))
+                elif outcome == "needs_verification":
+                    # Keep the EVIDENCE: the page text after the click is the only record of what
+                    # the employer showed, and the first live attempt discarded it at exactly the
+                    # moment it mattered (2026-09-17). Then stop — never retried, because a retry
+                    # after a click can duplicate a real application.
+                    await store.record_rehearsal(str(app["id"]), res.get("evidence") or {})
+                    await store.set_application_status(str(app["id"]), "needs_verification",
+                                                       reason=res.get("reason"))
+                    out["manual"] += 1
+                    log.warning("submitter.needs_verification app=%s — CLICKED, outcome unknown",
+                                app["id"])
                 elif outcome == "manual_required":
                     # The FORM asked something the operator has not answered. Their decision, so it
                     # demotes immediately and goes back to them.

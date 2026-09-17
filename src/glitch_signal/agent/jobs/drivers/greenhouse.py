@@ -179,8 +179,17 @@ class GreenhouseDriver:
                 await page.wait_for_load_state("networkidle", timeout=bx.NAV_TIMEOUT_MS)
                 ev = await bx.evidence_from(page, shot)
                 ok = bx.looks_submitted(ev.get("confirmation_text", ""))
-                return {"ok": ok, "evidence": ev,
-                        "failure_reason": None if ok else "no confirmation text after submit",
+                ev["fields_filled"] = filled
+                ev["answers_placed"] = dict(answers)
+                # `clicked` is the load-bearing flag. Everything BEFORE the click can be retried
+                # safely because nothing left the browser. Once the click has happened we do not
+                # know what the employer received, and a second attempt risks a DUPLICATE
+                # application — which the design calls worse than not applying at all.
+                return {"ok": ok, "evidence": ev, "clicked": True,
+                        "outcome": None if ok else "needs_verification",
+                        "failure_reason": None if ok else
+                            "submit was CLICKED but the page showed no confirmation — a human must "
+                            "check whether the application was received before any retry",
                         "fields_missing": missing}
             except (bx.BlockedByCaptchaError, bx.RequiresAccountError) as exc:
                 return {"ok": False, "failure_reason": str(exc), "evidence": {"url": page.url}}
