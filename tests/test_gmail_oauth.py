@@ -86,3 +86,21 @@ async def test_search_returns_message_headers(monkeypatch):
                                  client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     assert got[0]["subject"] == "Application received"
     assert got[0]["from"] == "no-reply@greenhouse.io"
+
+
+def test_a_brand_without_credentials_gets_an_actionable_400_not_a_500(monkeypatch):
+    """Observed live 2026-09-17: /oauth/gmail/start?brand=tejas returned 500 because the tejas brand
+    had no Google client configured. A 500 says "something broke" and invites debugging the wrong
+    layer; the true answer was "set two env vars", which belongs in a 400 that names them.
+
+    Credentials stay strictly per brand — `brand_env` has no global fallback on purpose (never a
+    global credential), so the fix is to declare TKA_GMAIL_CLIENT_ID/_SECRET, not to widen lookup."""
+    from fastapi.testclient import TestClient
+
+    from glitch_signal import server
+
+    monkeypatch.setattr(server, "brand_ids", lambda: {"tejas"})
+    monkeypatch.setattr(gmail_oauth, "brand_env", lambda n, b: None)
+    r = TestClient(server.app, raise_server_exceptions=False).get("/oauth/gmail/start?brand=tejas")
+    assert r.status_code == 400
+    assert "GMAIL_CLIENT_ID" in r.json()["detail"]

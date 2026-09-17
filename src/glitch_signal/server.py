@@ -1060,7 +1060,14 @@ async def oauth_gmail_start(brand: str) -> RedirectResponse:
         raise HTTPException(status_code=400, detail=f"Unknown brand: {brand!r}")
     from glitch_signal.oauth import gmail as gmail_oauth
 
-    url = gmail_oauth.build_authorize_url(brand)
+    try:
+        url = gmail_oauth.build_authorize_url(brand)
+    except RuntimeError as exc:
+        # A brand without OAuth client credentials is a CONFIGURATION state, not a server fault.
+        # Raising 500 here told the operator "something broke" when the answer was "set these two
+        # env vars" — and a 500 invites debugging the wrong layer.
+        log.warning("oauth.gmail.not_configured", brand=brand, detail=str(exc)[:200])
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     log.info("oauth.gmail.start", brand=brand)
     return RedirectResponse(url=url, status_code=302)
 
