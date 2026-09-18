@@ -184,3 +184,21 @@ async def test_loop_denies_side_effect_mcp_tool():
     res = await run("glitch_executor", "delete it", llm=llm, execute=_Exec(), mcp=mcp, scope="full")
     assert res["transcript"][0]["observation"].startswith("DENIED")
     assert not mcp.calls                                    # never executed
+
+
+def test_the_inbox_scope_reaches_mail_and_nothing_else():
+    """Reading the operator's mail is its own capability, not part of `knowledge`.
+
+    A run that scores job postings has no business also reading their inbox, and a run that submits
+    an application has no business reading mail while it does so — so `mcp:inbox` is deliberately
+    absent from every job scope."""
+    from glitch_signal.agent.loop import scopes
+
+    inbox = scopes.resolve("inbox")
+    assert inbox.allows("mcp__viasocket__search_mail")
+    assert inbox.allows("recall")
+    for denied in ("job_apply", "offer_job", "tailor_cv", "publish", "send_email"):
+        assert not inbox.allows(denied), f"the inbox scope must not reach {denied}"
+    for job_scope in ("job_discovery", "job_draft", "job_apply"):
+        assert not scopes.resolve(job_scope).allows("mcp__viasocket__search_mail"), \
+            f"{job_scope} must not be able to read the operator's mail"
