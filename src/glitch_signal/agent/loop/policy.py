@@ -49,6 +49,17 @@ JOB_TOOLS = JOB_DISCOVERY_TOOLS | JOB_TAILOR_TOOLS | JOB_APPLY_TOOLS | frozenset
 # grant/…) — an allowlist is the safe default.
 _MCP_READONLY_PREFIXES = ("get_", "list_", "search_", "describe_", "read_", "fetch_", "query_", "find_")
 
+# 🔴 Some MCP servers expose ONE tool per app and hide the verb in an argument. viaSocket does this:
+# `mcp__viasocket__Gmail` takes an `action_name`, and the same tool can Search Email Messages OR Send
+# Email. Gating on the tool NAME cannot tell those apart — measured 2026-09-17, where that single
+# tool was reachable with send/reply/draft/label actions among its options.
+#
+# So a call carrying one of these keys is treated as UNCLASSIFIABLE by name: the read-only prefix
+# check does not apply to it, and `publish_enabled` does NOT wave it through — publishing being on
+# means the agent may post content, never that it may send mail as the operator. The ONLY way
+# through is an explicit `<PREFIX>_MCP_ALLOW` entry naming the exact action: "tool:action".
+_MCP_ACTION_ARG_KEYS = ("action_name", "action", "operation", "method", "endpoint")
+
 
 @dataclass(frozen=True)
 class Decision:
@@ -90,7 +101,26 @@ class Policy:
         # 2. external MCP tools — DEFAULT-DENY. Allow only: explicit per-brand allowlist, a read-only
         #    verb prefix, or publishing deliberately enabled. Everything else is denied.
         if tool_name.startswith("mcp__"):
-            if tool_name in self.mcp_allow.get(brand_id, frozenset()):
+            allowed = self.mcp_allow.get(brand_id, frozenset())
+            action = next((str(args[k]) for k in _MCP_ACTION_ARG_KEYS
+                           if isinstance(args, Mapping) and args.get(k)), "")
+            if action:
+                # The verb lives in the ARGUMENT, so the tool name says nothing about blast radius.
+                # Only an exact "tool:action" allowlist entry passes — not the read-only prefix
+                # check on the tool name, and not publish_enabled.
+                if f"{tool_name}:{action}" in allowed:
+                    return Decision(True, "")
+                # A human-readable action can still be classified honestly; an opaque id cannot.
+                if action.lower().startswith(_MCP_READONLY_PREFIXES):
+                    return Decision(True, "")
+                return Decision(
+                    False,
+                    f"MCP tool '{tool_name}' selects its action by argument ({action!r}), so the "
+                    f"tool name cannot bound what it does. Allowlist the exact action for brand "
+                    f"{brand_id}: add \"{tool_name}:{action}\" to <PREFIX>_MCP_ALLOW. Enabling "
+                    "publishing does NOT grant this — publishing means posting content, not acting "
+                    "in the operator's mailbox or account.")
+            if tool_name in allowed:
                 return Decision(True, "")
             verb = tool_name.split("__", 2)[-1]
             if verb.startswith(_MCP_READONLY_PREFIXES):
@@ -156,6 +186,9 @@ def from_config() -> Policy:
     Populates the per-brand MCP allowlist from each brand's `<PREFIX>_MCP_ALLOW` (a JSON array of
     fully-namespaced tool names, e.g. `["mcp__heygen__create_video_agent"]`). Without it, only
     read-only MCP tools pass by default (#93 default-deny) unless publishing is enabled.
+
+    An entry may also name a single ACTION on a tool that selects its verb by argument —
+    `"mcp__viasocket__Gmail:rowr1h03w5cx"` — which is the only way such a tool is ever permitted.
     """
     import json
 
