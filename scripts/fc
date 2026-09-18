@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# FastAPI Cloud CLI, pinned to THIS app's account.
+#
+# Why this exists: the CLI keeps one login at a time in
+# `~/Library/Application Support/fastapi-cli/auth.json`, and this Mac also works Vediq, whose
+# account cannot see the MeshPilot team — every `env` call there returns "Team not found for the
+# current user". Switching accounts by re-logging in each time is how the wrong project gets
+# deployed.
+#
+# `FASTAPI_CLOUD_CLI_CONFIG_DIR` moves the whole config folder (auth.json included), so each repo
+# holds its own session and both stay logged in. `FASTAPI_CLOUD_TOKEN` is used by `deploy` only —
+# every other command needs the login, which is why the config dir is the load-bearing part.
+#
+#   ./scripts/fc login          # once, for this app's account
+#   ./scripts/fc env list
+#   ./scripts/fc deploy .
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Read the two vars from .env WITHOUT sourcing it — .env holds secrets and `source` would export
+# every one of them into this process and its children.
+if [ -f .env ]; then
+  for key in FASTAPI_CLOUD_CLI_CONFIG_DIR FASTAPI_CLOUD_TOKEN; do
+    line=$(grep -m1 "^${key}=" .env || true)
+    [ -n "$line" ] && export "${key}=${line#*=}"
+  done
+fi
+
+: "${FASTAPI_CLOUD_CLI_CONFIG_DIR:=$HOME/.fastapi-cloud/meshpilot}"
+export FASTAPI_CLOUD_CLI_CONFIG_DIR
+mkdir -p "${FASTAPI_CLOUD_CLI_CONFIG_DIR/#\~/$HOME}"
+
+exec uv run fastapi cloud "$@"

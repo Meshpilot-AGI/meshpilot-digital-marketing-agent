@@ -61,3 +61,10 @@ brand/influencer.json
 
 # CodeGraph — local per-machine index, not for committing
 .codegraph/
+# Backups of .env are still .env — `.env` alone does not match `.env.bak-20260917203443`,
+# and a `git add -A` swept one into a commit against this PUBLIC repo on 2026-09-17. GitHub's
+# push protection rejected it (8 live secrets: Supabase, Google OAuth, Anthropic, Apify…) so
+# nothing reached the remote — but the guard should be the ignore rule, not the remote.
+.env.bak*
+.env.*.bak
+*.bak
