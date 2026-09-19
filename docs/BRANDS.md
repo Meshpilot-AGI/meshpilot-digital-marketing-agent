@@ -17,6 +17,10 @@ identifier (snake_case); the tag is the short env prefix.
 | Tag | Brand | `brand_id` | Status | Capabilities live |
 |-----|-------|-----------|--------|-------------------|
 | **GE** | **Glitch Executor** | `glitch_executor` | live | Facebook (Meta) ✅, YouTube ✅, Buffer (TikTok/X/LinkedIn) ✅ |
+| **AP** | **AyurPet** | `ayurpet` | live | Instagram Reels ✅, TikTok via Buffer ✅ (daily `drive_to_social` cron) |
+| **TKA** | **Tejas Karan Agrawal — job search** | `tejas` | live | `jobs` capability only — no social publishing |
+| **ZV** | **Zenovoid Gaming** | `zenovoid` | registered | none wired yet |
+| **NL** | **Nuraveda Lab** | `nuraveda_lab` | registered | none wired yet |
 
 ### GE — Glitch Executor
 The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
@@ -58,6 +62,27 @@ because a question about a supplement is a health question.
   `GE_META_PAGE_ID`, `GE_META_IG_USER_ID`, `GE_BUFFER_API_KEY`,
   `GE_GOOGLE_DRIVE_SA_JSON` (Google SA, project `cs-poc-dgkx8nmsfqkufgysguvfktq`),
   `GE_JOBS_AUTH_TOKEN` (gates `/jobs/*` + `/internal/*`).
+
+### NL — Nuraveda Lab (registered 2026-09-19 — config-only, nothing wired)
+The services/studio brand: sells production AI agent + automation work to teams that have the
+demand and not the engineering time. `env_prefix: NL`, site https://nuraveda.com (live, 200).
+
+**Status: REGISTERED, NOT ARMED.** The config is in the registry and the brand resolves, but **no
+`NL_*` key is set** — so `NL_JOBS_AUTH_TOKEN` is empty and every `/internal/*` and `/jobs/*` call
+with `?brand=nuraveda_lab` returns **503 "jobs auth not configured"**. That is the fail-closed
+path in `_require_jobs_auth`, not an outage. Nothing posts, nothing spends, no platform is
+connected. Arming it means doing steps 3–5 of the onboarding below.
+
+`content_source: ai_generated`. `seo.publisher: none` — the site is live but has no repo-backed
+blog, so the git publisher does not apply; set `publisher: git` once one exists.
+ORM guardrails are **services-shaped**: the hard stops are outcome promises a services brand must
+never make (`guaranteed results`, `guaranteed ROI`, `fully autonomous`, `replaces your team`,
+`100% accurate`, `risk-free`), `auto_respond_tiers` is EMPTY (nothing auto-replies), and pricing /
+legal / security / negative all escalate to a human — a reply about scope or price is a commercial
+commitment, not a comment.
+
+- **Keys (none set yet):** when armed, the same names GE uses, prefixed `NL_` —
+  `NL_JOBS_AUTH_TOKEN` first (it gates `/jobs/*` + `/internal/*`), then the platform keys.
 
 ## Onboarding a new brand
 
