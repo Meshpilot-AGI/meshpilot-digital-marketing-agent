@@ -20,7 +20,7 @@ identifier (snake_case); the tag is the short env prefix.
 | **AP** | **AyurPet** | `ayurpet` | live | Instagram Reels ✅, TikTok via Buffer ✅ (daily `drive_to_social` cron) |
 | **TKA** | **Tejas Karan Agrawal — job search** | `tejas` | live | `jobs` capability only — no social publishing |
 | **ZV** | **Zenovoid Gaming** | `zenovoid` | registered | none wired yet — but `ZV_JOBS_AUTH_TOKEN` IS set, so `/jobs/*` authenticates (401, not 503) |
-| **NL** | **Nuraveda Lab** | `nuraveda_lab` | registered | none wired yet — no `NL_*` key at all, so `/jobs/*` returns 503 |
+| **NL** | **Nuraveda Lab** | `nuraveda_lab` | registered, operator surface live | no platform wired — but `NL_JOBS_AUTH_TOKEN` IS set, so `/jobs/*` authenticates (401, not 503) |
 
 ### GE — Glitch Executor
 The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
@@ -67,11 +67,17 @@ because a question about a supplement is a health question.
 The services/studio brand: sells production AI agent + automation work to teams that have the
 demand and not the engineering time. `env_prefix: NL`, site https://nuraveda.com (live, 200).
 
-**Status: REGISTERED, NOT ARMED — live in prod since 2026-09-19.** The config is in the registry and the brand resolves, but **no
-`NL_*` key is set** — so `NL_JOBS_AUTH_TOKEN` is empty and every `/internal/*` and `/jobs/*` call
-with `?brand=nuraveda_lab` returns **503 "jobs auth not configured"**. That is the fail-closed
-path in `_require_jobs_auth`, not an outage. Nothing posts, nothing spends, no platform is
-connected. Arming it means doing steps 3–5 of the onboarding below.
+**Status: OPERATOR SURFACE LIVE, NO PLATFORM WIRED — in prod since 2026-09-19.**
+`NL_JOBS_AUTH_TOKEN` is set (2026-09-19), so `/internal/*` and `/jobs/*` now AUTHENTICATE for
+`?brand=nuraveda_lab` — a wrong token gets 401, not the earlier 503. That is the only thing the
+token unlocks: the control surface. **Nothing posts and nothing spends**, because no platform
+credential exists — no Meta app, no system-user token, no page or IG id, no Buffer key. Arming a
+capability means finishing steps 3–5 of the onboarding below.
+
+⚠️ The token is the full control surface for this brand: it gates every `/jobs/*` and `/internal/*`
+call scoped to `nuraveda_lab`. It is brand-scoped by design (#95) — it authorizes NOTHING on GE,
+AP, TKA or ZV, and theirs authorize nothing here. Value lives in the cloud env and the gitignored
+local `.env`; it is not in this repo and must not be.
 
 `content_source: ai_generated`. `seo.publisher: none` — the site is live but has no repo-backed
 blog, so the git publisher does not apply; set `publisher: git` once one exists.
@@ -81,8 +87,9 @@ never make (`guaranteed results`, `guaranteed ROI`, `fully autonomous`, `replace
 legal / security / negative all escalate to a human — a reply about scope or price is a commercial
 commitment, not a comment.
 
-- **Keys (none set yet):** when armed, the same names GE uses, prefixed `NL_` —
-  `NL_JOBS_AUTH_TOKEN` first (it gates `/jobs/*` + `/internal/*`), then the platform keys.
+- **Keys:** `NL_JOBS_AUTH_TOKEN` ✅ set 2026-09-19 (gates `/jobs/*` + `/internal/*`).
+  Still unset, and needed before anything can publish: `NL_META_APP_ID`, `NL_META_APP_SECRET`,
+  `NL_SYSTEM_USER_TOKEN`, `NL_META_PAGE_ID`, `NL_META_IG_USER_ID`, `NL_BUFFER_API_KEY`.
 
 ## Onboarding a new brand
 

@@ -4043,3 +4043,23 @@ ago). ZV and NL are both "registered" but NOT in the same state: ZV has a live o
 no platform wiring; NL has no `NL_*` key whatsoever. Collapsing both into "none wired yet" repeats
 the exact imprecision this lane opened to fix, so the table now distinguishes them by what
 `/jobs/*` actually returns. 401 vs 503 is the observable difference and it is worth stating.
+
+**ADDENDUM 2026-09-19 (b) — `NL_JOBS_AUTH_TOKEN` set; NL's control surface is live.**
+Generated with `secrets.token_urlsafe(32)` (256-bit), stored as a FastAPI Cloud **secret** and in
+the gitignored local `.env` (chmod 600, appended with a trailing-newline guard so an existing last
+line could not be corrupted). The value was never printed to the session transcript and is not in
+this repo. `env list` shows `updated_at` "just now"; this var did not previously exist, so the
+create-only `env set` trap did not apply and no delete was needed.
+
+**The redeploy requirement was confirmed empirically, not assumed:** immediately after `env set`,
+`?brand=nuraveda_lab` still returned **503** — the running app was still on the old env. Deployment
+was triggered by merging THIS doc change rather than by `fc deploy .`, deliberately: a manual
+deploy uploads the working directory, and `brand/configs/` is NOT in `.fastapicloudignore`, so it
+would plant local brand config files in the bundle that a git deploy never ships. (`.env` and
+`*.env` ARE excluded, so no secret would have shipped either way — checked before choosing.) Same
+outcome, since env-sourced configs override file-sourced ones in `_load_brand_registry`, but the
+two deploy paths should not silently differ in what reaches prod.
+
+**Scope of what this unlocks:** the control surface ONLY. No platform credential exists for NL, so
+nothing can publish and nothing can spend. The token is brand-scoped per #95 — it authorizes
+nothing on GE/AP/TKA/ZV, and theirs authorize nothing on NL.
