@@ -19,8 +19,8 @@ identifier (snake_case); the tag is the short env prefix.
 | **GE** | **Glitch Executor** | `glitch_executor` | live | Facebook (Meta) ✅, YouTube ✅, Buffer (TikTok/X/LinkedIn) ✅ |
 | **AP** | **AyurPet** | `ayurpet` | live | Instagram Reels ✅, TikTok via Buffer ✅ (daily `drive_to_social` cron) |
 | **TKA** | **Tejas Karan Agrawal — job search** | `tejas` | live | `jobs` capability only — no social publishing |
-| **ZV** | **Zenovoid Gaming** | `zenovoid` | registered | none wired yet |
-| **NL** | **Nuraveda Lab** | `nuraveda_lab` | registered | none wired yet |
+| **ZV** | **Zenovoid Gaming** | `zenovoid` | registered | none wired yet — but `ZV_JOBS_AUTH_TOKEN` IS set, so `/jobs/*` authenticates (401, not 503) |
+| **NL** | **Nuraveda Lab** | `nuraveda_lab` | registered | none wired yet — no `NL_*` key at all, so `/jobs/*` returns 503 |
 
 ### GE — Glitch Executor
 The first brand/tenant. `env_prefix: GE`, so its keys are `GE_*`.
@@ -67,7 +67,7 @@ because a question about a supplement is a health question.
 The services/studio brand: sells production AI agent + automation work to teams that have the
 demand and not the engineering time. `env_prefix: NL`, site https://nuraveda.com (live, 200).
 
-**Status: REGISTERED, NOT ARMED.** The config is in the registry and the brand resolves, but **no
+**Status: REGISTERED, NOT ARMED — live in prod since 2026-09-19.** The config is in the registry and the brand resolves, but **no
 `NL_*` key is set** — so `NL_JOBS_AUTH_TOKEN` is empty and every `/internal/*` and `/jobs/*` call
 with `?brand=nuraveda_lab` returns **503 "jobs auth not configured"**. That is the fail-closed
 path in `_require_jobs_auth`, not an outage. Nothing posts, nothing spends, no platform is

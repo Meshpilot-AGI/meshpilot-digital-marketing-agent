@@ -4024,3 +4024,22 @@ in `_brand_registry`); it only matters if a deploy lands inside it. AP's daily c
 **Rollback:** docs — `git revert <commit>`. Config — `rm brand/configs/nuraveda_lab.json`. Prod (if
 step 2 above is later executed) — `env delete BRAND_CONFIGS_JSON --yes`, re-set the blob rebuilt
 from the four pre-existing local files, redeploy, and confirm `nuraveda_lab` returns to 400.
+
+**ADDENDUM 2026-09-19 — the prod step above was EXECUTED and verified.**
+`BRAND_CONFIGS_JSON` deleted + re-set from all five local files (20923 bytes, 5 brands; `env list`
+`updated_at` moved from "1 day ago" to "just now", so it was not the create-only no-op). Before
+setting, the blob was validated through the REAL loader with `BRAND_CONFIGS_DIR=/nonexistent` —
+prod's exact shape, env-only, no files — confirming `glitch_executor` present (no boot crash),
+AP's `caption_pool` (10) and TKA's `jobs.min_score` (4.0) intact, i.e. no regression from rebuild.
+Merged #366 (squash, `975ede0`); FastAPI Cloud auto-deploy landed in **~45s**.
+
+**Verified live:** `/healthz` 200. Brand oracle after deploy — `glitch_executor` 401, `ayurpet` 401,
+`tejas` 401, `zenovoid` 401, `nuraveda_lab` **400 → 503**. NL is present in the registry and
+fail-closed; the four pre-existing brands are unchanged.
+
+**Correction to this lane's own table.** The probe contradicted what the table had just claimed:
+`zenovoid` returned 401, not 503 — so `ZV_JOBS_AUTH_TOKEN` IS set (confirmed in `env list`, 1 day
+ago). ZV and NL are both "registered" but NOT in the same state: ZV has a live operator token and
+no platform wiring; NL has no `NL_*` key whatsoever. Collapsing both into "none wired yet" repeats
+the exact imprecision this lane opened to fix, so the table now distinguishes them by what
+`/jobs/*` actually returns. 401 vs 503 is the observable difference and it is worth stating.
