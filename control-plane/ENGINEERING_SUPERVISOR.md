@@ -3952,3 +3952,75 @@ a broken run.
 
 **Expected next rehearsal, on Later:** `manual_required`, naming the "why do you go to work" essay —
 because that answer is genuinely the operator's and is not in the bank. That is the system working.
+
+
+### 2026-09-19 — BRAND-NURAVEDA-LAB-1 lane closed (NL registered config-only; registry table was stale and is corrected)
+
+Onboard **Nuraveda Lab** (`nuraveda_lab`, tag `NL`) as a Project per docs/BRANDS.md
+"Onboarding a new brand". Operator scope: **config-only registration** — no platform wiring, no
+credentials, nothing posts. Purpose: the services/studio brand that sells production AI agent and
+automation work; site https://nuraveda.com (verified live, 200).
+
+**Found on the way — the registry table was WRONG.** docs/BRANDS.md listed exactly one onboarded
+brand (GE) while prod has been running FOUR. `ayurpet` had a prose section but no table row;
+`tejas` and `zenovoid` appeared nowhere in the brand doc at all, despite TKA carrying the whole
+JOBS capability. The table is the registry contract other sessions read to answer "who does this
+agent work for" — a four-of-five omission makes it actively misleading. Corrected in this lane.
+
+**Verified prod's brand set before touching anything.** `BRAND_CONFIGS_JSON` is `[secret]` and the
+CLI refuses to print it (`env get` returns `value: [secret]`), so the live blob cannot be diffed
+directly. Used the auth ordering in `_require_jobs_auth` as an oracle instead: the `brand not in
+brand_ids()` check runs BEFORE the token comparison, so an unknown brand returns 400 and a known
+one falls through to 401 even with an invalid token. Probing api.meshpilot.app with a junk token:
+`glitch_executor` 401, `ayurpet` 401, `tejas` 401, `zenovoid` 401, `nuraveda_lab` 400. Prod's brand
+set therefore equals the local `brand/configs/*.json` set exactly, which is what makes rebuilding
+the blob from local files safe. (Field-level drift inside a brand remains unprovable while the var
+is a secret — see queued.)
+
+**Shipped (docs only — the config file is gitignored by design):**
+- `brand/configs/nuraveda_lab.json` — NEW, **local + cloud env only, never committed**
+  (`.gitignore:31 brand/configs/*.json`). `env_prefix: NL`, `content_source: ai_generated`,
+  `seo.publisher: none` (site is live but has no repo-backed blog), services-shaped
+  `orm_guardrails` with `auto_respond_tiers: []` and pricing/legal/security/negative all escalating
+  — a reply about scope or price is a commercial commitment, not a comment.
+- `docs/BRANDS.md` — NL section added; registry table corrected from 1 row to 5 (GE, AP, TKA, ZV,
+  NL) with honest per-brand status.
+
+**Verified:**
+- All 5 configs validate against `brand/schema/brand.config.schema.json` (jsonschema): 5 PASS.
+- `brand_ids()` → `['ayurpet', 'glitch_executor', 'nuraveda_lab', 'tejas', 'zenovoid']`;
+  `brand_config('nuraveda_lab')` resolves display_name/env_prefix/site_url correctly.
+- `brand_env('JOBS_AUTH_TOKEN', 'nuraveda_lab')` → `''`. The brand is **fail-closed**: every
+  `/internal/*` and `/jobs/*` call with `?brand=nuraveda_lab` will 503 "jobs auth not configured"
+  until `NL_JOBS_AUTH_TOKEN` is set. Registered is not armed.
+- Full suite **1419 passed** (targeted brand suites 33 passed).
+
+**NOT DONE — the step that makes this reach production:** `BRAND_CONFIGS_JSON` has NOT been
+updated. Prod still has 4 brands. The remaining sequence, held for operator confirmation because it
+mutates a live env var and triggers a deploy:
+1. `./scripts/fc env delete BRAND_CONFIGS_JSON --yes` (set is create-only; it silently no-ops on an
+   existing var — this is the `GE_BUFFER_API_KEY` trap, vendors/fastapi-cloud.md).
+2. Rebuild from ALL FIVE local files and `env set … --value-stdin --secret`. A blob missing
+   `glitch_executor` raises at boot (`config.py` "default brand must be present").
+3. `env get --json`, confirm `updated_at` moved.
+4. Deploy — env changes only reach the running app after a redeploy.
+5. Re-probe: `nuraveda_lab` must flip 400 → 503, and the other four must stay non-400.
+Window note: the delete→set gap is harmless to the RUNNING app (config is read at boot and cached
+in `_brand_registry`); it only matters if a deploy lands inside it. AP's daily cron is
+`30 10 * * *` America/New_York, so avoid ~10:30 ET.
+
+**Observed, NOT fixed (queued):**
+- **`BRAND_CONFIGS_JSON` is write-only in practice.** Because it is a secret, no session can read
+  back what prod is actually running; the only proof available is the 400/401 brand oracle, which
+  proves the KEY SET and nothing about each brand's fields. A brand whose live config drifted from
+  its local file would be invisible, and the documented "rebuild from local files" procedure would
+  silently overwrite the drift. Worth either a non-secret checksum var (e.g.
+  `BRAND_CONFIGS_SHA256`) or a `/internal/brands` endpoint returning ids + a per-brand config hash.
+- `docs/BRANDS.md` step 2 still describes `brand/configs/` as "designed as a nested private repo on
+  a box that no longer exists". Accurate as history, but the directory now has no role in prod at
+  all and reads as though it might.
+- ZV and NL are both `registered` with nothing wired; neither has an arming plan recorded.
+
+**Rollback:** docs — `git revert <commit>`. Config — `rm brand/configs/nuraveda_lab.json`. Prod (if
+step 2 above is later executed) — `env delete BRAND_CONFIGS_JSON --yes`, re-set the blob rebuilt
+from the four pre-existing local files, redeploy, and confirm `nuraveda_lab` returns to 400.
